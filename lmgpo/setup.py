@@ -51,6 +51,58 @@ def _ask_yesno(prompt: str, default: bool = True) -> bool:
     return r in ("j", "ja", "y", "yes")
 
 
+def _ask_wlan(answers: dict) -> None:
+    """WLAN-Teil des Assistenten: beliebig viele Schüler-PSK-WLANs (Schleife) plus
+    optional ein Lehrer-Enterprise-WLAN. Mutiert ``answers`` in place. Bestehende
+    site.yaml-Einträge werden angezeigt und beim Ablehnen unverändert gelassen."""
+    print("\n  WLAN per GPO ausrollen (optional):")
+    print("    • Schüler-WLAN(s): WPA2 mit Passwort (PSK), verbinden schon VOR dem Login.")
+    print("      Du kannst MEHRERE anlegen (z. B. je Standort eins) — die Notebooks bekommen")
+    print("      alle Profile und verbinden sich automatisch mit dem WLAN, das gerade in")
+    print("      Reichweite ist (Roaming). Gilt nicht für Lehrer-Notebooks (d_nopxe).")
+    print("    • Lehrer-WLAN: WPA2-Enterprise/PEAP über RADIUS — nur für Lehrer.")
+    have_wlan = bool(answers.get("wlan_psk_networks") or answers.get("wlan_enterprise_ssid"))
+    if not _ask_yesno("WLAN jetzt einrichten?", have_wlan):
+        # WLAN nicht gewünscht → vorhandene site.yaml-Einträge bleiben unverändert.
+        return
+
+    # --- Schüler-WLANs (PSK), beliebig viele ---
+    nets = list(answers.get("wlan_psk_networks") or [])
+    if nets:
+        print("  Bereits gespeicherte Schüler-WLANs:")
+        for i, n in enumerate(nets, 1):
+            print(f"    {i}. {n.get('ssid', '?')}")
+        if _ask_yesno("Diese verwerfen und neu eingeben?", False):
+            nets = []
+    print("  Schüler-WLANs eingeben — leere SSID beendet die Eingabe:")
+    while True:
+        ssid = _ask(f"    {len(nets) + 1}. SSID (leer = fertig)", "").strip()
+        if not ssid:
+            break
+        psk = _ask(f"       Passwort (PSK) für '{ssid}', 8–63 Zeichen", "").strip()
+        if not (8 <= len(psk) <= 63):
+            print("       ⚠ PSK muss 8–63 Zeichen haben — Eintrag verworfen, bitte erneut.")
+            continue
+        nets.append({"ssid": ssid, "psk": psk})
+        print(f"       ✓ '{ssid}' hinzugefügt ({len(nets)} WLAN(s) gesamt)")
+    answers["wlan_psk_networks"] = nets
+
+    # --- Lehrer-WLAN (Enterprise/PEAP) ---
+    print("  Lehrer-WLAN (WPA2-Enterprise über RADIUS, nur Lehrer):")
+    es = _ask("    SSID (leer = kein Lehrer-WLAN)",
+              answers.get("wlan_enterprise_ssid", "") or "").strip()
+    answers["wlan_enterprise_ssid"] = es
+    if es:
+        answers["wlan_enterprise_servernames"] = _ask(
+            "    Name(n) im RADIUS-Server-Zertifikat, mit ';' getrennt (leer = Servername nicht prüfen)",
+            answers.get("wlan_enterprise_servernames", "") or "").strip()
+        answers["wlan_enterprise_ca_cert"] = _ask(
+            "    Pfad zur RADIUS-CA-Zertifikatsdatei auf DIESEM Server (.cer/.pem)",
+            answers.get("wlan_enterprise_ca_cert", "") or "").strip()
+        print("    Hinweis: Der allererste Lehrer-Login an einem Notebook braucht einmalig")
+        print("    Kabel/anderes Netz (User-Auth); danach verbindet das WLAN per SSO automatisch.")
+
+
 def run(site_path: str = DEFAULT_SITE) -> int:
     e = envmod.detect()
     packs = catalog.load_packs()
@@ -150,19 +202,8 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     else:
         answers["proxy_enabled"] = False
 
-    # WLAN (optional): Schüler-PSK + Lehrer-Enterprise
-    if _ask_yesno("WLAN per GPO ausrollen (Schüler-PSK, vor Login / Lehrer-Enterprise via RADIUS)?", False):
-        s = _ask("Schüler-WLAN SSID (leer = kein PSK; weitere via site.yaml 'wlan_psk_networks')", "")
-        if s.strip():
-            answers["wlan_psk_networks"] = [{"ssid": s.strip(), "psk": _ask("  Schüler-WLAN PSK", "").strip()}]
-        es = _ask("Lehrer-WLAN SSID (Enterprise/PEAP; leer = kein Enterprise)", "")
-        answers["wlan_enterprise_ssid"] = es.strip()
-        if es.strip():
-            answers["wlan_enterprise_servernames"] = _ask(
-                "  RADIUS-Serverzertifikat-Name(n), ';' getrennt (optional)", "").strip()
-            answers["wlan_enterprise_ca_cert"] = _ask(
-                "  Pfad zum RADIUS-CA-Zertifikat (.cer/.pem)", "").strip()
-            print("  Hinweis: reine User-Auth → erster Lehrer-Login einmalig via Kabel/Bootstrap-Netz.")
+    # WLAN (optional): Schüler-PSK (mehrere) + Lehrer-Enterprise
+    _ask_wlan(answers)
 
     # Preview
     print("\n── Vorschau (Dry-Run) ─────────────────────────────────────")
