@@ -43,6 +43,10 @@ DEFAULT_ANSWERS = {
     "proxy_host_by_school": {},        # per-school override {schoolname: host}
     "proxy_port_by_role": {"teacher": 3128, "student": 3129, "staff": 3130},
     "proxy_exceptions": "",            # ProxyOverride ("" = sensible default at apply time)
+    "wlan_psk_networks": [],           # [{ssid, psk}] student PSK WLANs (all sites)
+    "wlan_enterprise_ssid": "",        # teacher enterprise SSID (WPA2/PEAP, user-auth)
+    "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
+    "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
 }
 
 
@@ -267,6 +271,22 @@ class Applier:
     # ------------------------------------------------------------------ #
     # applicability (requires:) and one pack
     # ------------------------------------------------------------------ #
+    def _apply_wlan(self, pack, guid):
+        from . import wlan as wlanmod
+        mode = pack.wlan.get("mode")
+        if mode == "psk":
+            content = wlanmod.build_psk_script(self.answers.get("wlan_psk_networks") or [])
+            fname = "lmgpo-wlan-psk.ps1"
+        elif mode == "enterprise":
+            ca = wlanmod.read_cert_der(self.answers["wlan_enterprise_ca_cert"])
+            content = wlanmod.build_enterprise_script(
+                (self.answers.get("wlan_enterprise_ssid") or "").strip(),
+                (self.answers.get("wlan_enterprise_servernames") or "").strip(), ca)
+            fname = "lmgpo-wlan-enterprise.ps1"
+        else:
+            return
+        self.sc.set_startup_powershell(guid, [{"file": fname, "content": content}])
+
     def _applicable(self, pack, school):
         req = (pack.requires or "").strip()
         if not req:
@@ -286,6 +306,11 @@ class Applier:
             return bool(self.answers.get("proxy_enabled"))
         if req == "proxy_school":
             return bool(self.answers.get("proxy_enabled") and self._proxy_host(school))
+        if req == "wlan_psk":
+            return bool(self.answers.get("wlan_psk_networks"))
+        if req == "wlan_enterprise":
+            return bool((self.answers.get("wlan_enterprise_ssid") or "").strip()
+                        and (self.answers.get("wlan_enterprise_ca_cert") or "").strip())
         return True
 
     def apply_pack(self, pack, school, schools):
@@ -309,6 +334,8 @@ class Applier:
             self.sc.set_startup_powershell(
                 guid, [{"file": s["file"], "content": catalog.load_script(s["file"])}
                        for s in pack.startup_scripts])
+        if pack.wlan:
+            self._apply_wlan(pack, guid)
         self.eng.link(container, guid)
         for token in pack.filter_deny:
             for sid in self._group_sids(token, school, schools):

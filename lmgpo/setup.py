@@ -150,6 +150,20 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     else:
         answers["proxy_enabled"] = False
 
+    # WLAN (optional): Schüler-PSK + Lehrer-Enterprise
+    if _ask_yesno("WLAN per GPO ausrollen (Schüler-PSK, vor Login / Lehrer-Enterprise via RADIUS)?", False):
+        s = _ask("Schüler-WLAN SSID (leer = kein PSK; weitere via site.yaml 'wlan_psk_networks')", "")
+        if s.strip():
+            answers["wlan_psk_networks"] = [{"ssid": s.strip(), "psk": _ask("  Schüler-WLAN PSK", "").strip()}]
+        es = _ask("Lehrer-WLAN SSID (Enterprise/PEAP; leer = kein Enterprise)", "")
+        answers["wlan_enterprise_ssid"] = es.strip()
+        if es.strip():
+            answers["wlan_enterprise_servernames"] = _ask(
+                "  RADIUS-Serverzertifikat-Name(n), ';' getrennt (optional)", "").strip()
+            answers["wlan_enterprise_ca_cert"] = _ask(
+                "  Pfad zum RADIUS-CA-Zertifikat (.cer/.pem)", "").strip()
+            print("  Hinweis: reine User-Auth → erster Lehrer-Login einmalig via Kabel/Bootstrap-Netz.")
+
     # Preview
     print("\n── Vorschau (Dry-Run) ─────────────────────────────────────")
     if _ask_yesno("Vorschau anzeigen?", True):

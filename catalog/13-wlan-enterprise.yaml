@@ -1,0 +1,18 @@
+id: "13-wlan-enterprise"
+title: "WLAN Enterprise/PEAP (Lehrer-Notebooks, nur Lehrer via RADIUS)"
+scope: global
+target: computer
+requires: wlan_enterprise
+filter_apply: ['@nopxe']
+description: >
+  Rollt das WPA2-Enterprise-WLAN (PEAP-MSCHAPv2, USER-Auth + SSO preLogon) als
+  Maschinen-Profil per Startskript aus und installiert das RADIUS-CA-Zertifikat
+  (certutil -addstore Root). Exklusiv auf Lehrer-Notebooks (d_nopxe) gefiltert.
+  "Nur Lehrer" erzwingt der RADIUS (Network Policy: Windows-Gruppe = Lehrer) — ein
+  Schüler-Login am selben Notebook wird vom RADIUS abgelehnt. Roaming: RADIUS prüft
+  gegen dieselbe Domäne. Nur aktiv, wenn SSID + CA-Zertifikat konfiguriert sind.
+  HINWEIS: reine User-Auth hat ein Erst-Login-Bootstrap-Problem (erster Login eines
+  Lehrers braucht einmalig Kabel/anderes Netz; danach WLAN-SSO). Win11: CA-Thumbprint
+  wird automatisch ins Profil geschrieben.
+wlan:
+  mode: enterprise

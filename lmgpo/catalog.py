@@ -28,6 +28,7 @@ class Pack:
     restricted_groups: list = field(default_factory=list)
     local_admins: list = field(default_factory=list)
     startup_scripts: list = field(default_factory=list)
+    wlan: dict = field(default_factory=dict)            # {mode: psk|enterprise} -> generated startup script
     filter_deny: list = field(default_factory=list)     # deny-apply these groups
     filter_apply: list = field(default_factory=list)    # EXCLUSIVE: only these groups apply
 
@@ -40,7 +41,7 @@ class Pack:
         if any(str(e.get("class", "machine")).lower() in ("machine", "both") for e in self.registry):
             return True
         return bool(self.firewall or self.privilege_rights or self.restricted_groups
-                    or self.local_admins or self.startup_scripts
+                    or self.local_admins or self.startup_scripts or self.wlan
                     or self.loopback in ("merge", "replace"))
 
     @property
