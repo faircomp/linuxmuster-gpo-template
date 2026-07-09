@@ -15,14 +15,19 @@
 .PARAMETER ReportPath
     Pfad für den vollständigen HTML-GPO-Bericht (Default: .\lmgpo-gpresult.html).
 
+.PARAMETER WlanCaSubject
+    Optional: Subject (bzw. Teil davon) des RADIUS-CA-Zertifikats, das für das
+    Lehrer-Enterprise-WLAN im Trusted-Root-Store des Rechners liegen soll. Prüft dessen Vorhandensein.
+
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh
+    powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
 #>
 [CmdletBinding()]
 param(
     [switch]$Refresh,
     [switch]$NoReport,
-    [string]$ReportPath = ".\lmgpo-gpresult.html"
+    [string]$ReportPath = ".\lmgpo-gpresult.html",
+    [string]$WlanCaSubject = ""
 )
 
 $ErrorActionPreference = 'Continue'
@@ -105,7 +110,39 @@ foreach ($grp in @("Administratoren","Administrators","Remotedesktopbenutzer","R
 Write-Head "Windows-Aktivierung"
 (cscript //nologo "$env:windir\System32\slmgr.vbs" /dli 2>$null | Select-String -Pattern "Lizenz|License|aktivier|activat") | ForEach-Object { Write-Host "  $_" }
 
-# --- 6) Voller HTML-Bericht (Ausgabedatei; mit -NoReport überspringbar) ------
+# --- 6) WLAN (Profile / aktuelle Verbindung / RADIUS-CA) --------------------
+Write-Head "WLAN-Profile"
+$rawProfiles = netsh wlan show profiles 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
+    Write-Host "  [--] Kein WLAN-Dienst/Adapter (z.B. Desktop/VM) — WLAN-Prüfung übersprungen." -ForegroundColor DarkGray
+} else {
+    $wlanProfiles = @()
+    foreach ($line in $rawProfiles) { if ($line -match 'Profil.*:\s*(.+?)\s*$') { $wlanProfiles += $matches[1].Trim() } }
+    $wlanProfiles = @($wlanProfiles | Sort-Object -Unique)
+    if (-not $wlanProfiles) { Write-Host "  [--] Keine WLAN-Profile hinterlegt (13-wlan-* evtl. nicht angewandt)." -ForegroundColor DarkGray }
+    foreach ($p in $wlanProfiles) {
+        $d = netsh wlan show profile name="$p" 2>$null
+        $authM = ($d | Select-String -Pattern 'WPA3-Enterprise|WPA2-Enterprise|WPA3-Personal|WPA2-Personal|WPA-Personal|Open' | Select-Object -First 1)
+        $eapM  = ($d | Select-String -Pattern 'PEAP|EAP-TLS|EAP-TTLS' | Select-Object -First 1)
+        $auth  = if ($authM) { $authM.Matches[0].Value } else { "?" }
+        $eap   = if ($eapM)  { " EAP=" + $eapM.Matches[0].Value } else { "" }
+        $isEnt = $auth -match 'Enterprise'
+        Write-Host ("  Profil: {0,-22} [{1}]{2}" -f $p, $auth, $eap) -ForegroundColor $(if ($isEnt) { "Cyan" } else { "Green" })
+    }
+    Write-Head "WLAN-Verbindung (aktuell)"
+    $iface = netsh wlan show interfaces 2>$null
+    $shown = ($iface | Select-String -Pattern 'SSID|State|Status|Authentifiz|Authentication|Signal')
+    if ($shown) { $shown | ForEach-Object { Write-Host "     $($_.Line.Trim())" } }
+    else { Write-Host "     (nicht verbunden)" -ForegroundColor DarkGray }
+}
+if ($WlanCaSubject) {
+    Write-Head "RADIUS-CA-Zertifikat (Trusted Root, für Lehrer-Enterprise-WLAN)"
+    $ca = Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match [regex]::Escape($WlanCaSubject) }
+    if ($ca) { Write-Host ("  {0}RADIUS-CA vorhanden: {1}  (Thumbprint {2})" -f (Mark $true), $ca[0].Subject, $ca[0].Thumbprint) -ForegroundColor Green; $ok++ }
+    else     { Write-Host ("  {0}RADIUS-CA '{1}' NICHT im Trusted-Root-Store" -f (Mark $false), $WlanCaSubject) -ForegroundColor Red; $fail++ }
+}
+
+# --- 7) Voller HTML-Bericht (Ausgabedatei; mit -NoReport überspringbar) ------
 if (-not $NoReport) {
     Write-Head "Vollständiger GPO-Bericht"
     try { gpresult /h $ReportPath /f | Out-Null; Write-Host "  geschrieben: $ReportPath" -ForegroundColor Green } catch { Write-Host "  HTML-Bericht fehlgeschlagen: $_" -ForegroundColor Yellow }
