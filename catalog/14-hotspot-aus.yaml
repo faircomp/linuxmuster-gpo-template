@@ -1,15 +1,13 @@
 id: "14-hotspot-aus"
-title: "Mobiler Hotspot verbieten (außer Lehrer-Notebooks)"
+title: "Mobiler Hotspot verbieten (alle Rechner)"
 scope: global
 target: computer
 description: >
   Verbietet den mobilen Windows-Hotspot / die Internetverbindungsfreigabe (ICS) auf
-  allen verwalteten Rechnern — der Hotspot-Schalter wird ausgegraut. Umgesetzt über die
-  ADMX-Richtlinie „Nutzung der Internetverbindungsfreigabe im DNS-Domänennetzwerk
-  verbieten" (NC_ShowSharedAccessUI=0). Lehrer-Notebooks (@teachernb → d_nopxe) sind per
-  Deny-Apply ausgenommen und dürfen weiterhin einen Hotspot aufspannen; normale Lehrer-
-  und Schüler-Rechner (LINBO/PXE) bekommen die Sperre.
-filter_deny: ['@teachernb']
+  ALLEN verwalteten Rechnern — ohne Ausnahme, auch Lehrer-Notebooks. Der Hotspot-Schalter
+  wird ausgegraut. Umgesetzt über die ADMX-Richtlinie „Nutzung der Internetverbindungs-
+  freigabe im DNS-Domänennetzwerk verbieten" (NC_ShowSharedAccessUI=0). Kein Filter →
+  gilt für jedes Gerät in der Domäne.
 registry:
   # "Prohibit use of Internet Connection Sharing on your DNS domain network" = Aktiviert
   # -> mobiler Hotspot / ICS gesperrt (Schalter ausgegraut, "von Organisation verwaltet").

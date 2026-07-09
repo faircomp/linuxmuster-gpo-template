@@ -51,7 +51,7 @@ Immer aktiv (kein zusätzlicher Parameter nötig):
 | **Remote-Management** | RDP aktiv, Firewall-Ausnahmen (RDP/SMB/RPC/ICMP), Remote-Shutdown-Recht |
 | **Globale Admins** | `global-admins` als lokale Admins + RDP **überall** |
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
-| **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS gesperrt (Schalter ausgegraut) — *außer Lehrer-Notebooks* (`d_nopxe`) |
+| **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
 
 Optional (per `site.yaml` / Setup-Assistent aktiviert):
 
