@@ -15,17 +15,26 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from xml.sax.saxutils import escape
 
 
 def read_cert_der(path: str) -> bytes:
-    """Load a cert file (PEM or DER) and return the raw DER bytes."""
+    """Load a cert file (PEM or DER) and return the raw DER bytes of the FIRST cert.
+
+    A PEM file may hold a chain (root + intermediate); only the first certificate
+    block is decoded — concatenating all base64 blocks would yield invalid DER and a
+    wrong SHA-1 thumbprint (or a padding error). For PEAP TrustedRootCA exactly one
+    CA cert is meant.
+    """
     with open(path, "rb") as fh:
         data = fh.read()
     if b"BEGIN CERTIFICATE" in data:
         text = data.decode("ascii", "ignore")
-        b64 = "".join(line.strip() for line in text.splitlines()
-                      if line.strip() and "CERTIFICATE" not in line)
+        m = re.search(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----",
+                      text, re.DOTALL)
+        block = m.group(1) if m else text
+        b64 = "".join(line.strip() for line in block.splitlines() if line.strip())
         return base64.b64decode(b64)
     return data
 
@@ -45,7 +54,7 @@ def _spaced(tp: str) -> str:
 def psk_profile_xml(ssid: str, psk: str) -> str:
     s = escape(ssid)
     return (
-        '<?xml version="1.0"?>\n'
+        '<?xml version="1.0" encoding="utf-8"?>\n'
         '<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">\n'
         f'  <name>{s}</name>\n'
         f'  <SSIDConfig><SSID><name>{s}</name></SSID></SSIDConfig>\n'
@@ -74,7 +83,7 @@ def enterprise_profile_xml(ssid: str, servernames: str, tp: str) -> str:
     server_el = (f'              <msPeap:ServerNames>{escape(servernames)}</msPeap:ServerNames>\n'
                  if servernames else "")
     return (
-        '<?xml version="1.0"?>\n'
+        '<?xml version="1.0" encoding="utf-8"?>\n'
         '<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">\n'
         f'  <name>{s}</name>\n'
         f'  <SSIDConfig><SSID><name>{s}</name></SSID></SSIDConfig>\n'
@@ -147,9 +156,13 @@ _HEADER = ("# Auto-generiert vom linuxmuster-gpo-template. Computer-Startskript 
 
 
 def _add_profile_block(name: str, xml: str) -> str:
-    return (f"$xml = @'\n{xml}'@\n"
+    # Write the profile XML as exact UTF-8 bytes via base64 (like the CA-cert branch):
+    # keeps the generated .ps1 pure ASCII and preserves non-ASCII SSIDs (Umlaute) — a
+    # here-string + Set-Content -Encoding ASCII would mangle them to '?'.
+    b64 = base64.b64encode(xml.encode("utf-8")).decode("ascii")
+    return (f"$b64 = '{b64}'\n"
             f"$f = Join-Path $tmp '{name}.xml'\n"
-            "Set-Content -LiteralPath $f -Value $xml -Encoding ASCII\n"
+            "[IO.File]::WriteAllBytes($f, [Convert]::FromBase64String($b64))\n"
             'netsh wlan add profile filename="$f" user=all | Out-Null\n'
             "Remove-Item -LiteralPath $f -Force\n")
 

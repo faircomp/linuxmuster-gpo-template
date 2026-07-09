@@ -65,8 +65,10 @@ class GpoEngine:
     def find_by_name(self, display: str) -> str | None:
         """Return the GUID ({...}) of the GPO with this displayName, or None."""
         base = f"CN=Policies,CN=System,{self.env.basedn}"
-        # escape parens/backslash in the filter value
-        safe = display.replace("\\", "\\5c").replace("(", "\\28").replace(")", "\\29")
+        # escape RFC 4515 special chars in the filter value (backslash first!),
+        # incl. '*' so a name with '*' cannot turn into a wildcard match
+        safe = (display.replace("\\", "\\5c").replace("*", "\\2a")
+                .replace("(", "\\28").replace(")", "\\29").replace("\x00", "\\00"))
         msg = ad.find_one(f"(&(objectClass=groupPolicyContainer)(displayName={safe}))",
                           base=base, scope="one", attrs=["cn", "displayName"])
         return ad.val(msg, "cn") if msg else None
@@ -145,11 +147,15 @@ class GpoEngine:
         """True if an Apply-Group-Policy allow/deny ACE for this SID already exists."""
         sddl = ad.descriptor_sddl(self.gpo_dn(guid)) or ""
         want = "OD" if deny else "OA"
+        # as_sddl() abbreviates well-known/domain-relative SIDs to aliases (AU, DA, ...),
+        # so normalise the target SID the same way before comparing (else the guard
+        # silently misses e.g. S-1-5-11 and appends a duplicate ACE on every re-run).
+        target = ad.sddl_trustee(sid).upper()
         for ace in re.findall(r"\(([^)]*)\)", sddl):
             f = ace.split(";")
             if len(f) >= 6 and f[0].upper() == want and "CR" in f[2].upper() \
                and f[3].lower() == APPLY_GROUP_POLICY.lower() \
-               and f[5].upper() == sid.upper():
+               and f[5].upper() == target:
                 return True
         return False
 

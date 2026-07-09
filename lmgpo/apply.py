@@ -321,6 +321,19 @@ class Applier:
         else:
             scope_token, container = "GLOBAL", self.env.schools_ou
         name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
+        # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
+        # Users, and set_exclusive_filter only restricts when it gets ≥1 SID. If the
+        # 'only these groups' filter resolves to zero SIDs (e.g. @nopxe but no school has
+        # a d_nopxe group), linking would roll the GPO out to EVERYONE. Skip + warn.
+        filter_apply_sids = []
+        if pack.filter_apply:
+            filter_apply_sids = [sid for token in pack.filter_apply
+                                 for sid in self._group_sids(token, school, schools)]
+            if not filter_apply_sids:
+                print(f"\n▸ {name}")
+                print(f"    ⚠ übersprungen: Exklusiv-Filter-Gruppe(n) {pack.filter_apply} "
+                      f"nicht gefunden — sonst würde die GPO für ALLE gelten.")
+                return
         print(f"\n▸ {name}")
         guid, _ = self.eng.ensure(name)
         extra = {"@wallpaper": self._wallpaper_unc(school)} if school else {}
@@ -340,11 +353,8 @@ class Applier:
         for token in pack.filter_deny:
             for sid in self._group_sids(token, school, schools):
                 self.eng.deny_apply(guid, sid)
-        if pack.filter_apply:
-            sids = [sid for token in pack.filter_apply
-                    for sid in self._group_sids(token, school, schools)]
-            if sids:
-                self.eng.set_exclusive_filter(guid, sids)
+        if filter_apply_sids:
+            self.eng.set_exclusive_filter(guid, filter_apply_sids)
         self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
 
     def run(self, packs):

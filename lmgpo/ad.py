@@ -116,6 +116,27 @@ def descriptor_sddl(dn: str) -> str | None:
         return sd.as_sddl()
 
 
+def sddl_trustee(sid: str) -> str:
+    """Return the SDDL trustee token that as_sddl() renders for this SID.
+
+    descriptor_sddl() abbreviates well-known / domain-relative SIDs to aliases
+    (S-1-5-11->AU, RID-512->DA, RID-513->DU, ...). To compare a target SID against
+    those stored ACEs robustly, normalise the target the same way (round-trip one
+    ACE through from_sddl/as_sddl). Sophomorix group SIDs (RID>=1000) are not
+    aliased and come back unchanged. Falls back to the raw SID on any error.
+    """
+    import re
+    from samba.dcerpc import security
+
+    try:
+        dom = security.dom_sid(db().get_domain_sid())
+        s = security.descriptor.from_sddl(f"D:(A;;CC;;;{sid})", dom).as_sddl(dom)
+    except Exception:
+        return sid
+    m = re.search(r"\(A;;CC;;;([^)]+)\)", s)
+    return m.group(1) if m else sid
+
+
 def sysvolcheck() -> tuple[bool, str]:
     """Run `samba-tool ntacl sysvolcheck`. Returns (ok, output)."""
     import subprocess

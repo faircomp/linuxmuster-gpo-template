@@ -56,7 +56,7 @@ def _gplinks(basedn: str) -> dict[str, list[str]]:
     import re
     for m in ad.search(expr="(gPLink=*)", attrs=["gPLink"]):
         gplink = ad.val(m, "gPLink", "")
-        for guid in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", gplink):
+        for guid in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", gplink, re.IGNORECASE):
             out.setdefault(guid.upper(), []).append(str(m.dn))
     return out
 
