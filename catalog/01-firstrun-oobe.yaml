@@ -1,0 +1,34 @@
+id: "01-firstrun-oobe"
+title: "First-Run / OOBE / Consumer aus"
+scope: global
+target: both
+loopback: merge
+description: >
+  Consumer-Features, Windows Spotlight, Cortana, "Fertig einrichten" (SCOOBE),
+  Tipps/Vorschläge, OneDrive-/Edge-Erstlauf und Werbe-Kacheln abschalten.
+  Enthält HKCU-Fallbacks, damit es auch auf Windows 11 Pro greift.
+registry:
+  # --- Computer ---
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableWindowsConsumerFeatures, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableCloudOptimizedContent, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableSoftLanding, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\OOBE', name: DisablePrivacyExperience, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\Windows Search', name: AllowCortana, class: machine, type: dword, data: 0 }
+  - { key: 'Software\Policies\Microsoft\Edge', name: HideFirstRunExperience, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Edge', name: DefaultBrowserSettingEnabled, class: machine, type: dword, data: 0 }
+  # Sperrbildschirm (Hochwischen vor dem Login) entfernen -> direkt zur Anmeldung
+  - { key: 'Software\Policies\Microsoft\Windows\Personalization', name: NoLockScreen, class: machine, type: dword, data: 1 }
+  # --- User: Windows-Spotlight-Familie ---
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableWindowsSpotlightFeatures, class: user, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: ConfigureWindowsSpotlight, class: user, type: dword, data: 2 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableThirdPartySuggestions, class: user, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableWindowsSpotlightWindowsWelcomeExperience, class: user, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableWindowsSpotlightOnActionCenter, class: user, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableWindowsSpotlightOnSettings, class: user, type: dword, data: 1 }
+  # --- User: Pro-Fallbacks (Preferences, nicht unter \Policies) ---
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', name: RotatingLockScreenOverlayEnabled, class: user, type: dword, data: 0 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', name: SubscribedContent-338389Enabled, class: user, type: dword, data: 0 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', name: SubscribedContent-338388Enabled, class: user, type: dword, data: 0 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', name: SystemPaneSuggestionsEnabled, class: user, type: dword, data: 0 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager', name: SilentInstalledAppsEnabled, class: user, type: dword, data: 0 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement', name: ScoobeSystemSettingEnabled, class: user, type: dword, data: 0 }

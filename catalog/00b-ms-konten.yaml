@@ -1,0 +1,11 @@
+id: "00b-ms-konten"
+title: "Microsoft-Konten blockieren"
+scope: global
+target: computer
+description: >
+  Anmeldung mit / Hinzufügen von privaten Microsoft-Konten unterbinden
+  (DSGVO-relevant für Schulen). Deaktivieren, falls MS365/Entra genutzt wird.
+registry:
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: NoConnectedUser, class: machine, type: dword, data: 3 }
+  - { key: 'Software\Policies\Microsoft\MicrosoftAccount', name: DisableUserAuth, class: machine, type: dword, data: 1 }
+  - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableConsumerAccountStateContent, class: machine, type: dword, data: 1 }

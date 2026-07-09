@@ -1,0 +1,23 @@
+id: "06-remote-mgmt"
+title: "Remote-Management: RDP, Firewall, Shutdown"
+scope: global
+target: computer
+description: >
+  Remote Desktop aktivieren (mit NLA); Windows-Firewall-Regeln für RDP (3389),
+  SMB (445), RPC-Endpoint-Mapper (135) und ICMP-Echo — eingehend nur von
+  @fwsource (Standard: Server-IP); Recht "Remote-Shutdown" für Admins.
+  Ermöglicht net rpc shutdown / linbo-remote vom Schulserver.
+registry:
+  - { key: 'Software\Policies\Microsoft\Windows NT\Terminal Services', name: fDenyTSConnections, class: machine, type: dword, data: 0 }
+  - { key: 'Software\Policies\Microsoft\Windows NT\Terminal Services', name: UserAuthentication, class: machine, type: dword, data: 1 }
+firewall:
+  profiles:
+    domain: { EnableFirewall: 1 }
+    standard: { EnableFirewall: 1 }
+  rules:
+    - { id: 'LMN-RDP-In-TCP',       string: 'v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=3389|RA4=@fwsource|Name=LMN Remote Desktop (TCP 3389)|Desc=RDP vom Schulserver/Admin|EmbedCtxt=LMN Remote-Management|' }
+    - { id: 'LMN-SMB-In-TCP',       string: 'v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=445|RA4=@fwsource|App=System|Name=LMN SMB (TCP 445)|Desc=Remote-Shutdown/Verwaltung|EmbedCtxt=LMN Remote-Management|' }
+    - { id: 'LMN-RPC-EPMap-In-TCP', string: 'v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=135|RA4=@fwsource|Name=LMN RPC Endpoint Mapper (TCP 135)|EmbedCtxt=LMN Remote-Management|' }
+    - { id: 'LMN-ICMP4-Echo-In',    string: 'v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=1|ICMP4=8:*|RA4=@fwsource|Name=LMN ICMPv4 Echo (Ping)|EmbedCtxt=LMN Remote-Management|' }
+privilege_rights:
+  SeRemoteShutdownPrivilege: ['S-1-5-32-544', '@global-admins']

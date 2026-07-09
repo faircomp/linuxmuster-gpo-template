@@ -1,0 +1,20 @@
+id: "12-proxy-base"
+title: "Proxy-Basis: per-User + alle Browser auf System-Proxy"
+scope: global
+target: computer
+requires: proxy
+loopback: merge
+description: >
+  Grundlage für den rollenbasierten Proxy: erzwingt per-USER-Proxy (nicht per-machine),
+  stellt Edge, Chrome und Firefox auf den Windows-System-Proxy (WinINET) → damit wirkt
+  die pro-Rolle in HKCU gesetzte Proxy-Zuweisung in allen Browsern. Loopback=Merge, damit
+  die (rollengefilterten) User-Proxy-GPOs nach der Maschine/Schule greifen.
+registry:
+  # WinINET per-USER erzwingen (per-machine würde HKCU ignorieren)
+  - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxySettingsPerUser, type: dword, data: 1 }
+  # Edge + Chrome: System-Proxy verwenden (JSON-Policy)
+  - { key: 'Software\Policies\Microsoft\Edge', name: ProxySettings, type: sz, data: '{"ProxyMode":"system"}' }
+  - { key: 'Software\Policies\Google\Chrome', name: ProxySettings, type: sz, data: '{"ProxyMode":"system"}' }
+  # Firefox: System-Proxy (erbt WinINET per-user), gesperrt
+  - { key: 'Software\Policies\Mozilla\Firefox\Proxy', name: Mode, type: sz, data: 'system' }
+  - { key: 'Software\Policies\Mozilla\Firefox\Proxy', name: Locked, type: dword, data: 1 }

@@ -1,0 +1,18 @@
+# Standort-/Kundenspezifische Antworten (enthalten Bind-Passwörter etc.)
+site.yaml
+*.site.yaml
+/etc/linuxmuster/lmgpo/
+
+# Hintergrundbilder (kundenspezifisch, nicht ins Repo)
+wallpapers/*.jpg
+wallpapers/*.jpeg
+wallpapers/*.png
+wallpapers/*.bmp
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Sonstiges
+*.log
+.DS_Store

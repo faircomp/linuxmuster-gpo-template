@@ -1,0 +1,14 @@
+id: "09-kms"
+title: "KMS-Aktivierung"
+scope: global
+target: computer
+requires: kmshost
+description: >
+  Setzt den KMS-Host (SoftwareProtectionPlatform) und aktiviert Windows per
+  Startskript (slmgr /ato). Nur aktiv, wenn im Assistenten / in der site.yaml
+  ein KMS-Host (kmshost) angegeben ist.
+registry:
+  - { key: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform', name: KeyManagementServiceName, class: machine, type: sz, data: '@kmshost' }
+  - { key: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform', name: KeyManagementServicePort, class: machine, type: sz, data: '1688' }
+startup_scripts:
+  - { file: 'kms-activate.ps1' }

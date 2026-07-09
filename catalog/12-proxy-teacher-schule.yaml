@@ -1,0 +1,16 @@
+id: "12-proxy-teacher-schule"
+title: "Proxy Lehrer (pro Schule, nur role-teacher)"
+scope: school
+target: user
+requires: proxy_school
+filter_apply: ['@role-teacher']
+description: >
+  Setzt den per-User WinINET-Proxy für LEHRER: <Schul-Proxy-Host>:<Lehrer-Port>.
+  Verlinkt an der Devices-OU der Schule (Adresse folgt der Schule), exklusiv gefiltert
+  auf die globale role-teacher-Gruppe (Port folgt der Rolle) und via Loopback=Merge
+  wirksam. Roaming: ein Lehrer aus einer anderen Schule bekommt an dieser Schule
+  denselben Lehrer-Proxy.
+registry:
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyEnable, class: user, type: dword, data: 1 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyServer, class: user, type: sz, data: '@proxy-host:@proxy-port-teacher' }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyOverride, class: user, type: sz, data: '@proxy-exceptions' }

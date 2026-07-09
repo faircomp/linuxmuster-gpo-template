@@ -1,0 +1,41 @@
+id: "11-firefox"
+title: "Firefox: First-Run aus, saubere New-Tab, kein Werbekram"
+scope: global
+target: computer
+requires: firefox
+description: >
+  Firefox-Enterprise-Policies (HKLM\SOFTWARE\Policies\Mozilla\Firefox): First-Run/
+  Onboarding & "Was ist neu" aus; New-Tab (Firefox Home) zeigt nur Suche +
+  Verknüpfungs-Kästchen (TopSites), keine gesponserten Kacheln/Pocket/Stories/
+  Snippets/Wetter; In-Produkt-Werbung/Empfehlungen aus; Pocket/Telemetrie/Studies aus.
+  Nur aktiv, wenn firefox_enabled gesetzt ist. (Startseite: eigenes Paket 11-firefox-homepage-schule.)
+registry:
+  # --- First-Run / Onboarding ---
+  - { key: 'Software\Policies\Mozilla\Firefox', name: OverrideFirstRunPage, type: sz, data: '' }
+  - { key: 'Software\Policies\Mozilla\Firefox', name: OverridePostUpdatePage, type: sz, data: '' }
+  - { key: 'Software\Policies\Mozilla\Firefox', name: DontCheckDefaultBrowser, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox', name: DisableProfileImport, type: dword, data: 1 }
+  # --- New-Tab / Firefox Home: nur Suche + Verknüpfungen ---
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Search, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: TopSites, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: SponsoredTopSites, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Highlights, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Pocket, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: SponsoredPocket, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Snippets, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Stories, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: SponsoredStories, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Weather, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\FirefoxHome', name: Locked, type: dword, data: 1 }
+  # --- In-Produkt-Werbung / Meldungen aus (SkipOnboarding=1 ist INVERTIERT!) ---
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: ExtensionRecommendations, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: FeatureRecommendations, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: UrlbarInterventions, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: MoreFromMozilla, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: FirefoxLabs, type: dword, data: 0 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: SkipOnboarding, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox\UserMessaging', name: Locked, type: dword, data: 1 }
+  # --- Pocket / Telemetrie / Studies aus ---
+  - { key: 'Software\Policies\Mozilla\Firefox', name: DisablePocket, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox', name: DisableTelemetry, type: dword, data: 1 }
+  - { key: 'Software\Policies\Mozilla\Firefox', name: DisableFirefoxStudies, type: dword, data: 1 }

@@ -1,0 +1,13 @@
+id: "12-proxy-staff-schule"
+title: "Proxy Staff (pro Schule, nur role-staff)"
+scope: school
+target: user
+requires: proxy_school
+filter_apply: ['@role-staff']
+description: >
+  Per-User WinINET-Proxy für STAFF: <Schul-Proxy-Host>:<Staff-Port>. Exklusiv auf
+  role-staff gefiltert, Loopback=Merge, pro Schule verlinkt. Roaming-tauglich.
+registry:
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyEnable, class: user, type: dword, data: 1 }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyServer, class: user, type: sz, data: '@proxy-host:@proxy-port-staff' }
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyOverride, class: user, type: sz, data: '@proxy-exceptions' }

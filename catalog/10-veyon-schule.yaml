@@ -1,0 +1,60 @@
+id: "10-veyon-schule"
+title: "Veyon (Klassenraum-Steuerung, pro Schule, Design A)"
+scope: school
+target: computer
+requires: veyon
+description: >
+  Veyon-Config per Registry (HKLM\SOFTWARE\Veyon Solutions\Veyon\*): Logon-Auth +
+  LDAP-Directory. Design A (Roaming): Directory pro Schule (ComputerTree), aber
+  UserTree/GroupTree global + globale role-teacher-Gruppe → jeder Lehrer darf an
+  jeder Schule Master. Die Windows-Firewall bleibt für Veyon (11100) KOMPLETT OFFEN;
+  die Schul-Trennung (kein Fernsteuern anderer Schulen) macht die OPNsense.
+  Nur aktiv, wenn Bind-DN + Bind-PW-Hex gesetzt sind.
+  Bind-Passwort ist reversibel (siehe docs/VEYON-PLAN.md §5) — global-veyon eng berechtigt halten.
+registry:
+  # --- Authentifizierung / Directory-Backend ---
+  - { key: 'Software\Veyon Solutions\Veyon\Authentication', name: Method, type: dword, data: 0 }
+  - { key: 'Software\Veyon Solutions\Veyon\NetworkObjectDirectory', name: Plugin, type: sz, data: '6f0a491e-c1c6-4338-8244-f823b0bf8670' }
+  - { key: 'Software\Veyon Solutions\Veyon\UserGroups', name: Backend, type: sz, data: '6f0a491e-c1c6-4338-8244-f823b0bf8670' }
+  - { key: 'Software\Veyon Solutions\Veyon\UserGroups', name: UseDomainUserGroups, type: sz, data: 'false' }
+  # --- LDAP ---
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: BaseDN, type: sz, data: '@basedn' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ServerHost, type: sz, data: '@serverfqdn' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ServerPort, type: dword, data: 636 }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ConnectionSecurity, type: dword, data: 2 }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: TLSVerifyMode, type: dword, data: 1 }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: BindDN, type: sz, data: '@veyon-binddn' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: BindPassword, type: sz, data: '@veyon-bindpw' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UseBindCredentials, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: RecursiveSearchOperations, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerTree, type: sz, data: 'OU=Devices,OU=@school,OU=SCHOOLS' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputersFilter, type: sz, data: '(sophomorixRole=classroom-studentcomputer)' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UserTree, type: sz, data: 'OU=SCHOOLS' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: GroupTree, type: sz, data: 'OU=Groups,OU=GLOBAL' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UserLoginNameAttribute, type: sz, data: 'sAMAccountName' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: GroupMemberAttribute, type: sz, data: 'member' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerHostNameAttribute, type: sz, data: 'dNSHostName' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerHostNameAsFQDN, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerMacAddressAttribute, type: sz, data: 'sophomorixComputerMAC' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationsByAttribute, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationsByContainer, type: sz, data: 'false' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationAttribute, type: sz, data: 'sophomorixComputerRoom' }
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: LocationNameAttribute, type: sz, data: 'sophomorixComputerRoom' }
+  # --- AccessControl: nur Lehrer (global role-teacher) ---
+  - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessRestrictedToUserGroups, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessControlRulesProcessingEnabled, type: sz, data: 'false' }
+  - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AuthorizedUserGroups, type: multi_sz, data: ['@role-teacher'] }
+  # --- Master: aktueller Raum als Default, andere wählbar ---
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: AutoSelectCurrentLocation, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: ShowCurrentLocationOnly, type: sz, data: 'false' }
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: AllowAddingHiddenLocations, type: sz, data: 'false' }
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: HideLocalComputer, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: HideEmptyLocations, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: AccessControlForMasterEnabled, type: sz, data: 'true' }
+  # --- Netzwerk / Dienst / Windows ---
+  # FirewallExceptionEnabled=1: Veyon öffnet Port 11100 selbst → Windows-Firewall komplett offen.
+  # Die Schul-Trennung (Cross-School-Sperre) macht die OPNsense, NICHT die Windows-Firewall.
+  - { key: 'Software\Veyon Solutions\Veyon\Network', name: VeyonServerPort, type: dword, data: 11100 }
+  - { key: 'Software\Veyon Solutions\Veyon\Network', name: FirewallExceptionEnabled, type: sz, data: '1' }
+  - { key: 'Software\Veyon Solutions\Veyon\Service', name: RemoteConnectionNotifications, type: sz, data: 'true' }
+  - { key: 'Software\Veyon Solutions\Veyon\Windows', name: SoftwareSASEnabled, type: sz, data: '1' }

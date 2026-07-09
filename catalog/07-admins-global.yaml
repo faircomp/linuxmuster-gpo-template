@@ -1,0 +1,11 @@
+id: "07-admins-global"
+title: "Globale Admins: lokale Admins + RDP (überall)"
+scope: global
+target: computer
+description: >
+  global-admins werden auf ALLEN verwalteten Rechnern lokale Administratoren
+  (GPP, additiv) und Mitglied der lokalen Gruppe "Remote Desktop Users"
+  (Restricted Groups __Memberof, additiv → RDP-Anmeldung erlaubt).
+local_admins: ['@global-admins']
+restricted_groups:
+  - { member: '@global-admins', memberof: ['S-1-5-32-555'] }

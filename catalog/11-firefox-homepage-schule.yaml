@@ -1,0 +1,16 @@
+id: "11-firefox-homepage-schule"
+title: "Firefox-Startseite (global-Default oder pro Schule, sperrbar)"
+scope: school
+target: computer
+requires: firefox_homepage
+description: >
+  Setzt die Firefox-Startseite. URL kommt aus firefox_homepage (global) bzw.
+  firefox_homepage_by_school[<schule>] (Override pro Schule). Mit
+  firefox_homepage_locked (Default: true) wird die Startseite fest gesetzt und
+  gegen Nutzeränderung gesperrt — überschreibt eine vorhandene Nutzereinstellung.
+  Wird pro Schule verlinkt; ein Schul-Override gewinnt über den globalen Default
+  (tiefere OU). Nur aktiv, wenn eine URL konfiguriert ist.
+registry:
+  - { key: 'Software\Policies\Mozilla\Firefox\Homepage', name: URL, type: sz, data: '@firefox-homepage' }
+  - { key: 'Software\Policies\Mozilla\Firefox\Homepage', name: StartPage, type: sz, data: 'homepage' }
+  - { key: 'Software\Policies\Mozilla\Firefox\Homepage', name: Locked, type: dword, data: '@firefox-homepage-locked' }

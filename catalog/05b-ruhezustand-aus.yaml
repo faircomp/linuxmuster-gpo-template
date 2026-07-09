@@ -1,0 +1,13 @@
+id: "05b-ruhezustand-aus"
+title: "Ruhezustand (Hibernate) aus — außer noPXE"
+scope: global
+target: computer
+filter_deny: ['@nopxe']
+description: >
+  Deaktiviert den Ruhezustand (Hibernate) komplett per Startskript
+  (powercfg /hibernate off) auf LINBO/Image-Rechnern. noPXE-Geräte (z.B. Lehrer-
+  Notebooks) sind per Deny-Apply ausgenommen und behalten ihren Ruhezustand.
+  Fast Startup ist davon unabhängig und wird für ALLE Geräte via 05-wol
+  (HiberbootEnabled=0) ausgeschaltet.
+startup_scripts:
+  - { file: 'hibernate-off.ps1' }

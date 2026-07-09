@@ -1,0 +1,11 @@
+id: "12-proxy-zone-schule"
+title: "Proxy-SSO: Proxy-Host in Zone 'Lokales Intranet' (pro Schule)"
+scope: school
+target: computer
+requires: proxy_school
+description: >
+  Trägt den Schul-Proxy-Host in die Zone 'Lokales Intranet' ein (ZoneMapKey=1) →
+  Windows/Edge/Chrome melden sich per Kerberos/NTLM automatisch am Proxy an, ohne
+  Passwort-Prompt (SSO). Maschinen-Einstellung, pro Schule (Host der jeweiligen Schule).
+registry:
+  - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey', name: '@proxy-host', type: sz, data: '1' }
