@@ -148,6 +148,14 @@ class Applier:
         parts += ["10.*", "172.16.*", "192.168.*"]
         return ";".join(parts)
 
+    def _reldn(self, dn):
+        """DN relative to the BaseDN (strip the trailing ,DC=…). Veyon stores and
+        compares LDAP group DNs base-relative, so AuthorizedUserGroups must match."""
+        if not dn:
+            return ""
+        suffix = "," + self.env.basedn
+        return dn[:-len(suffix)] if dn.lower().endswith(suffix.lower()) else dn
+
     def _resolve_str(self, s, school, extra=None):
         # Reihenfolge: @firefox-homepage-locked VOR @firefox-homepage (Präfix-Kollision).
         reps = {
@@ -167,7 +175,10 @@ class Applier:
             "@basedn": self.env.basedn,
             "@veyon-binddn": self.answers.get("veyon_binddn", "") or "",
             "@veyon-bindpw": self.answers.get("veyon_bindpw_hex", "") or "",
-            "@role-teacher": self.env.role_teacher.dn if self.env.role_teacher else "",
+            # Veyon speichert/vergleicht Gruppen-DNs BaseDN-relativ (LdapClient::stripBaseDn),
+            # daher OHNE ,DC=…-Suffix — sonst matcht AuthorizedUserGroups keinen Lehrer.
+            "@role-teacher": self._reldn(self.env.role_teacher.dn) if self.env.role_teacher else "",
+            "@all-teachers": self._reldn(self.env.all_teachers.dn) if self.env.all_teachers else "",
             "@school": school.name if school else "GLOBAL",
         }
         if extra:
@@ -242,8 +253,9 @@ class Applier:
             raw = e["data"]
             if isinstance(raw, str):
                 data = self._resolve_str(raw, school, extra)
-            elif isinstance(raw, list):   # REG_MULTI_SZ
-                data = [self._resolve_str(x, school, extra) if isinstance(x, str) else x for x in raw]
+            elif isinstance(raw, list):   # REG_MULTI_SZ (leere Auflösungen droppen, z.B. fehlende Gruppe)
+                data = [v for x in raw
+                        if (v := (self._resolve_str(x, school, extra) if isinstance(x, str) else x))]
             else:
                 data = raw
             t = TYPE_MAP.get(str(e.get("type", "dword")).lower(), "REG_DWORD")

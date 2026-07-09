@@ -36,11 +36,15 @@ Schule, wo ich bin" erzwingt daher die **Netzwerkebene** — hier die **OPNsense
 
 - Auth global: jeder Lehrer darf grundsätzlich Master.
 - `BaseDN = DC=…` (Wurzel), `UserTree = OU=SCHOOLS`, `GroupTree = OU=Groups,OU=GLOBAL`.
-- `AccessControl\AuthorizedUserGroups = ["CN=role-teacher,OU=Groups,OU=GLOBAL,DC=…"]`.
-  (**`role-teacher`** = Lehrer sind i. d. R. DIREKTE Mitglieder. **`LDAP\QueryNestedUserGroups=true`**
-  ist trotzdem gesetzt — sonst werden Lehrer, die nur INDIREKT (über `teachers`) in `role-teacher`
-  hängen, von Veyons AccessControl NICHT erkannt und können den Master nicht öffnen. Die
-  linuxmuster-Referenz-Config setzt es ebenfalls. `groupsOfUser()` liefert DNs → DN-Match korrekt.)
+- `AccessControl\AuthorizedUserGroups = ["CN=all-teachers,OU=Groups,OU=GLOBAL", "CN=role-teacher,OU=Groups,OU=GLOBAL"]`.
+  **KRITISCH — BaseDN-RELATIVE DNs (ohne `,DC=…`-Suffix!):** Veyon speichert und vergleicht
+  Gruppen-DNs base-relativ (`LdapClient::stripBaseDn`, verifiziert am Quellcode + an einer echten,
+  per Configurator erzeugten Config). Eine VOLLE DN matcht deshalb KEINEN Lehrer → „Lehrer fehlen in
+  der autorisierten Gruppe", Master lässt sich nicht öffnen. Das war der reale Bug. Umsetzung:
+  `apply._reldn()` strippt den BaseDN; die Reps `@role-teacher`/`@all-teachers` liefern relative DNs.
+  Beide Lehrergruppen: `role-teacher` (direkte Mitglieder) + `all-teachers` (verschachtelt über
+  `<schule>-teachers`), daher zusätzlich **`LDAP\QueryNestedUserGroups=true`**. Fehlt eine Gruppe,
+  wird ihr leerer Eintrag aus dem MULTI_SZ gedroppt.
 - `ComputerTree` pro Schule → Raumliste schulscharf.
 - **Standort-Sperre = OPNsense** (§3): Windows-Firewall bleibt für Veyon offen; die Trennung zwischen
   Schul-Subnetzen/VLANs macht die OPNsense.

@@ -44,10 +44,13 @@ registry:
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationsByContainer, type: sz, data: 'false' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationAttribute, type: sz, data: 'sophomorixComputerRoom' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: LocationNameAttribute, type: sz, data: 'sophomorixComputerRoom' }
-  # --- AccessControl: nur Lehrer (global role-teacher) ---
+  # --- AccessControl: nur Lehrer (global) ---
+  # WICHTIG: Gruppen als BaseDN-RELATIVE DNs (ohne ,DC=…), weil Veyon so vergleicht.
+  # Beide Lehrergruppen: role-teacher (direkte Mitglieder) + all-teachers (verschachtelt
+  # über <schule>-teachers, deshalb QueryNestedUserGroups=true). Fehlt eine, wird sie gedroppt.
   - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessRestrictedToUserGroups, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessControlRulesProcessingEnabled, type: sz, data: 'false' }
-  - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AuthorizedUserGroups, type: multi_sz, data: ['@role-teacher'] }
+  - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AuthorizedUserGroups, type: multi_sz, data: ['@all-teachers', '@role-teacher'] }
   # --- Master: aktueller Raum als Default, andere wählbar ---
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: AutoSelectCurrentLocation, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: ShowCurrentLocationOnly, type: sz, data: 'false' }

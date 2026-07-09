@@ -70,6 +70,7 @@ class Env:
     role_globaladmin: Group | None = None
     role_schooladmin: Group | None = None
     role_teacher: Group | None = None
+    all_teachers: Group | None = None
     schools: list = field(default_factory=list)
 
     def school(self, name: str) -> School | None:
@@ -95,6 +96,7 @@ class Env:
             "role_globaladmin": self.role_globaladmin.as_dict() if self.role_globaladmin else None,
             "role_schooladmin": self.role_schooladmin.as_dict() if self.role_schooladmin else None,
             "role_teacher": self.role_teacher.as_dict() if self.role_teacher else None,
+            "all_teachers": self.all_teachers.as_dict() if self.all_teachers else None,
             "schools": [s.as_dict() for s in self.schools],
         }
 
@@ -233,6 +235,7 @@ def detect() -> Env:
     env.role_schooladmin = _find_group(
         "(&(objectClass=group)(cn=role-schooladministrator))", global_ou)
     env.role_teacher = _find_group("(&(objectClass=group)(cn=role-teacher))", global_ou)
+    env.all_teachers = _find_group("(&(objectClass=group)(cn=all-teachers))", global_ou)
 
     # Schools (Multischule-aware).
     for m in ad.search(base=schools_ou, scope="one",
