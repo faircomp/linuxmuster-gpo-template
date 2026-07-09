@@ -6,7 +6,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 24 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 25 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -33,7 +33,7 @@ registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (24 Pakete)
+## Features (25 Pakete)
 
 Immer aktiv (kein zusätzlicher Parameter nötig):
 
@@ -51,6 +51,7 @@ Immer aktiv (kein zusätzlicher Parameter nötig):
 | **Remote-Management** | RDP aktiv, Firewall-Ausnahmen (RDP/SMB/RPC/ICMP), Remote-Shutdown-Recht |
 | **Globale Admins** | `global-admins` als lokale Admins + RDP **überall** |
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
+| **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS gesperrt (Schalter ausgegraut) — *außer Lehrer-Notebooks* (`d_nopxe`) |
 
 Optional (per `site.yaml` / Setup-Assistent aktiviert):
 
@@ -62,7 +63,7 @@ Optional (per `site.yaml` / Setup-Assistent aktiviert):
 | **Firefox-Grundhärtung** | `firefox_enabled` | First-Run aus, saubere New-Tab (Suche + Verknüpfungen, kein Werbekram) |
 | **Firefox-Startseite** | `firefox_homepage` | global-Default **oder pro Schule**, optional fest gesperrt |
 | **Rollen-Proxy** | `proxy_enabled` + Host | **Adresse folgt dem Gerät** (Schule), **Port folgt dem Nutzer** (Lehrer/Schüler/Staff), roaming-fest; alle Browser auf System-Proxy; Proxy-Host als Intranet-Zone (SSO) |
-| **WLAN PSK (Schüler)** | `wlan_psk_networks` | mehrere PSK-Netze als Maschinen-Profil → verbinden **vor dem Login**; *nicht* auf Lehrer-Notebooks |
+| **WLAN PSK (Schüler)** | `wlan_psk_networks` | beliebig viele PSK-Netze als Maschinen-Profil → verbinden **vor dem Login**, **standortübergreifend roaming-fähig**; *nicht* auf Lehrer-Notebooks |
 | **WLAN Enterprise (Lehrer)** | `wlan_enterprise_ssid` + CA-Cert | WPA2-Enterprise/PEAP mit RADIUS, CA-Zertifikat wird installiert; **nur Lehrer** (RADIUS erzwingt Gruppe), exklusiv auf `d_nopxe` |
 
 ## Nutzung
@@ -129,8 +130,9 @@ proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
 veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
 veyon_bindpw_hex: "…"         # via ./lmgpo-cli veyon-encrypt-password
 
-wlan_psk_networks:
-  - { ssid: "Schueler-WLAN", psk: "…" }
+wlan_psk_networks:                       # beliebig viele — je Standort ein Eintrag
+  - { ssid: "MSG-LINBO", psk: "…" }
+  - { ssid: "GSG-LINBO", psk: "…" }
 wlan_enterprise_ssid: "Lehrer-WLAN"
 wlan_enterprise_servernames: "radius.schule.de"
 wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
@@ -138,6 +140,28 @@ wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
 
 > `site.yaml` enthält Geheimnisse (PSKs, verschlüsseltes Bind-Passwort) und ist in
 > `.gitignore` — **nicht** einchecken.
+
+## WLAN: mehrere Netze & Roaming
+
+Mehrere Schüler-WLANs (z. B. je Standort ein eigenes) sind einfach **mehrere Einträge**
+in `wlan_psk_networks` — der Setup-Assistent fragt nur eines ab, weitere trägst du in der
+`site.yaml` nach:
+
+```yaml
+wlan_psk_networks:
+  - { ssid: "MSG-LINBO", psk: "PSK-für-MSG" }
+  - { ssid: "GSG-LINBO", psk: "PSK-für-GSG" }
+```
+
+Das Pack `13-wlan-psk` ist bewusst **global**: **alle** PSK-Profile landen als Maschinen-
+Profile (`connectionMode auto`, verbinden vor dem Login) auf **jedem** Schüler-Gerät —
+außer Lehrer-Notebooks (`d_nopxe`). Dadurch **roamt** ein Notebook automatisch: es verbindet
+sich an jedem Standort mit der SSID, die dort in Reichweite ist (am MSG-Standort mit
+`MSG-LINBO`, mitgenommen nach GSG mit `GSG-LINBO`) — ohne Zutun.
+
+> Der Preis des Roamings: jedes Gerät trägt **alle** PSKs im lokalen Profilspeicher. Eine
+> strikte Pro-Schule-Isolierung (Gerät kennt nur seinen Heim-PSK) würde das Roaming
+> ausschließen — beides zugleich geht technisch nicht.
 
 ## Client-seitige Prüfung
 
@@ -160,7 +184,7 @@ Läuft als root auf dem DC.
 
 ```
 lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, setup, cli)
-catalog/      24 YAML-Policy-Pakete
+catalog/      25 YAML-Policy-Pakete
 scripts/      Windows-Startskripte + lmgpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
