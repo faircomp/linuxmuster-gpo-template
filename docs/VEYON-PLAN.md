@@ -37,7 +37,10 @@ Schule, wo ich bin" erzwingt daher die **Netzwerkebene** — hier die **OPNsense
 - Auth global: jeder Lehrer darf grundsätzlich Master.
 - `BaseDN = DC=…` (Wurzel), `UserTree = OU=SCHOOLS`, `GroupTree = OU=Groups,OU=GLOBAL`.
 - `AccessControl\AuthorizedUserGroups = ["CN=role-teacher,OU=Groups,OU=GLOBAL,DC=…"]`.
-  (**`role-teacher`** = Lehrer sind DIREKTE Mitglieder → kein `QueryNestedUserGroups` nötig.)
+  (**`role-teacher`** = Lehrer sind i. d. R. DIREKTE Mitglieder. **`LDAP\QueryNestedUserGroups=true`**
+  ist trotzdem gesetzt — sonst werden Lehrer, die nur INDIREKT (über `teachers`) in `role-teacher`
+  hängen, von Veyons AccessControl NICHT erkannt und können den Master nicht öffnen. Die
+  linuxmuster-Referenz-Config setzt es ebenfalls. `groupsOfUser()` liefert DNs → DN-Match korrekt.)
 - `ComputerTree` pro Schule → Raumliste schulscharf.
 - **Standort-Sperre = OPNsense** (§3): Windows-Firewall bleibt für Veyon offen; die Trennung zwischen
   Schul-Subnetzen/VLANs macht die OPNsense.

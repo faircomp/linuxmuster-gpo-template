@@ -27,6 +27,10 @@ registry:
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: BindPassword, type: sz, data: '@veyon-bindpw' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UseBindCredentials, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: RecursiveSearchOperations, type: sz, data: 'true' }
+  # Nested-Gruppen auflösen: Lehrer, die nur INDIREKT (über z. B. teachers) in role-teacher
+  # hängen, werden sonst NICHT als Mitglied erkannt → AccessControl weist sie ab. Die
+  # linuxmuster-Referenz-Config setzt das ebenfalls. Ohne Downside für direkte Mitglieder.
+  - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: QueryNestedUserGroups, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerTree, type: sz, data: 'OU=Devices,OU=@school,OU=SCHOOLS' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputersFilter, type: sz, data: '(sophomorixRole=classroom-studentcomputer)' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UserTree, type: sz, data: 'OU=SCHOOLS' }
