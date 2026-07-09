@@ -6,7 +6,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 25 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 27 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -33,7 +33,7 @@ registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (25 Pakete)
+## Features (27 Pakete)
 
 Immer aktiv (kein zusätzlicher Parameter nötig):
 
@@ -52,6 +52,7 @@ Immer aktiv (kein zusätzlicher Parameter nötig):
 | **Globale Admins** | `global-admins` als lokale Admins + RDP **überall** |
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
 | **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
+| **Schüler-Lockdown** | Schüler (`role-student`) können sensible Einstellungen nicht ändern — v. a. den **Proxy nicht rausnehmen** (+ Verbindungen-Tab/PAC & Registry-Editor gesperrt); **Lehrer/Admins uneingeschränkt** (Loopback + Filter) |
 
 Optional (per `site.yaml` / Setup-Assistent aktiviert):
 
@@ -183,6 +184,29 @@ Gruppen/Nutzer global — ein Lehrer darf so an **jeder** Schule den Master öff
 - **Nach dem Ausrollen:** auf den Clients `gpupdate /force` und den **Veyon-Dienst neu starten**
   (Reboot) — Veyon liest die Config nur beim Dienststart.
 
+## Schüler-Lockdown
+
+Zwei Pakete sorgen dafür, dass **nur Schüler** (`role-student`) bestimmte Windows-Einstellungen
+nicht ändern können, **Lehrer und Admins aber uneingeschränkt** bleiben:
+
+- `15-lockdown-base` (Computer): aktiviert **Loopback-Merge** (`UserPolicyMode=2`), damit
+  benutzerbasierte, rollengefilterte Richtlinien auf gemeinsam genutzten Klassenrechnern greifen.
+- `15-lockdown-student` (User, exklusiv auf `role-student`): reine HKCU-Policies —
+  **Proxy nicht änderbar** (Einstellungen-App *und* Internetoptionen), Verbindungen-Tab & PAC/
+  Autoconfig gesperrt, **Registry-Editor** gesperrt (damit die Sperren nicht ausgehebelt werden).
+
+Weil exklusiv auf `role-student` gefiltert wird, sind Lehrer/Admins nicht Mitglied → für sie
+gilt nichts davon. Bewusst **moderat** gehalten (die Systemsteuerung wird *nicht* komplett
+gesperrt). Strenger geht per zusätzlicher HKCU-Einträge in `catalog/15-lockdown-student.yaml`,
+z. B.:
+
+| Wirkung | Registry (`class: user`) |
+|---|---|
+| Systemsteuerung + Einstellungen ganz ausblenden | `…\Policies\Explorer\NoControlPanel = 1` |
+| Eingabeaufforderung sperren | `…\Policies\Microsoft\Windows\System\DisableCMD = 1` |
+| Task-Manager sperren | `…\Policies\System\DisableTaskMgr = 1` |
+| Hintergrundbild-Wechsel sperren | `…\Policies\ActiveDesktop\NoChangingWallPaper = 1` |
+
 ## Client-seitige Prüfung
 
 `scripts/lmgpo-check.ps1` prüft **auf dem Windows-Client** (read-only), ob die Richtlinien
@@ -204,7 +228,7 @@ Läuft als root auf dem DC.
 
 ```
 lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, setup, cli)
-catalog/      25 YAML-Policy-Pakete
+catalog/      27 YAML-Policy-Pakete
 scripts/      Windows-Startskripte + lmgpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md

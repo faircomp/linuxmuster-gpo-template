@@ -1,0 +1,12 @@
+id: "15-lockdown-base"
+title: "Schüler-Lockdown Basis: Loopback für rollenbasierte User-Policies"
+scope: global
+target: computer
+loopback: merge
+description: >
+  Grundlage für den Schüler-Lockdown: aktiviert Loopback-Verarbeitung (Merge,
+  UserPolicyMode=2) auf allen verwalteten Rechnern, damit die auf role-student gefilterten
+  User-GPOs (15-lockdown-student) auf gemeinsam genutzten Klassenrechnern greifen. Lehrer
+  und Admins sind NICHT in role-student und bleiben daher uneingeschränkt. Setzt denselben
+  Loopback-Wert wie die Proxy-Basis — falls beide aktiv sind, ist das redundant, aber
+  harmlos (identischer Registry-Wert).

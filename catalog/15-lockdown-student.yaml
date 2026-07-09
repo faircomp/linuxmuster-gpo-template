@@ -1,0 +1,23 @@
+id: "15-lockdown-student"
+title: "Schüler-Lockdown: Proxy & sensible Einstellungen sperren (nur role-student)"
+scope: global
+target: user
+filter_apply: ['@role-student']
+description: >
+  Verhindert, dass SCHÜLER sicherheits-/verwaltungsrelevante Windows-Einstellungen ändern —
+  vor allem den per GPO gesetzten Proxy (der Schüler kann ihn nicht rausnehmen). Reine
+  HKCU-Policies, exklusiv auf role-student gefiltert und per Loopback (15-lockdown-base) auf
+  gemeinsam genutzten Rechnern wirksam. LEHRER und ADMINS sind NICHT betroffen (nicht in
+  role-student) und dürfen alles ändern. Bewusst moderat gehalten (kein komplettes Sperren
+  der Systemsteuerung); strengere Optionen siehe README.
+registry:
+  # Proxy nicht änderbar — wirkt in der Einstellungen-App UND in den Internetoptionen.
+  # Kernanliegen: Schüler kann den zugewiesenen Proxy nicht deaktivieren/umbiegen.
+  - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: Proxy, class: user, type: dword, data: 1 }
+  # "Verbindungen"-Tab (LAN-/Proxy-Einstellungen) in den Internetoptionen ausblenden.
+  - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: ConnectionsTab, class: user, type: dword, data: 1 }
+  # Automatische Konfiguration (PAC/Autoconfig) nicht änderbar.
+  - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: Autoconfig, class: user, type: dword, data: 1 }
+  # Registry-Editor sperren (2 = interaktiver regedit gesperrt, stille .reg/GPP weiter möglich),
+  # damit Schüler die o. g. Sperren nicht per regedit aushebeln.
+  - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: DisableRegistryTools, class: user, type: dword, data: 2 }
