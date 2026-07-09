@@ -59,7 +59,7 @@ Optional (per `site.yaml` / Setup-Assistent aktiviert):
 |---|---|---|
 | **KMS-Aktivierung** | `kmshost` | Windows gegen den KMS-Host aktivieren (Startskript) |
 | **Branding pro Schule** | Wallpaper-Datei | Desktop- **und** Anmelde-Hintergrund je Schule (aus NETLOGON) |
-| **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher`) |
+| **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher` + `all-teachers`) |
 | **Firefox-Grundhärtung** | `firefox_enabled` | First-Run aus, saubere New-Tab (Suche + Verknüpfungen, kein Werbekram) |
 | **Firefox-Startseite** | `firefox_homepage` | global-Default **oder pro Schule**, optional fest gesperrt |
 | **Rollen-Proxy** | `proxy_enabled` + Host | **Adresse folgt dem Gerät** (Schule), **Port folgt dem Nutzer** (Lehrer/Schüler/Staff), roaming-fest; alle Browser auf System-Proxy; Proxy-Host als Intranet-Zone (SSO) |
@@ -162,6 +162,26 @@ sich an jedem Standort mit der SSID, die dort in Reichweite ist (am MSG-Standort
 > Der Preis des Roamings: jedes Gerät trägt **alle** PSKs im lokalen Profilspeicher. Eine
 > strikte Pro-Schule-Isolierung (Gerät kennt nur seinen Heim-PSK) würde das Roaming
 > ausschließen — beides zugleich geht technisch nicht.
+
+## Veyon (Klassenraum-Steuerung)
+
+Vollständig per Registry-GPO (kein `config.json`, dateiloses LDAP-Directory), Multischule-fähig
+mit Roaming: `BaseDN` = Domänenwurzel, `ComputerTree` pro Schule (Raumliste schulscharf),
+Gruppen/Nutzer global — ein Lehrer darf so an **jeder** Schule den Master öffnen.
+
+- **Zugriff nur für Lehrer:** autorisiert `all-teachers` **und** `role-teacher`. Wichtig — die
+  Gruppen stehen als **BaseDN-relative DNs** (`CN=role-teacher,OU=Groups,OU=GLOBAL`, ohne `,DC=…`),
+  weil Veyon intern so vergleicht; `QueryNestedUserGroups=true` löst auch verschachtelte
+  Mitgliedschaft (`<schule>-teachers` → `all-teachers`) auf. Ein Schüler ist in keiner der
+  Gruppen → kann nie steuern.
+- **Bind-User** `global-veyon` (dediziert, read-only); Passwort mit `./lmgpo-cli
+  veyon-encrypt-password` verschlüsseln und als `veyon_bindpw_hex` in die `site.yaml`. Hinweis:
+  Veyons Bind-Passwort ist mit einem statischen, öffentlichen Schlüssel verschlüsselt — also
+  umkehrbar; den Bind-User eng berechtigt halten (Details: [`docs/VEYON-PLAN.md`](docs/VEYON-PLAN.md)).
+- **Windows-Firewall** bleibt für Veyon (Port 11100) offen; die Standort-Trennung macht die
+  OPNsense, nicht Windows.
+- **Nach dem Ausrollen:** auf den Clients `gpupdate /force` und den **Veyon-Dienst neu starten**
+  (Reboot) — Veyon liest die Config nur beim Dienststart.
 
 ## Client-seitige Prüfung
 
