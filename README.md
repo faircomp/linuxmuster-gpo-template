@@ -6,7 +6,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 28 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 29 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -33,7 +33,7 @@ registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (28 Pakete)
+## Features (29 Pakete)
 
 Immer aktiv (kein zusätzlicher Parameter nötig):
 
@@ -53,6 +53,7 @@ Immer aktiv (kein zusätzlicher Parameter nötig):
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
 | **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
 | **Schüler-Lockdown** | Schüler (`role-student`) können sensible Einstellungen nicht ändern — v. a. den **Proxy nicht rausnehmen** (+ Verbindungen-Tab/PAC & Registry-Editor gesperrt); **Lehrer/Admins uneingeschränkt** (Loopback + Filter) |
+| **Zeitsynchronisation (W32Time)** | Clients synchen vom Domänen-Server (NT5DS, „Samba-Weg"); **korrigiert auch große Versätze** (leere CMOS-Batterie); Umschaltbar auf expliziten NTP via `ntp_mode` |
 
 Optional (per `site.yaml` / Setup-Assistent aktiviert):
 
@@ -140,6 +141,7 @@ wlan_enterprise_servernames: "radius.schule.de"
 wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = UEFI-Bootreihenfolge per Startskript auf Netzwerk/PXE zuerst
+ntp_mode: nt5ds               # Zeitsync: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server = @serverfqdn)
 ```
 
 > `site.yaml` enthält Geheimnisse (PSKs, verschlüsseltes Bind-Passwort) und ist in
@@ -231,7 +233,7 @@ Läuft als root auf dem DC.
 
 ```
 lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, setup, cli)
-catalog/      28 YAML-Policy-Pakete
+catalog/      29 YAML-Policy-Pakete
 scripts/      Windows-Startskripte + lmgpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md

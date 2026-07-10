@@ -48,6 +48,7 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
     "bootorder_pxe_first": False,      # opt-in: UEFI-Bootreihenfolge Netzwerk/PXE zuerst (Startskript)
+    "ntp_mode": "nt5ds",               # Zeitsync-Modus: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server)
 }
 
 
@@ -168,6 +169,7 @@ class Applier:
             "@proxy-port-staff": self._proxy_port("staff"),
             "@proxy-exceptions": self._proxy_exceptions(),
             "@serverfqdn": self.env.serverfqdn,
+            "@ntp-type": "NTP" if str(self.answers.get("ntp_mode", "nt5ds")).lower() == "ntp" else "NT5DS",
             "@serverip": self.env.serverip,
             "@subnet": self.env.subnet,
             "@fwsource": self._fwsource(),
