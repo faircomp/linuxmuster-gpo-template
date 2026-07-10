@@ -118,23 +118,27 @@ def run(site_path: str = DEFAULT_SITE) -> int:
                                   ("nopxe ", e.schools[0].nopxe if e.schools else None))))
     print()
 
-    # Schools
+    # Schools (Default = frühere Auswahl aus der site.yaml)
     if len(e.schools) > 1:
         allnames = ",".join(s.name for s in e.schools)
-        sel = _ask(f"Für welche Schulen? (alle | Komma-Liste aus {allnames})", "alle")
+        prior = answers.get("schools")
+        default = ",".join(prior) if prior else "alle"
+        sel = _ask(f"Für welche Schulen? (alle | Komma-Liste aus {allnames})", default)
         answers["schools"] = None if sel.strip().lower() in ("alle", "all") else \
             [x.strip() for x in sel.split(",") if x.strip()]
     else:
         answers["schools"] = None
 
-    # Packs
+    # Packs (Default = frühere Auswahl: None = alle, sonst Teilmenge)
     print("\n  Pakete im Katalog:")
     for p in packs:
         print(f"    - {p.id:22} {p.title}")
-    if _ask_yesno("Alle Pakete übernehmen?", True):
+    prior_packs = answers.get("packs")
+    if _ask_yesno("Alle Pakete übernehmen?", prior_packs is None):
         answers["packs"] = None
     else:
-        sel = _ask("IDs (Komma-getrennt) aktivieren", ",".join(p.id for p in packs))
+        default_ids = ",".join(prior_packs) if prior_packs else ",".join(p.id for p in packs)
+        sel = _ask("IDs (Komma-getrennt) aktivieren", default_ids)
         answers["packs"] = [x.strip() for x in sel.split(",") if x.strip()]
 
     # Firewall scope
