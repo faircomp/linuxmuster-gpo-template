@@ -9,7 +9,8 @@
 
     Deckt Computer- UND User-Richtlinien ab: Datenschutz, Update-Split, Energie/Sperre,
     RDP/Firewall/Gruppen, KMS, Hotspot-Sperre, OneDrive, Ruhezustand, Loopback, Firefox,
-    Rollen-Proxy, Schüler-Lockdown (HKCU), Veyon, WLAN und das Bootorder-Startskript-Log.
+    Rollen-Proxy, Schüler-Lockdown (HKCU), Veyon, WLAN, Zeitsync (W32Time) und das
+    Bootorder-Startskript-Log.
 
     Zweimal ausführen: (1) als ADMINISTRATOR für Computer-GPOs/Firewall/Gruppen,
     (2) als angemeldeter SCHÜLER (nicht elevated) für die User-Sperren (Lockdown/Proxy).
@@ -206,6 +207,23 @@ if (Test-Path $blog) {
     Write-Host "  Letzte Zeilen aus $blog :" -ForegroundColor Cyan
     Get-Content $blog -Tail 12 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "     $_" }
 } else { Write-Host "  [--] Kein Bootorder-Log (Paket 16 nicht aktiv / Skript noch nicht gelaufen)." -ForegroundColor DarkGray }
+
+# --- 6e) Zeitsynchronisation (W32Time, Paket 17) ----------------------------
+Write-Head "Zeitsynchronisation (W32Time)"
+if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient") {
+    Test-Reg @{ N="W32Time NTP-Client aktiv";  P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Enabled"; E=1 }
+    Test-Reg @{ N="Zeit-Modus (Type)";         P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Type"; E=$null }
+    Test-Reg @{ N="NtpServer (bei Type=NTP)";  P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="NtpServer"; E=$null }
+    Test-Reg @{ N="MaxPhaseCorrection (immer)"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxPosPhaseCorrection"; E=$null }
+} else { Write-Host "  [--] Keine W32Time-Policy (Paket 17 nicht angewandt)." -ForegroundColor DarkGray }
+# Laufzeit-Status (rein lesend): synct der Rechner wirklich vom Server?
+$src = ((& w32tm /query /source 2>&1) -join ' ').Trim()
+if (-not $src) { Write-Host "  [--] W32Time-Dienst antwortet nicht." -ForegroundColor DarkGray }
+elseif ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
+    Write-Host ("  {0}Zeitquelle: {1}  (NICHT mit dem Server synchronisiert!)" -f (Mark $false), $src) -ForegroundColor Red; $fail++
+} else { Write-Host ("  {0}Zeitquelle: {1}" -f (Mark $true), $src) -ForegroundColor Green; $ok++ }
+$st = & w32tm /query /status 2>&1
+($st | Select-String -Pattern 'Stratum|Source|Quelle|Offset|Abweichung|Last Successful|Letzte erfolgreiche|Poll') | ForEach-Object { Write-Host "     $($_.Line.Trim())" }
 
 # --- 7) Voller HTML-Bericht (Ausgabedatei; mit -NoReport überspringbar) ------
 if (-not $NoReport) {
