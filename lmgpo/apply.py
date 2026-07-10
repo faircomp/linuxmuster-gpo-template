@@ -358,10 +358,11 @@ class Applier:
                       privilege_rights=self._priv_rights(pack.privilege_rights, school, schools),
                       group_membership=self._restricted_groups(pack.restricted_groups, school, schools))
         self.gp.add_local_admins(guid, self._admins_members(pack.local_admins, school, schools))
-        if pack.startup_scripts:
-            self.sc.set_startup_powershell(
-                guid, [{"file": s["file"], "content": catalog.load_script(s["file"])}
-                       for s in pack.startup_scripts])
+        if pack.startup_scripts or pack.shutdown_scripts:
+            def _load(lst):
+                return [{"file": s["file"], "content": catalog.load_script(s["file"])} for s in lst]
+            self.sc.set_scripts_powershell(guid, startup=_load(pack.startup_scripts),
+                                           shutdown=_load(pack.shutdown_scripts))
         if pack.wlan:
             self._apply_wlan(pack, guid)
         self.eng.link(container, guid)

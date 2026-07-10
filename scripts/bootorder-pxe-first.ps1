@@ -1,5 +1,7 @@
-# bootorder-pxe-first.ps1 — Computer-Startskript (linuxmuster-gpo-template), laeuft als
-# SYSTEM beim Boot. Zweck: UEFI-Bootreihenfolge so setzen, dass Netzwerk/PXE ZUERST bootet
+# bootorder-pxe-first.ps1 — Computer-Start- UND Shutdown-Skript (linuxmuster-gpo-template),
+# laeuft als SYSTEM beim Boot und beim Herunterfahren (letzte Aktion vor dem Ausschalten,
+# damit der naechste Boot zuverlaessig PXE nimmt, falls Windows die Reihenfolge waehrend der
+# Sitzung umgestellt hat). Zweck: UEFI-Bootreihenfolge so setzen, dass Netzwerk/PXE ZUERST bootet
 # (-> LINBO) und der Windows Boot Manager ZULETZT. Windows draengt seinen Boot Manager sonst
 # nach jedem Start wieder an die erste Stelle; dieses Skript korrigiert das bei jedem Boot.
 #

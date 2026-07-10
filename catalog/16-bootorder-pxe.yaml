@@ -4,7 +4,8 @@ scope: global
 target: computer
 requires: bootorder
 description: >
-  Setzt per Computer-Startskript (SYSTEM, bei jedem Boot) die UEFI-Bootreihenfolge so, dass
+  Setzt per Computer-Start- UND Shutdown-Skript (SYSTEM, bei jedem Boot und beim Herunterfahren)
+  die UEFI-Bootreihenfolge so, dass
   Netzwerk/PXE ZUERST bootet (-> LINBO) und der Windows Boot Manager ZULETZT. Windows drängt
   seinen Boot Manager sonst nach jedem Start wieder nach vorne, sodass die Rechner direkt in
   Windows statt in LINBO booten. Das Skript findet den Netzwerk-Eintrag robust über Muster
@@ -15,4 +16,9 @@ description: >
   werden (Log: %SystemRoot%\Temp\lmgpo-bootorder.log). Voraussetzung: Fast Startup aus
   (BIOS oder Paket 05-wol), kein BitLocker mit Windows-Boot-Manager-Zwang.
 startup_scripts:
+  - { file: 'bootorder-pxe-first.ps1' }
+shutdown_scripts:
+  # Zusätzlich beim Herunterfahren (SYSTEM, letzte Aktion): setzt die Reihenfolge direkt
+  # vor dem Ausschalten neu, falls Windows sie während der Sitzung wieder umgestellt hat —
+  # so ist der nächste Boot zuverlässig PXE/LINBO.
   - { file: 'bootorder-pxe-first.ps1' }
