@@ -7,7 +7,12 @@
     REIN LESEND. Es wird nichts verändert. Nur mit dem Schalter -Refresh wird
     vorab ein 'gpupdate /force' ausgeführt (Standard-Windows-Refresh, harmlos).
 
-    Als Administrator ausführen (für 'gpresult /scope computer' + Firewall/Gruppen).
+    Deckt Computer- UND User-Richtlinien ab: Datenschutz, Update-Split, Energie/Sperre,
+    RDP/Firewall/Gruppen, KMS, Hotspot-Sperre, OneDrive, Ruhezustand, Loopback, Firefox,
+    Rollen-Proxy, Schüler-Lockdown (HKCU), Veyon, WLAN und das Bootorder-Startskript-Log.
+
+    Zweimal ausführen: (1) als ADMINISTRATOR für Computer-GPOs/Firewall/Gruppen,
+    (2) als angemeldeter SCHÜLER (nicht elevated) für die User-Sperren (Lockdown/Proxy).
 
 .PARAMETER Refresh
     Führt vor der Prüfung 'gpupdate /force' aus (empfohlen für einen frischen Stand).
@@ -35,6 +40,19 @@ $ok = 0; $fail = 0; $skip = 0
 
 function Write-Head($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Mark($cond) { if ($cond) { "[OK] " } else { "[!!] " } }
+function Test-Reg($c) {
+    # $c = @{ N=Name; P=RegPfad; K=Wertname; E=Soll (oder $null = nur 'gesetzt') }
+    $v = (Get-ItemProperty -Path $c.P -Name $c.K -ErrorAction SilentlyContinue).($c.K)
+    if ($null -eq $v) {
+        Write-Host ("  [--] {0,-30} nicht gesetzt (GPO evtl. nicht auf dieses Gerät/diesen User gefiltert)" -f $c.N) -ForegroundColor DarkGray
+        $script:skip++; return
+    }
+    if (($null -eq $c.E) -or ("$v" -eq "$($c.E)")) {
+        Write-Host ("  {0}{1,-30} = {2}" -f (Mark $true), $c.N, $v) -ForegroundColor Green; $script:ok++
+    } else {
+        Write-Host ("  {0}{1,-30} = {2}  (erwartet {3})" -f (Mark $false), $c.N, $v, $c.E) -ForegroundColor Red; $script:fail++
+    }
+}
 
 # --- Adminrechte? -----------------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -67,6 +85,21 @@ if ($applied) { $applied | Sort-Object -Unique | ForEach-Object { Write-Host "  
 else { Write-Host "  [!!] Keine LMN-GPO als 'angewandt' gefunden (Computerscope)." -ForegroundColor Red }
 if ($denied) { $denied | Sort-Object -Unique | ForEach-Object { Write-Host "  [--] gefiltert:  $_ (z.B. per Deny-Apply, das kann korrekt sein)" -ForegroundColor DarkGray } }
 
+# --- 1b) Angewandte LMN-GPOs (User-Scope) -----------------------------------
+Write-Head "Angewandte LMN-*-GPOs (User-Scope)"
+Write-Host "  Hinweis: als angemeldeter SCHÜLER/Lehrer ausführen zeigt DESSEN User-GPOs (Lockdown/Proxy/Firefox)." -ForegroundColor DarkGray
+$gpu = & gpresult /r /scope user 2>$null
+$uapplied = @(); $usec = ""
+foreach ($line in $gpu) {
+    if ($line -match "Applied Group Policy Objects|Angewendete Gruppenrichtlinienobjekte") { $usec = "applied"; continue }
+    if ($line -match "were filtered out|herausgefiltert")                                  { $usec = "denied";  continue }
+    if ($line -match "The (user|following)|Die folgenden")                                 { $usec = "" }
+    $t = $line.Trim()
+    if ($t -like "LMN-*" -and $usec -eq "applied") { $uapplied += $t }
+}
+if ($uapplied) { $uapplied | Sort-Object -Unique | ForEach-Object { Write-Host "  [OK] angewandt:  $_" -ForegroundColor Green } }
+else { Write-Host "  [--] Keine LMN-User-GPO angewandt (als Schüler/Lehrer ausführen; sonst keine User-Packs aktiv)." -ForegroundColor DarkGray }
+
 # --- 2) Ist-Werte vs. Soll-Werte (Registry) ---------------------------------
 Write-Head "Registry-Ist-Werte vs. Soll"
 $checks = @(
@@ -80,14 +113,16 @@ $checks = @(
     @{ N="Fast Startup aus";         P="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"; K="HiberbootEnabled"; E=0 }
     @{ N="MS-Konten blockiert";      P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="NoConnectedUser"; E=3 }
     @{ N="Wallpaper gesetzt (User)"; P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="Wallpaper"; E=$null }
+    @{ N="Mobiler Hotspot verboten";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Network Connections"; K="NC_ShowSharedAccessUI"; E=0 }
+    @{ N="OneDrive-Sync aus";         P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"; K="DisableFileSyncNGSC"; E=1 }
+    @{ N="Ruhezustand aus (Hib.)";    P="HKLM:\SYSTEM\CurrentControlSet\Control\Power"; K="HibernateEnabled"; E=0 }
+    @{ N="Loopback-Merge aktiv";      P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=2 }
+    @{ N="Proxy per-User erzwungen";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxySettingsPerUser"; E=1 }
+    @{ N="Firefox First-Run aus";     P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
+    @{ N="KMS-Host gesetzt";          P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
 )
-foreach ($c in $checks) {
-    $v = (Get-ItemProperty -Path $c.P -Name $c.K -ErrorAction SilentlyContinue).($c.K)
-    if ($null -eq $v) { Write-Host ("  [--] {0,-26} nicht gesetzt (GPO evtl. nicht auf dieses Gerät gefiltert)" -f $c.N) -ForegroundColor DarkGray; $skip++; continue }
-    $good = ($null -eq $c.E) -or ("$v" -eq "$($c.E)")
-    if ($good) { Write-Host ("  {0}{1,-26} = {2}" -f (Mark $true), $c.N, $v) -ForegroundColor Green; $ok++ }
-    else       { Write-Host ("  {0}{1,-26} = {2}  (erwartet {3})" -f (Mark $false), $c.N, $v, $c.E) -ForegroundColor Red; $fail++ }
-}
+Write-Host "  (Hinweis: manche gelten gefiltert — z.B. Hibernate NICHT auf noPXE, Loopback/Hotspot je Pack.)" -ForegroundColor DarkGray
+foreach ($c in $checks) { Test-Reg $c }
 
 # --- 3) Firewall-Regeln (LMN-*) ---------------------------------------------
 Write-Head "Windows-Firewall: LMN-Regeln"
@@ -141,6 +176,36 @@ if ($WlanCaSubject) {
     if ($ca) { Write-Host ("  {0}RADIUS-CA vorhanden: {1}  (Thumbprint {2})" -f (Mark $true), $ca[0].Subject, $ca[0].Thumbprint) -ForegroundColor Green; $ok++ }
     else     { Write-Host ("  {0}RADIUS-CA '{1}' NICHT im Trusted-Root-Store" -f (Mark $false), $WlanCaSubject) -ForegroundColor Red; $fail++ }
 }
+
+# --- 6b) User-Richtlinien (HKCU): Schüler-Lockdown & Rollen-Proxy ------------
+Write-Head "User-Richtlinien (HKCU) — gelten nur für Schüler (role-student)"
+Write-Host "  Als angemeldeter SCHÜLER (nicht elevated) ausführen, sonst siehst du deine eigene Sicht." -ForegroundColor DarkGray
+$uchecks = @(
+    @{ N="Proxy nicht änderbar";      P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="Proxy"; E=1 }
+    @{ N="Verbindungen-Tab gesperrt"; P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="ConnectionsTab"; E=1 }
+    @{ N="Registry-Editor gesperrt";  P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="DisableRegistryTools"; E=2 }
+    @{ N="WinINET-Proxy aktiv";       P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyEnable"; E=1 }
+    @{ N="Proxy-Server (Rolle)";      P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyServer"; E=$null }
+)
+foreach ($c in $uchecks) { Test-Reg $c }
+
+# --- 6c) Veyon (Klassenraum-Steuerung) --------------------------------------
+Write-Head "Veyon (LDAP-Directory, nur Lehrer)"
+if (Test-Path "HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP") {
+    Test-Reg @{ N="Veyon LDAP ServerHost";     P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP"; K="ServerHost"; E=$null }
+    Test-Reg @{ N="Veyon LDAPS (Security=2)";  P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP"; K="ConnectionSecurity"; E=2 }
+    Test-Reg @{ N="Nur autorisierte Gruppen"; P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\AccessControl"; K="AccessRestrictedToUserGroups"; E="true" }
+    $ag = (Get-ItemProperty "HKLM:\SOFTWARE\Veyon Solutions\Veyon\AccessControl" -Name AuthorizedUserGroups -ErrorAction SilentlyContinue).AuthorizedUserGroups
+    if ($ag) { Write-Host ("  [OK] Autorisierte Lehrergruppen: {0}" -f ($ag -join ', ')) -ForegroundColor Green }
+} else { Write-Host "  [--] Keine Veyon-Konfiguration (Paket 10 nicht angewandt)." -ForegroundColor DarkGray }
+
+# --- 6d) Bootreihenfolge (Startskript-Log, Paket 16) ------------------------
+Write-Head "Bootreihenfolge (Log des PXE-zuerst-Startskripts)"
+$blog = Join-Path $env:SystemRoot 'Temp\lmgpo-bootorder.log'
+if (Test-Path $blog) {
+    Write-Host "  Letzte Zeilen aus $blog :" -ForegroundColor Cyan
+    Get-Content $blog -Tail 12 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "     $_" }
+} else { Write-Host "  [--] Kein Bootorder-Log (Paket 16 nicht aktiv / Skript noch nicht gelaufen)." -ForegroundColor DarkGray }
 
 # --- 7) Voller HTML-Bericht (Ausgabedatei; mit -NoReport überspringbar) ------
 if (-not $NoReport) {
