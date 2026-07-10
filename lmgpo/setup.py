@@ -209,6 +209,13 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     # WLAN (optional): Schüler-PSK (mehrere) + Lehrer-Enterprise
     _ask_wlan(answers)
 
+    # UEFI-Bootreihenfolge (opt-in, hardwareabhängig)
+    print("\n  UEFI-Bootreihenfolge (optional): erzwingt per Startskript, dass Netzwerk/PXE")
+    print("    zuerst bootet (→ LINBO), falls Windows sich immer wieder vordrängt.")
+    answers["bootorder_pxe_first"] = _ask_yesno(
+        "    Aktivieren? (hardwareabhängig — erst auf EINEM Gerät testen, Log unter %SystemRoot%\\Temp)",
+        bool(answers.get("bootorder_pxe_first")))
+
     # Preview
     print("\n── Vorschau (Dry-Run) ─────────────────────────────────────")
     if _ask_yesno("Vorschau anzeigen?", True):

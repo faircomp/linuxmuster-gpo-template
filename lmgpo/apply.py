@@ -47,6 +47,7 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_ssid": "",        # teacher enterprise SSID (WPA2/PEAP, user-auth)
     "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
+    "bootorder_pxe_first": False,      # opt-in: UEFI-Bootreihenfolge Netzwerk/PXE zuerst (Startskript)
 }
 
 
@@ -323,6 +324,8 @@ class Applier:
         if req == "wlan_enterprise":
             return bool((self.answers.get("wlan_enterprise_ssid") or "").strip()
                         and (self.answers.get("wlan_enterprise_ca_cert") or "").strip())
+        if req == "bootorder":
+            return bool(self.answers.get("bootorder_pxe_first"))
         return True
 
     def apply_pack(self, pack, school, schools):

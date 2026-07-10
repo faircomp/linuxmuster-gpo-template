@@ -6,7 +6,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 27 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 28 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -33,7 +33,7 @@ registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (27 Pakete)
+## Features (28 Pakete)
 
 Immer aktiv (kein zusätzlicher Parameter nötig):
 
@@ -66,6 +66,7 @@ Optional (per `site.yaml` / Setup-Assistent aktiviert):
 | **Rollen-Proxy** | `proxy_enabled` + Host | **Adresse folgt dem Gerät** (Schule), **Port folgt dem Nutzer** (Lehrer/Schüler/Staff), roaming-fest; alle Browser auf System-Proxy; Proxy-Host als Intranet-Zone (SSO) |
 | **WLAN PSK (Schüler)** | `wlan_psk_networks` | beliebig viele PSK-Netze als Maschinen-Profil → verbinden **vor dem Login**, **standortübergreifend roaming-fähig**; *nicht* auf Lehrer-Notebooks |
 | **WLAN Enterprise (Lehrer)** | `wlan_enterprise_ssid` + CA-Cert | WPA2-Enterprise/PEAP mit RADIUS, CA-Zertifikat wird installiert; **nur Lehrer** (RADIUS erzwingt Gruppe), exklusiv auf `d_nopxe` |
+| **UEFI-Bootreihenfolge PXE zuerst** | `bootorder_pxe_first: true` | Startskript (SYSTEM, jeder Boot) zwingt Netzwerk/PXE an die erste Stelle (→ LINBO), falls Windows sich vordrängt; robuste Muster-Erkennung, idempotent. **Hardwareabhängig — erst auf 1 Gerät testen** |
 
 ## Nutzung
 
@@ -137,6 +138,8 @@ wlan_psk_networks:                       # beliebig viele — je Standort ein Ei
 wlan_enterprise_ssid: "Lehrer-WLAN"
 wlan_enterprise_servernames: "radius.schule.de"
 wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
+
+bootorder_pxe_first: false    # true = UEFI-Bootreihenfolge per Startskript auf Netzwerk/PXE zuerst
 ```
 
 > `site.yaml` enthält Geheimnisse (PSKs, verschlüsseltes Bind-Passwort) und ist in
@@ -228,7 +231,7 @@ Läuft als root auf dem DC.
 
 ```
 lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, setup, cli)
-catalog/      27 YAML-Policy-Pakete
+catalog/      28 YAML-Policy-Pakete
 scripts/      Windows-Startskripte + lmgpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
