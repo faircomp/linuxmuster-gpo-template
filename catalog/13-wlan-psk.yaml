@@ -1,15 +1,15 @@
 id: "13-wlan-psk"
-title: "WLAN PSK (Schüler-Notebooks, vor dem Login)"
+title: "Wi-Fi PSK (student laptops, before login)"
 scope: global
 target: computer
 requires: wlan_psk
 filter_deny: ['@nopxe']
 description: >
-  Rollt die PSK-WLANs (alle Standorte, aus wlan_psk_networks) als Maschinen-Profile
-  per Startskript (netsh wlan add profile user=all) aus → verbinden VOR dem Login.
-  Gilt für alle verwalteten Geräte AUSSER Lehrer-Notebooks (Deny d_nopxe); die
-  bekommen Enterprise (13-wlan-enterprise). Nur aktiv, wenn PSK-Netze konfiguriert sind.
-  SICHERHEIT: der PSK steht im Profil-XML → in sysvol lesbar; GPO ggf. auf Domain
-  Computers filtern.
+  Deploys the PSK Wi-Fi networks (all sites, from wlan_psk_networks) as machine profiles
+  via startup script (netsh wlan add profile user=all) → connect BEFORE login.
+  Applies to all managed devices EXCEPT teacher laptops (deny d_nopxe); those get
+  Enterprise (13-wlan-enterprise). Only active when PSK networks are configured.
+  SECURITY: the PSK is stored in the profile XML → readable in sysvol; consider
+  filtering the GPO to Domain Computers.
 wlan:
   mode: psk

@@ -1,18 +1,18 @@
 id: "10-veyon-schule"
-title: "Veyon (Klassenraum-Steuerung, pro Schule, Design A)"
+title: "Veyon (classroom control, per school, Design A)"
 scope: school
 target: computer
 requires: veyon
 description: >
-  Veyon-Config per Registry (HKLM\SOFTWARE\Veyon Solutions\Veyon\*): Logon-Auth +
-  LDAP-Directory. Design A (Roaming): Directory pro Schule (ComputerTree), aber
-  UserTree/GroupTree global + globale role-teacher-Gruppe → jeder Lehrer darf an
-  jeder Schule Master. Die Windows-Firewall bleibt für Veyon (11100) KOMPLETT OFFEN;
-  die Schul-Trennung (kein Fernsteuern anderer Schulen) macht die OPNsense.
-  Nur aktiv, wenn Bind-DN + Bind-PW-Hex gesetzt sind.
-  Bind-Passwort ist reversibel (siehe docs/VEYON-PLAN.md §5) — global-veyon eng berechtigt halten.
+  Veyon config via registry (HKLM\SOFTWARE\Veyon Solutions\Veyon\*): logon auth +
+  LDAP directory. Design A (roaming): directory per school (ComputerTree), but
+  UserTree/GroupTree global + global role-teacher group → every teacher may use
+  Master at every school. The Windows firewall stays COMPLETELY OPEN for Veyon (11100);
+  the school separation (no remote-controlling other schools) is done by OPNsense.
+  Only active when bind DN + bind PW hex are set.
+  The bind password is reversible (see docs/VEYON-PLAN.md §5) — keep global-veyon tightly authorized.
 registry:
-  # --- Authentifizierung / Directory-Backend ---
+  # --- Authentication / directory backend ---
   - { key: 'Software\Veyon Solutions\Veyon\Authentication', name: Method, type: dword, data: 0 }
   - { key: 'Software\Veyon Solutions\Veyon\NetworkObjectDirectory', name: Plugin, type: sz, data: '6f0a491e-c1c6-4338-8244-f823b0bf8670' }
   - { key: 'Software\Veyon Solutions\Veyon\UserGroups', name: Backend, type: sz, data: '6f0a491e-c1c6-4338-8244-f823b0bf8670' }
@@ -27,9 +27,9 @@ registry:
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: BindPassword, type: sz, data: '@veyon-bindpw' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: UseBindCredentials, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: RecursiveSearchOperations, type: sz, data: 'true' }
-  # Nested-Gruppen auflösen: Lehrer, die nur INDIREKT (über z. B. teachers) in role-teacher
-  # hängen, werden sonst NICHT als Mitglied erkannt → AccessControl weist sie ab. Die
-  # linuxmuster-Referenz-Config setzt das ebenfalls. Ohne Downside für direkte Mitglieder.
+  # Resolve nested groups: teachers who are only INDIRECTLY (e.g. via teachers) in role-teacher
+  # would otherwise NOT be recognized as members → AccessControl rejects them. The
+  # linuxmuster reference config sets this too. No downside for direct members.
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: QueryNestedUserGroups, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerTree, type: sz, data: 'OU=Devices,OU=@school,OU=SCHOOLS' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputersFilter, type: sz, data: '(sophomorixRole=classroom-studentcomputer)' }
@@ -44,23 +44,23 @@ registry:
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationsByContainer, type: sz, data: 'false' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: ComputerLocationAttribute, type: sz, data: 'sophomorixComputerRoom' }
   - { key: 'Software\Veyon Solutions\Veyon\LDAP', name: LocationNameAttribute, type: sz, data: 'sophomorixComputerRoom' }
-  # --- AccessControl: nur Lehrer (global) ---
-  # WICHTIG: Gruppen als BaseDN-RELATIVE DNs (ohne ,DC=…), weil Veyon so vergleicht.
-  # Beide Lehrergruppen: role-teacher (direkte Mitglieder) + all-teachers (verschachtelt
-  # über <schule>-teachers, deshalb QueryNestedUserGroups=true). Fehlt eine, wird sie gedroppt.
+  # --- AccessControl: teachers only (global) ---
+  # IMPORTANT: groups as BaseDN-RELATIVE DNs (without ,DC=…), because that is how Veyon compares.
+  # Both teacher groups: role-teacher (direct members) + all-teachers (nested
+  # via <school>-teachers, hence QueryNestedUserGroups=true). If one is missing, it is dropped.
   - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessRestrictedToUserGroups, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AccessControlRulesProcessingEnabled, type: sz, data: 'false' }
   - { key: 'Software\Veyon Solutions\Veyon\AccessControl', name: AuthorizedUserGroups, type: multi_sz, data: ['@all-teachers', '@role-teacher'] }
-  # --- Master: aktueller Raum als Default, andere wählbar ---
+  # --- Master: current room as default, others selectable ---
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: AutoSelectCurrentLocation, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: ShowCurrentLocationOnly, type: sz, data: 'false' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: AllowAddingHiddenLocations, type: sz, data: 'false' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: HideLocalComputer, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: HideEmptyLocations, type: sz, data: 'true' }
   - { key: 'Software\Veyon Solutions\Veyon\Master', name: AccessControlForMasterEnabled, type: sz, data: 'true' }
-  # --- Netzwerk / Dienst / Windows ---
-  # FirewallExceptionEnabled=1: Veyon öffnet Port 11100 selbst → Windows-Firewall komplett offen.
-  # Die Schul-Trennung (Cross-School-Sperre) macht die OPNsense, NICHT die Windows-Firewall.
+  # --- Network / service / Windows ---
+  # FirewallExceptionEnabled=1: Veyon opens port 11100 itself → Windows firewall completely open.
+  # The school separation (cross-school block) is done by OPNsense, NOT the Windows firewall.
   - { key: 'Software\Veyon Solutions\Veyon\Network', name: VeyonServerPort, type: dword, data: 11100 }
   - { key: 'Software\Veyon Solutions\Veyon\Network', name: FirewallExceptionEnabled, type: sz, data: '1' }
   - { key: 'Software\Veyon Solutions\Veyon\Service', name: RemoteConnectionNotifications, type: sz, data: 'true' }

@@ -1,10 +1,10 @@
 id: "00c-onedrive"
-title: "OneDrive deaktivieren"
+title: "Disable OneDrive"
 scope: global
 target: computer
 description: >
-  OneDrive-Dateisynchronisierung + Erstlauf unterbinden. Deaktivieren, falls
-  OneDrive/MS365 an der Schule genutzt wird.
+  Prevent OneDrive file synchronization and first run. Disable if
+  OneDrive/MS365 is used at the school.
 registry:
   - { key: 'Software\Policies\Microsoft\Windows\OneDrive', name: DisableFileSyncNGSC, class: machine, type: dword, data: 1 }
   - { key: 'Software\Policies\Microsoft\Windows\OneDrive', name: DisableFileSync, class: machine, type: dword, data: 1 }

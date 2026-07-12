@@ -71,7 +71,7 @@ class ScriptsExt:
             if unchanged:
                 # Heal a possible partial prior run: ensure the CSE is registered.
                 version.register_cse(guid, self.engine.env.basedn, version.SCRIPTS_CSE)
-                self.engine._log("    Start-/Shutdownskript(e) unverändert — übersprungen")
+                self.engine._log("    Startup/shutdown script(s) unchanged — skipped")
                 return False
         for rel, _name, scr in sections:
             d = os.path.join(gpo_dir, rel)

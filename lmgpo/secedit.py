@@ -64,7 +64,7 @@ class SecEdit:
                         content.replace("\r\n", "\n"):
                     # Heal a possible partial prior run: ensure the CSE is registered.
                     version.register_cse(guid, self.engine.env.basedn, version.SECURITY_CSE)
-                    self.engine._log("    GptTmpl.inf unverändert — übersprungen")
+                    self.engine._log("    GptTmpl.inf unchanged — skipped")
                     return False
             except Exception:
                 pass
@@ -80,5 +80,5 @@ class SecEdit:
         version.register_cse(guid, self.engine.env.basedn, version.SECURITY_CSE)
         version.bump(guid, self.engine.env.basedn, self.engine.sysvol_path(guid),
                      machine=True)
-        self.engine._log(f"    GptTmpl.inf geschrieben + Security-CSE/Version gesetzt")
+        self.engine._log(f"    GptTmpl.inf written + Security CSE/version set")
         return True

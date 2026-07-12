@@ -1,23 +1,23 @@
 id: "15-lockdown-student"
-title: "Schüler-Lockdown: Proxy & sensible Einstellungen sperren (nur role-student)"
+title: "Student lockdown: lock proxy & sensitive settings (role-student only)"
 scope: global
 target: user
 filter_apply: ['@role-student']
 description: >
-  Verhindert, dass SCHÜLER sicherheits-/verwaltungsrelevante Windows-Einstellungen ändern —
-  vor allem den per GPO gesetzten Proxy (der Schüler kann ihn nicht rausnehmen). Reine
-  HKCU-Policies, exklusiv auf role-student gefiltert und per Loopback (15-lockdown-base) auf
-  gemeinsam genutzten Rechnern wirksam. LEHRER und ADMINS sind NICHT betroffen (nicht in
-  role-student) und dürfen alles ändern. Bewusst moderat gehalten (kein komplettes Sperren
-  der Systemsteuerung); strengere Optionen siehe README.
+  Prevents STUDENTS from changing security-/management-relevant Windows settings —
+  above all the GPO-set proxy (the student cannot remove it). Pure
+  HKCU policies, filtered exclusively to role-student and effective on shared
+  machines via loopback (15-lockdown-base). TEACHERS and ADMINS are NOT affected (not in
+  role-student) and may change everything. Deliberately kept moderate (no complete locking
+  of the Control Panel); for stricter options see the README.
 registry:
-  # Proxy nicht änderbar — wirkt in der Einstellungen-App UND in den Internetoptionen.
-  # Kernanliegen: Schüler kann den zugewiesenen Proxy nicht deaktivieren/umbiegen.
+  # Proxy cannot be changed — takes effect in the Settings app AND in the Internet Options.
+  # Core goal: the student cannot disable/redirect the assigned proxy.
   - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: Proxy, class: user, type: dword, data: 1 }
-  # "Verbindungen"-Tab (LAN-/Proxy-Einstellungen) in den Internetoptionen ausblenden.
+  # Hide the "Connections" tab (LAN/proxy settings) in the Internet Options.
   - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: ConnectionsTab, class: user, type: dword, data: 1 }
-  # Automatische Konfiguration (PAC/Autoconfig) nicht änderbar.
+  # Automatic configuration (PAC/autoconfig) cannot be changed.
   - { key: 'Software\Policies\Microsoft\Internet Explorer\Control Panel', name: Autoconfig, class: user, type: dword, data: 1 }
-  # Registry-Editor sperren (2 = interaktiver regedit gesperrt, stille .reg/GPP weiter möglich),
-  # damit Schüler die o. g. Sperren nicht per regedit aushebeln.
+  # Lock the Registry Editor (2 = interactive regedit locked, silent .reg/GPP still possible),
+  # so that students cannot bypass the above locks via regedit.
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: DisableRegistryTools, class: user, type: dword, data: 2 }

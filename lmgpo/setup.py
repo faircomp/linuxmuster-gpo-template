@@ -41,7 +41,7 @@ def _ask(prompt: str, default: str) -> str:
 
 
 def _ask_yesno(prompt: str, default: bool = True) -> bool:
-    d = "J/n" if default else "j/N"
+    d = "Y/n" if default else "y/N"
     try:
         r = input(f"  {prompt} [{d}]: ").strip().lower()
     except EOFError:
@@ -52,55 +52,55 @@ def _ask_yesno(prompt: str, default: bool = True) -> bool:
 
 
 def _ask_wlan(answers: dict) -> None:
-    """WLAN-Teil des Assistenten: beliebig viele Schüler-PSK-WLANs (Schleife) plus
-    optional ein Lehrer-Enterprise-WLAN. Mutiert ``answers`` in place. Bestehende
-    site.yaml-Einträge werden angezeigt und beim Ablehnen unverändert gelassen."""
-    print("\n  WLAN per GPO ausrollen (optional):")
-    print("    • Schüler-WLAN(s): WPA2 mit Passwort (PSK), verbinden schon VOR dem Login.")
-    print("      Du kannst MEHRERE anlegen (z. B. je Standort eins) — die Notebooks bekommen")
-    print("      alle Profile und verbinden sich automatisch mit dem WLAN, das gerade in")
-    print("      Reichweite ist (Roaming). Gilt nicht für Lehrer-Notebooks (d_nopxe).")
-    print("    • Lehrer-WLAN: WPA2-Enterprise/PEAP über RADIUS — nur für Lehrer.")
+    """WLAN part of the assistant: any number of student PSK WLANs (loop) plus
+    optionally one teacher enterprise WLAN. Mutates ``answers`` in place. Existing
+    site.yaml entries are shown and left unchanged when declined."""
+    print("\n  Roll out WLAN via GPO (optional):")
+    print("    - Student WLAN(s): WPA2 with password (PSK), connect even BEFORE login.")
+    print("      You can create MULTIPLE (e.g. one per site) — the notebooks receive")
+    print("      all profiles and connect automatically to whichever WLAN is currently in")
+    print("      range (roaming). Does not apply to teacher notebooks (d_nopxe).")
+    print("    - Teacher WLAN: WPA2-Enterprise/PEAP via RADIUS — teachers only.")
     have_wlan = bool(answers.get("wlan_psk_networks") or answers.get("wlan_enterprise_ssid"))
-    if not _ask_yesno("WLAN jetzt einrichten?", have_wlan):
-        # WLAN nicht gewünscht → vorhandene site.yaml-Einträge bleiben unverändert.
+    if not _ask_yesno("Set up WLAN now?", have_wlan):
+        # WLAN not wanted -> existing site.yaml entries remain unchanged.
         return
 
-    # --- Schüler-WLANs (PSK), beliebig viele ---
+    # --- Student WLANs (PSK), any number ---
     nets = list(answers.get("wlan_psk_networks") or [])
     if nets:
-        print("  Bereits gespeicherte Schüler-WLANs:")
+        print("  Already saved student WLANs:")
         for i, n in enumerate(nets, 1):
             print(f"    {i}. {n.get('ssid', '?')}")
-        if _ask_yesno("Diese verwerfen und neu eingeben?", False):
+        if _ask_yesno("Discard these and re-enter?", False):
             nets = []
-    print("  Schüler-WLANs eingeben — leere SSID beendet die Eingabe:")
+    print("  Enter student WLANs — an empty SSID ends the input:")
     while True:
-        ssid = _ask(f"    {len(nets) + 1}. SSID (leer = fertig)", "").strip()
+        ssid = _ask(f"    {len(nets) + 1}. SSID (empty = done)", "").strip()
         if not ssid:
             break
-        psk = _ask(f"       Passwort (PSK) für '{ssid}', 8–63 Zeichen", "").strip()
+        psk = _ask(f"       Password (PSK) for '{ssid}', 8-63 characters", "").strip()
         if not (8 <= len(psk) <= 63):
-            print("       ⚠ PSK muss 8–63 Zeichen haben — Eintrag verworfen, bitte erneut.")
+            print("       ! PSK must be 8-63 characters — entry discarded, please retry.")
             continue
         nets.append({"ssid": ssid, "psk": psk})
-        print(f"       ✓ '{ssid}' hinzugefügt ({len(nets)} WLAN(s) gesamt)")
+        print(f"       + '{ssid}' added ({len(nets)} WLAN(s) total)")
     answers["wlan_psk_networks"] = nets
 
-    # --- Lehrer-WLAN (Enterprise/PEAP) ---
-    print("  Lehrer-WLAN (WPA2-Enterprise über RADIUS, nur Lehrer):")
-    es = _ask("    SSID (leer = kein Lehrer-WLAN)",
+    # --- Teacher WLAN (Enterprise/PEAP) ---
+    print("  Teacher WLAN (WPA2-Enterprise via RADIUS, teachers only):")
+    es = _ask("    SSID (empty = no teacher WLAN)",
               answers.get("wlan_enterprise_ssid", "") or "").strip()
     answers["wlan_enterprise_ssid"] = es
     if es:
         answers["wlan_enterprise_servernames"] = _ask(
-            "    Name(n) im RADIUS-Server-Zertifikat, mit ';' getrennt (leer = Servername nicht prüfen)",
+            "    Name(s) in the RADIUS server certificate, separated by ';' (empty = do not check server name)",
             answers.get("wlan_enterprise_servernames", "") or "").strip()
         answers["wlan_enterprise_ca_cert"] = _ask(
-            "    Pfad zur RADIUS-CA-Zertifikatsdatei auf DIESEM Server (.cer/.pem)",
+            "    Path to the RADIUS CA certificate file on THIS server (.cer/.pem)",
             answers.get("wlan_enterprise_ca_cert", "") or "").strip()
-        print("    Hinweis: Der allererste Lehrer-Login an einem Notebook braucht einmalig")
-        print("    Kabel/anderes Netz (User-Auth); danach verbindet das WLAN per SSO automatisch.")
+        print("    Note: The very first teacher login on a notebook requires cable/another")
+        print("    network once (user auth); afterwards the WLAN connects automatically via SSO.")
 
 
 def run(site_path: str = DEFAULT_SITE) -> int:
@@ -108,127 +108,127 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     packs = catalog.load_packs()
     answers = {**DEFAULT_ANSWERS, **load_site(site_path)}
 
-    print("linuxmuster-gpo-template — Setup-Assistent\n")
-    print(f"Erkannt: Realm {e.realm} · Server {e.serverip}/{e.subnet.split('/')[-1]} "
-          f"· {len(e.schools)} Schule(n)")
-    print("Gruppen: "
+    print("linuxmuster-gpo-template — setup assistant\n")
+    print(f"Detected: realm {e.realm} · server {e.serverip}/{e.subnet.split('/')[-1]} "
+          f"· {len(e.schools)} school(s)")
+    print("Groups: "
           + " ".join(f"{n}{'✓' if g and g.sid else '✗'}"
                      for n, g in (("global-admins ", e.global_admins),
                                   ("admins ", e.schools[0].admins if e.schools else None),
                                   ("nopxe ", e.schools[0].nopxe if e.schools else None))))
     print()
 
-    # Schools (Default = frühere Auswahl aus der site.yaml)
+    # Schools (default = earlier selection from the site.yaml)
     if len(e.schools) > 1:
         allnames = ",".join(s.name for s in e.schools)
         prior = answers.get("schools")
-        default = ",".join(prior) if prior else "alle"
-        sel = _ask(f"Für welche Schulen? (alle | Komma-Liste aus {allnames})", default)
+        default = ",".join(prior) if prior else "all"
+        sel = _ask(f"For which schools? (all | comma list from {allnames})", default)
         answers["schools"] = None if sel.strip().lower() in ("alle", "all") else \
             [x.strip() for x in sel.split(",") if x.strip()]
     else:
         answers["schools"] = None
 
-    # Packs (Default = frühere Auswahl: None = alle, sonst Teilmenge)
-    print("\n  Pakete im Katalog:")
+    # Packs (default = earlier selection: None = all, otherwise a subset)
+    print("\n  Packs in the catalog:")
     for p in packs:
         print(f"    - {p.id:22} {p.title}")
     prior_packs = answers.get("packs")
-    if _ask_yesno("Alle Pakete übernehmen?", prior_packs is None):
+    if _ask_yesno("Apply all packs?", prior_packs is None):
         answers["packs"] = None
     else:
         default_ids = ",".join(prior_packs) if prior_packs else ",".join(p.id for p in packs)
-        sel = _ask("IDs (Komma-getrennt) aktivieren", default_ids)
+        sel = _ask("Enable IDs (comma-separated)", default_ids)
         answers["packs"] = [x.strip() for x in sel.split(",") if x.strip()]
 
     # Firewall scope
-    fw = _ask("Firewall eingehend erlauben von: serverip | subnet | <eigene IP/CIDR>",
+    fw = _ask("Allow firewall inbound from: serverip | subnet | <own IP/CIDR>",
               answers.get("fwsource", "serverip"))
     answers["fwsource"] = fw
 
     # Teacher notebooks
-    tnb = _ask("Lehrer-Notebooks = Gruppe (nopxe | skip | <Gruppen-CN>)",
+    tnb = _ask("Teacher notebooks = group (nopxe | skip | <group CN>)",
                answers.get("teachernb", "nopxe"))
     answers["teachernb"] = tnb
 
     # KMS activation
-    kms = _ask("KMS-Host für Windows-Aktivierung (leer = kein KMS)",
+    kms = _ask("KMS host for Windows activation (empty = no KMS)",
                answers.get("kmshost", "") or "")
     answers["kmshost"] = kms.strip()
 
     # Wallpaper / branding source dir
-    print("  Hintergrundbilder: lege sie als wallpapers/<schule>.jpg ab (Fallback default.jpg).")
-    wpd = _ask("Wallpaper-Quellverzeichnis (leer = repo wallpapers/)",
+    print("  Wallpapers: place them as wallpapers/<school>.jpg (fallback default.jpg).")
+    wpd = _ask("Wallpaper source directory (empty = repo wallpapers/)",
                answers.get("wallpaper_dir", "") or "")
     answers["wallpaper_dir"] = wpd.strip()
 
-    # Veyon (optional, Design A: Roaming + Firewall-Standortsperre)
-    print("  Veyon (Klassenraum-Steuerung, optional — leer lassen zum Überspringen):")
-    vbd = _ask("Veyon Bind-DN (dedizierter read-only User, z.B. CN=global-veyon,OU=Management,OU=GLOBAL,...)",
+    # Veyon (optional, design A: roaming + firewall site lock)
+    print("  Veyon (classroom management, optional — leave empty to skip):")
+    vbd = _ask("Veyon bind DN (dedicated read-only user, e.g. CN=global-veyon,OU=Management,OU=GLOBAL,...)",
                answers.get("veyon_binddn", "") or "")
     answers["veyon_binddn"] = vbd.strip()
     if answers["veyon_binddn"]:
-        vph = _ask("Veyon Bind-Passwort-Hex (aus Configurator-Export oder 'lmgpo veyon-encrypt-password')",
+        vph = _ask("Veyon bind password hex (from Configurator export or 'lmgpo veyon-encrypt-password')",
                    answers.get("veyon_bindpw_hex", "") or "")
         answers["veyon_bindpw_hex"] = vph.strip()
 
     # Firefox (optional)
-    if _ask_yesno("Firefox-Policies aktivieren (First-Run aus, saubere New-Tab, kein Werbekram)?",
+    if _ask_yesno("Enable Firefox policies (first-run off, clean new tab, no promo clutter)?",
                   bool(answers.get("firefox_enabled"))):
         answers["firefox_enabled"] = True
-        hp = _ask("Firefox-Startseite (URL, global; leer = keine Startseite setzen)",
+        hp = _ask("Firefox homepage (URL, global; empty = do not set a homepage)",
                   answers.get("firefox_homepage", "") or "")
         answers["firefox_homepage"] = hp.strip()
         if answers["firefox_homepage"]:
             answers["firefox_homepage_locked"] = _ask_yesno(
-                "Startseite fest sperren (überschreibt/verriegelt die Nutzereinstellung)?",
+                "Lock the homepage (overrides/locks the user setting)?",
                 bool(answers.get("firefox_homepage_locked", True)))
-        print("  (Pro-Schule andere Startseite? In site.yaml 'firefox_homepage_by_school: {<schule>: <url>}' setzen.)")
+        print("  (Different homepage per school? Set 'firefox_homepage_by_school: {<school>: <url>}' in site.yaml.)")
     else:
         answers["firefox_enabled"] = False
 
-    # Proxy (optional, rollenbasiert, pro Schule, Roaming)
-    if _ask_yesno("Rollen-Proxy aktivieren (Lehrer/Schüler/Staff je Port, pro Schule, Roaming)?",
+    # Proxy (optional, role-based, per school, roaming)
+    if _ask_yesno("Enable role proxy (teacher/student/staff per port, per school, roaming)?",
                   bool(answers.get("proxy_enabled"))):
         answers["proxy_enabled"] = True
-        ph = _ask("Proxy-Host global (pro Schule via 'proxy_host_by_school' in site.yaml überschreibbar)",
+        ph = _ask("Proxy host global (overridable per school via 'proxy_host_by_school' in site.yaml)",
                   answers.get("proxy_host", "") or "")
         answers["proxy_host"] = ph.strip()
         ports = answers.get("proxy_port_by_role") or {"teacher": 3128, "student": 3129, "staff": 3130}
-        pt = _ask("Port Lehrer", str(ports.get("teacher", 3128)))
-        ps = _ask("Port Schüler", str(ports.get("student", 3129)))
-        pst = _ask("Port Staff", str(ports.get("staff", 3130)))
+        pt = _ask("Port teacher", str(ports.get("teacher", 3128)))
+        ps = _ask("Port student", str(ports.get("student", 3129)))
+        pst = _ask("Port staff", str(ports.get("staff", 3130)))
         try:
             answers["proxy_port_by_role"] = {"teacher": int(pt), "student": int(ps), "staff": int(pst)}
         except ValueError:
-            print("  (ungültiger Port — behalte Defaults 3128/3129/3130)")
-        print("  Ausnahmen (kein Proxy): Default = <local> + *.<realm> + private Netze; via 'proxy_exceptions' anpassbar.")
+            print("  (invalid port — keeping defaults 3128/3129/3130)")
+        print("  Exceptions (no proxy): default = <local> + *.<realm> + private networks; adjustable via 'proxy_exceptions'.")
     else:
         answers["proxy_enabled"] = False
 
-    # WLAN (optional): Schüler-PSK (mehrere) + Lehrer-Enterprise
+    # WLAN (optional): student PSK (multiple) + teacher enterprise
     _ask_wlan(answers)
 
-    # UEFI-Bootreihenfolge (opt-in, hardwareabhängig)
-    print("\n  UEFI-Bootreihenfolge (optional): erzwingt per Startskript, dass Netzwerk/PXE")
-    print("    zuerst bootet (→ LINBO), falls Windows sich immer wieder vordrängt.")
+    # UEFI boot order (opt-in, hardware-dependent)
+    print("\n  UEFI boot order (optional): forces via startup script that network/PXE")
+    print("    boots first (-> LINBO), in case Windows keeps pushing itself to the front.")
     answers["bootorder_pxe_first"] = _ask_yesno(
-        "    Aktivieren? (hardwareabhängig — erst auf EINEM Gerät testen, Log unter %SystemRoot%\\Temp)",
+        "    Enable? (hardware-dependent — test on ONE device first, log under %SystemRoot%\\Temp)",
         bool(answers.get("bootorder_pxe_first")))
 
     # Preview
-    print("\n── Vorschau (Dry-Run) ─────────────────────────────────────")
-    if _ask_yesno("Vorschau anzeigen?", True):
+    print("\n-- Preview (dry run) ---------------------------------------")
+    if _ask_yesno("Show preview?", True):
         Applier(e, answers, dry_run=True).run(packs)
 
     # Save
-    if _ask_yesno(f"\nAntworten in {site_path} speichern?", True):
+    if _ask_yesno(f"\nSave answers to {site_path}?", True):
         save_site(site_path, answers)
-        print(f"  gespeichert: {site_path}")
+        print(f"  saved: {site_path}")
 
     # Apply
-    if _ask_yesno("\nJetzt WIRKLICH anwenden?", False):
-        print("\n── Anwenden ───────────────────────────────────────────────")
+    if _ask_yesno("\nApply for REAL now?", False):
+        print("\n-- Applying ------------------------------------------------")
         return Applier(e, answers, dry_run=False).run(packs)
-    print("Nichts angewandt.")
+    print("Nothing applied.")
     return 0

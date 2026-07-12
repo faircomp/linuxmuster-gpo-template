@@ -1,21 +1,21 @@
-# Hintergrundbilder (Desktop + Anmeldebildschirm)
+# Wallpapers (desktop + logon screen)
 
-Lege hier pro Schule ein Bild ab. Das Toolkit kopiert es beim `apply` nach
-**NETLOGON** (`\\<domain>\NETLOGON\lmgpo-wallpapers\<schule>.<ext>`, für alle
-Clients lesbar) und setzt es als **Desktop-Hintergrund** (User) und
-**Sperr-/Anmeldebildschirm-Bild** (Computer) für die jeweilige Schule.
+Place one image per school here. During `apply` the toolkit copies it to
+**NETLOGON** (`\\<domain>\NETLOGON\lmgpo-wallpapers\<schule>.<ext>`, readable by all
+clients) and sets it as the **desktop wallpaper** (user) and
+**lock/logon screen image** (computer) for the respective school.
 
-## Namensschema
+## Naming scheme
 
-- `wallpapers/<schulname>.jpg` — z. B. `default-school.jpg`, `gym.jpg`
-- `wallpapers/default.jpg` — Fallback für Schulen ohne eigenes Bild
+- `wallpapers/<schulname>.jpg` — e.g. `default-school.jpg`, `gym.jpg`
+- `wallpapers/default.jpg` — fallback for schools without their own image
 
-Unterstützte Endungen: `.jpg`, `.jpeg`, `.png`, `.bmp`.
+Supported extensions: `.jpg`, `.jpeg`, `.png`, `.bmp`.
 
-Ist für eine Schule kein Bild (und kein `default.*`) vorhanden, wird das
-Branding-Paket für diese Schule übersprungen (`requires: wallpaper`).
+If no image (and no `default.*`) exists for a school, the branding pack for that
+school is skipped (`requires: wallpaper`).
 
-Ein alternatives Quellverzeichnis lässt sich im Assistenten (bzw. in der
-`site.yaml` als `wallpaper_dir`) angeben.
+An alternative source directory can be specified in the wizard (or in
+`site.yaml` as `wallpaper_dir`).
 
-> Empfehlung: 1920×1080 (oder die native Auflösung eurer Geräte), JPG/PNG.
+> Recommendation: 1920×1080 (or the native resolution of your devices), JPG/PNG.

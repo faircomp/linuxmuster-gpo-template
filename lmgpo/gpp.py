@@ -67,7 +67,7 @@ class GppGroups:
                         content.replace("\r\n", "\n"):
                     # Heal a possible partial prior run: ensure the CSE is registered.
                     version.register_cse(guid, self.engine.env.basedn, version.GPP_GROUPS_CSE)
-                    self.engine._log("    Groups.xml unverändert — übersprungen")
+                    self.engine._log("    Groups.xml unchanged — skipped")
                     return False
             except Exception:
                 pass
@@ -82,5 +82,5 @@ class GppGroups:
         version.register_cse(guid, self.engine.env.basedn, version.GPP_GROUPS_CSE)
         version.bump(guid, self.engine.env.basedn, self.engine.sysvol_path(guid),
                      machine=True)
-        self.engine._log("    Groups.xml geschrieben + GPP-CSE/Version gesetzt")
+        self.engine._log("    Groups.xml written + GPP CSE/version set")
         return True

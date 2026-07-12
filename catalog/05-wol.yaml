@@ -1,12 +1,12 @@
 id: "05-wol"
-title: "Wake-on-LAN + Fast Startup aus"
+title: "Wake-on-LAN + Fast Startup off"
 scope: global
 target: computer
 description: >
-  Fast Startup aus (HiberbootEnabled=0) für zuverlässiges echtes S5 und WoL,
-  plus Startskript, das WoL/Magic-Packet auf allen NICs scharf schaltet und
-  "Gerät zum Energiesparen ausschalten" deaktiviert. Gilt für ALLE Geräte
-  (auch Notebooks), damit linbo-remote -w sie aufwecken kann.
+  Fast Startup off (HiberbootEnabled=0) for reliable real S5 and WoL,
+  plus a startup script that arms WoL/magic packet on all NICs and
+  disables "Allow the computer to turn off this device to save power". Applies to
+  ALL devices (including notebooks) so that linbo-remote -w can wake them.
 registry:
   - { key: 'SYSTEM\CurrentControlSet\Control\Session Manager\Power', name: HiberbootEnabled, class: machine, type: dword, data: 0 }
 startup_scripts:

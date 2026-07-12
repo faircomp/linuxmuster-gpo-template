@@ -1,6 +1,6 @@
-# hibernate-off.ps1 — Ruhezustand (Hibernate) komplett deaktivieren.
-# Computer-Startskript (linuxmuster-gpo-template). Gilt per GPO-Deny-Filter NICHT
-# für noPXE-Geräte (z.B. Lehrer-Notebooks), damit diese ihren Ruhezustand behalten.
-# Idempotent: no-op, wenn Hibernate bereits aus ist.
+# hibernate-off.ps1 — Disable hibernate completely.
+# Computer startup script (linuxmuster-gpo-template). Via a GPO deny filter it does
+# NOT apply to noPXE devices (e.g. teacher notebooks), so they keep their hibernate.
+# Idempotent: no-op if hibernate is already off.
 $ErrorActionPreference = 'SilentlyContinue'
 powercfg /hibernate off | Out-Null

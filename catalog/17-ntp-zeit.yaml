@@ -1,20 +1,20 @@
 id: "17-ntp-zeit"
-title: "Zeitsynchronisation (W32Time) vom Domänen-Server"
+title: "Time synchronization (W32Time) from the domain server"
 scope: global
 target: computer
 description: >
-  Erzwingt die Windows-Zeitsynchronisation per GPO (W32Time). Default „Samba-Weg" NT5DS:
-  die Clients synchronisieren über die Domäne vom DC (= dem linuxmuster-Server), signiert
-  über dessen mssntp/ntpsigndsocket. Der NtpServer-Wert (server.<realm>,0x9) ist ebenfalls
-  gesetzt, wird bei NT5DS aber ignoriert — er greift nur, wenn per site.yaml 'ntp_mode: ntp'
-  auf expliziten NTP umgeschaltet wird.
-  KERN-FIX gegen „nicht alle Uhrzeiten stimmen": MaxPos/NegPhaseCorrection = 0xFFFFFFFF
-  (immer korrigieren) — sonst weigert sich W32Time, große Versätze zu korrigieren (typisch
-  bei leeren BIOS/CMOS-Batterien, wo die Uhr weit zurückspringt).
-  Gilt nur für Clients (an OU=SCHOOLS verlinkt); der DC bleibt unberührt und behält seine
-  eigene Zeitquelle. Wirksam nach gpupdate + Neustart (oder 'w32tm /config /update').
+  Enforces Windows time synchronization via GPO (W32Time). Default "Samba way" NT5DS:
+  the clients synchronize over the domain from the DC (= the linuxmuster server), signed
+  via its mssntp/ntpsigndsocket. The NtpServer value (server.<realm>,0x9) is also
+  set, but is ignored under NT5DS — it only takes effect when switched to explicit NTP
+  via site.yaml 'ntp_mode: ntp'.
+  CORE FIX for "not all clocks are correct": MaxPos/NegPhaseCorrection = 0xFFFFFFFF
+  (always correct) — otherwise W32Time refuses to correct large offsets (typical
+  with dead BIOS/CMOS batteries, where the clock jumps far back).
+  Applies only to clients (linked at OU=SCHOOLS); the DC is left untouched and keeps its
+  own time source. Effective after gpupdate + reboot (or 'w32tm /config /update').
 registry:
-  # NTP-Client aktivieren + Modus (Type: NT5DS = Domäne, NTP = expliziter Server)
+  # Enable NTP client + mode (Type: NT5DS = domain, NTP = explicit server)
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: Enabled, class: machine, type: dword, data: 1 }
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: Type, class: machine, type: sz, data: '@ntp-type' }
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: NtpServer, class: machine, type: sz, data: '@serverfqdn,0x9' }
@@ -23,6 +23,6 @@ registry:
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: ResolvePeerBackoffMinutes, class: machine, type: dword, data: 15 }
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: ResolvePeerBackoffMaxTimes, class: machine, type: dword, data: 7 }
   - { key: 'Software\Policies\Microsoft\W32Time\TimeProviders\NtpClient', name: EventLogFlags, class: machine, type: dword, data: 0 }
-  # Immer korrigieren, auch bei großem Versatz (leere CMOS-Batterie o. Ä.)
+  # Always correct, even for large offsets (dead CMOS battery or similar)
   - { key: 'Software\Policies\Microsoft\W32Time\Config', name: MaxPosPhaseCorrection, class: machine, type: dword, data: 4294967295 }
   - { key: 'Software\Policies\Microsoft\W32Time\Config', name: MaxNegPhaseCorrection, class: machine, type: dword, data: 4294967295 }

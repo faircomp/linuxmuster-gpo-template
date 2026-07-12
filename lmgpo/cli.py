@@ -69,11 +69,11 @@ def cmd_doctor(args) -> int:
         e = envmod.detect()
     except ad.NotADomainController as exc:
         print(f"{BAD} {exc}")
-        print("    Dieses Tool muss auf dem linuxmuster.net Samba-AD-DC als root laufen.")
+        print("    This tool must run as root on the linuxmuster.net Samba AD DC.")
         return 2
 
-    print("linuxmuster-gpo-template — Umgebungs-Check\n")
-    print(f"{OK} Samba AD DC erkannt: {e.samba_version or 'Samba'}")
+    print("linuxmuster-gpo-template — environment check\n")
+    print(f"{OK} Samba AD DC detected: {e.samba_version or 'Samba'}")
     print(f"{OK} Realm {e.realm}   Base-DN {e.basedn}   NetBIOS {e.netbios}")
 
     ok = True
@@ -86,61 +86,61 @@ def cmd_doctor(args) -> int:
     def warn(cond, good, bad):
         print(f"{OK if cond else WARN} {good if cond else bad}")
 
-    check(bool(e.serverip), f"Server-IP {e.serverip}   Subnetz {e.subnet}",
-          "Server-IP nicht ermittelbar (setup.ini?)")
+    check(bool(e.serverip), f"Server IP {e.serverip}   Subnet {e.subnet}",
+          "Server IP could not be determined (setup.ini?)")
     check(os.path.isdir(e.sysvol_policies),
           f"sysvol Policies: {e.sysvol_policies}",
-          f"sysvol Policies-Pfad fehlt: {e.sysvol_policies}")
-    check(_gpo_load_available(), "samba-tool gpo load verfügbar",
-          "samba-tool gpo load FEHLT (Samba < 4.16?)")
+          f"sysvol Policies path missing: {e.sysvol_policies}")
+    check(_gpo_load_available(), "samba-tool gpo load available",
+          "samba-tool gpo load MISSING (Samba < 4.16?)")
     check(os.access(envmod.SECRET_ADMIN, os.R_OK),
-          f"Admin-Secret lesbar: {envmod.SECRET_ADMIN}",
-          f"Admin-Secret nicht lesbar: {envmod.SECRET_ADMIN}")
+          f"Admin secret readable: {envmod.SECRET_ADMIN}",
+          f"Admin secret not readable: {envmod.SECRET_ADMIN}")
 
     sysvol_ok, sysvol_out = ad.sysvolcheck()
     warn(sysvol_ok, "samba-tool ntacl sysvolcheck: ok",
-         "sysvolcheck meldet Abweichungen (ggf. sysvolreset nötig) — Details: "
+         "sysvolcheck reports discrepancies (sysvolreset may be needed) — details: "
          + (sysvol_out.splitlines()[0] if sysvol_out else ""))
 
     # Global groups
-    print("\nGlobale Gruppen:")
+    print("\nGlobal groups:")
     for label, g in (("global-admins", e.global_admins), ("all-admins", e.all_admins),
                      ("role-globaladministrator", e.role_globaladmin),
                      ("role-schooladministrator", e.role_schooladmin)):
         if g and g.sid:
             print(f"  {OK} {label}: {g.sid}")
         else:
-            print(f"  {WARN} {label}: nicht gefunden")
+            print(f"  {WARN} {label}: not found")
 
     # Schools
-    print(f"\nSchulen ({len(e.schools)}):")
+    print(f"\nSchools ({len(e.schools)}):")
     if not e.schools:
-        check(False, "", "Keine Schulen unter OU=SCHOOLS gefunden")
+        check(False, "", "No schools found under OU=SCHOOLS")
     for s in e.schools:
-        tag = "default-school (Präfix leer)" if s.is_default else f"Präfix '{s.prefix}'"
+        tag = "default-school (empty prefix)" if s.is_default else f"prefix '{s.prefix}'"
         print(f"  • {s.name}  [{tag}]")
         if s.admins and s.admins.sid:
-            print(f"      {OK} Admin-Gruppe: {s.admins.cn}  {s.admins.sid}")
+            print(f"      {OK} admin group: {s.admins.cn}  {s.admins.sid}")
         else:
-            print(f"      {BAD} Admin-Gruppe nicht gefunden")
+            print(f"      {BAD} admin group not found")
             ok = False
         if s.nopxe and s.nopxe.sid:
-            print(f"      {OK} noPXE-Gruppe: {s.nopxe.cn}  {s.nopxe.sid}")
+            print(f"      {OK} noPXE group: {s.nopxe.cn}  {s.nopxe.sid}")
         else:
-            print(f"      {WARN} noPXE-Gruppe (cn=*nopxe*) nicht gefunden "
-                  "— Update-Split ist dann ohne diese Gruppe nicht targetbar")
-        print(f"      Devices-OU: {s.devices_ou}")
-        print(f"      Räume: {len(s.rooms)}"
+            print(f"      {WARN} noPXE group (cn=*nopxe*) not found "
+                  "— without it the update split cannot be targeted")
+        print(f"      devices OU: {s.devices_ou}")
+        print(f"      rooms: {len(s.rooms)}"
               + (": " + ", ".join(r['name'] for r in s.rooms[:8]) if s.rooms else ""))
 
     # Existing GPOs
-    print("\nVorhandene GPOs:")
+    print("\nExisting GPOs:")
     for name, guid, ver in _iter_gpos(e.basedn):
-        mark = "  (unser)" if name.startswith(GPO_PREFIX) else (
-            "  (sophomorix — nicht anfassen)" if name.startswith("sophomorix:") else "")
+        mark = "  (ours)" if name.startswith(GPO_PREFIX) else (
+            "  (sophomorix — do not touch)" if name.startswith("sophomorix:") else "")
         print(f"  • {name}  v{ver}{mark}")
 
-    print(f"\n{'Alles Wesentliche ok.' if ok else 'Es gibt Probleme (siehe ' + BAD + ').'}")
+    print(f"\n{'Everything essential is ok.' if ok else 'There are problems (see ' + BAD + ').'}")
     return 0 if ok else 1
 
 
@@ -185,9 +185,9 @@ def cmd_list(args) -> int:
         linked = links.get(guid.upper(), [])
         print(f"{name}  [{guid}]  v{ver}")
         for dn in linked:
-            print(f"    ↳ verlinkt an {dn}")
+            print(f"    ↳ linked to {dn}")
         if not linked:
-            print("    (nicht verlinkt)")
+            print("    (not linked)")
     return 0
 
 
@@ -207,7 +207,7 @@ def cmd_apply(args) -> int:
     if args.pack:
         answers["packs"] = args.pack
     if not args.dry_run and not args.yes:
-        print("Das ändert echte GPOs auf dem DC. Mit --yes bestätigen oder --dry-run nutzen.")
+        print("This changes real GPOs on the DC. Confirm with --yes or use --dry-run.")
         return 1
     return applymod.Applier(e, answers, dry_run=args.dry_run).run(packs)
 
@@ -229,7 +229,7 @@ def cmd_remove(args) -> int:
         print(f"{BAD} {exc}", file=sys.stderr)
         return 2
     if not args.dry_run and not args.yes:
-        print("Das entfernt LMN-GPOs. Mit --yes bestätigen oder --dry-run nutzen.")
+        print("This removes LMN GPOs. Confirm with --yes or use --dry-run.")
         return 1
     return applymod.remove(e, dry_run=args.dry_run, only_ids=args.pack)
 
@@ -237,7 +237,7 @@ def cmd_remove(args) -> int:
 def cmd_veyon_encrypt(args) -> int:
     from . import veyon
     import getpass
-    pw = args.password or getpass.getpass("Veyon Bind-Passwort: ")
+    pw = args.password or getpass.getpass("Veyon bind password: ")
     try:
         print(veyon.encrypt_bindpw(pw))
         return 0
@@ -249,9 +249,9 @@ def cmd_veyon_encrypt(args) -> int:
 def cmd_selftest(args) -> int:
     from . import selftest
     if not args.yes and not args.dry_run:
-        print("Der Selbsttest legt eine Wegwerf-GPO an, verlinkt sie kurz an die")
-        print("Devices-OU und entfernt sie danach wieder restlos. Auf Testinstanzen")
-        print("unbedenklich. Zum Ausführen: --yes bestätigen (oder --dry-run).")
+        print("The self-test creates a throwaway GPO, briefly links it to the")
+        print("devices OU and then removes it again completely. Harmless on test")
+        print("instances. To run: confirm with --yes (or --dry-run).")
         return 1
     try:
         return selftest.run(dry_run=args.dry_run)
@@ -263,50 +263,50 @@ def cmd_selftest(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="lmgpo",
-        description="GPO-Template-Toolkit für linuxmuster.net 7.x (Samba AD DC).")
-    p.add_argument("--no-color", action="store_true", help="Farbausgabe deaktivieren")
+        description="GPO template toolkit for linuxmuster.net 7.x (Samba AD DC).")
+    p.add_argument("--no-color", action="store_true", help="disable colored output")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("doctor", help="Umgebungs-Selbstcheck (read-only)")
+    sp = sub.add_parser("doctor", help="environment self-check (read-only)")
     sp.set_defaults(func=cmd_doctor)
 
-    sp = sub.add_parser("env", help="Erkannte Umgebung ausgeben")
-    sp.add_argument("--json", action="store_true", help="als JSON ausgeben")
+    sp = sub.add_parser("env", help="dump the detected environment")
+    sp.add_argument("--json", action="store_true", help="output as JSON")
     sp.set_defaults(func=cmd_env)
 
-    sp = sub.add_parser("list", help="GPOs und ihre Verlinkungen auflisten")
+    sp = sub.add_parser("list", help="list GPOs and their links")
     sp.add_argument("--mine", action="store_true",
-                    help=f"nur GPOs mit Präfix '{GPO_PREFIX}'")
+                    help=f"only GPOs with prefix '{GPO_PREFIX}'")
     sp.set_defaults(func=cmd_list)
 
-    sp = sub.add_parser("setup", help="interaktiver Setup-Assistent")
-    sp.add_argument("--config", help="Pfad zur site.yaml (Antworten)")
+    sp = sub.add_parser("setup", help="interactive setup wizard")
+    sp.add_argument("--config", help="path to site.yaml (answers)")
     sp.set_defaults(func=cmd_setup)
 
-    sp = sub.add_parser("apply", help="Katalog anwenden (nicht-interaktiv)")
-    sp.add_argument("--config", help="site.yaml mit Antworten")
-    sp.add_argument("--school", action="append", help="nur diese Schule(n) (wiederholbar)")
-    sp.add_argument("--pack", action="append", help="nur diese Pack-ID(s) (wiederholbar)")
-    sp.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts ändern")
-    sp.add_argument("--yes", action="store_true", help="ohne Rückfrage anwenden")
+    sp = sub.add_parser("apply", help="apply the catalog (non-interactive)")
+    sp.add_argument("--config", help="site.yaml with answers")
+    sp.add_argument("--school", action="append", help="only this/these school(s) (repeatable)")
+    sp.add_argument("--pack", action="append", help="only this/these pack ID(s) (repeatable)")
+    sp.add_argument("--dry-run", action="store_true", help="show only, change nothing")
+    sp.add_argument("--yes", action="store_true", help="apply without confirmation")
     sp.set_defaults(func=cmd_apply)
 
-    sp = sub.add_parser("remove", help="LMN-GPOs entfernen")
-    sp.add_argument("--pack", action="append", help="nur diese Pack-ID(s) entfernen")
-    sp.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts ändern")
-    sp.add_argument("--yes", action="store_true", help="ohne Rückfrage entfernen")
+    sp = sub.add_parser("remove", help="remove LMN GPOs")
+    sp.add_argument("--pack", action="append", help="only remove this/these pack ID(s)")
+    sp.add_argument("--dry-run", action="store_true", help="show only, change nothing")
+    sp.add_argument("--yes", action="store_true", help="remove without confirmation")
     sp.set_defaults(func=cmd_remove)
 
     sp = sub.add_parser("veyon-encrypt-password",
-                        help="Bind-Passwort für Veyon verschlüsseln (Hex für site.yaml)")
-    sp.add_argument("--password", help="Klartext (sonst interaktive Eingabe)")
+                        help="encrypt the bind password for Veyon (hex for site.yaml)")
+    sp.add_argument("--password", help="plaintext (otherwise interactive input)")
     sp.set_defaults(func=cmd_veyon_encrypt)
 
     sp = sub.add_parser("selftest",
-                        help="nicht-destruktiver End-to-End-Test der GPO-Engine")
+                        help="non-destructive end-to-end test of the GPO engine")
     sp.add_argument("--yes", action="store_true",
-                    help="ohne Rückfrage ausführen (verlinkt kurz eine harmlose Test-GPO)")
-    sp.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts ändern")
+                    help="run without confirmation (briefly links a harmless test GPO)")
+    sp.add_argument("--dry-run", action="store_true", help="show only, change nothing")
     sp.set_defaults(func=cmd_selftest)
     return p
 

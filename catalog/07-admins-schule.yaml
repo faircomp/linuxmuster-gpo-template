@@ -1,11 +1,11 @@
 id: "07-admins-schule"
-title: "Schul-Admins: lokale Admins + RDP (je Schule)"
+title: "School admins: local admins + RDP (per school)"
 scope: school
 target: computer
 description: >
-  Die Schul-Admins (Gruppe <präfix>admins) werden nur auf den Geräten IHRER
-  Schule lokale Administratoren + "Remote Desktop Users" — verlinkt an
-  OU=Devices der jeweiligen Schule. In Multischule-Setups pro Schule getrennt.
+  The school admins (group <prefix>admins) become local administrators +
+  "Remote Desktop Users" only on the devices of THEIR school — linked to
+  OU=Devices of the respective school. In multi-school setups separated per school.
 local_admins: ['@admins']
 restricted_groups:
   - { member: '@admins', memberof: ['S-1-5-32-555'] }

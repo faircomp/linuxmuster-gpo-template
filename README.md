@@ -1,5 +1,453 @@
 # linuxmuster-gpo-template
 
+*(English first — deutsche Version weiter unten / German version below.)*
+
+A reusable **Group Policy template toolkit** for **linuxmuster.net 7.x** (Ubuntu 24.04 +
+Samba 4.19 Active Directory DC). It creates, links and permissions Windows 11 Group
+Policies **directly from the Linux server** – without the Windows GPMC – and is
+**multi-school capable** (several schools per server, and identical rollout across many
+customer servers).
+
+> **Status: complete & verified.** 29 policy packages, idempotent, with `--dry-run`.
+> Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
+> (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
+
+## Contents
+
+- [What the toolkit does](#why-this-works) · [Concept](#concept)
+- [Features (29 packages)](#features-29-packages)
+- **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
+- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation)
+- [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
+- [Requirements](#requirements) · [Directory layout](#directory-layout)
+
+## Why this works
+
+For a Windows client to apply a GPO set by the Samba DC, three things must be consistent:
+the `Registry.pol` (PReg format), the version in `GPT.INI` **and** in the AD attribute
+`versionNumber`, plus the matching **Client-Side-Extension GUID** in
+`gPCMachineExtensionNames`. `samba-tool gpo load` does exactly that atomically for
+registry-based policies; for security settings (user rights, restricted groups), local
+admins (GPP) and startup/shutdown scripts the toolkit writes the files itself and
+registers the corresponding CSE GUID. Details: [`docs/`](docs/).
+
+## Concept
+
+- **Declarative YAML catalog** (`catalog/`): one package per concern, with scope
+  (global / per school) and target (computer/user), optionally filtered exclusively to
+  device or role groups.
+- **`lmgpo` CLI** with an interactive **setup assistant**, **idempotent** (run as often
+  as you like), `--dry-run` everywhere, persistent parameters in `site.yaml`.
+- **Dynamic detection**: realm, base DN, server IP/subnet, schools and their prefixes,
+  admin groups, the `d_nopxe` device group, role groups and rooms are read live from AD –
+  nothing is hardcoded to `default-school`.
+- **Gentle**: never touches `sophomorix:*` or default GPOs, checks ACLs
+  (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
+  `sysvolreset`.
+
+## Features (29 packages)
+
+**Always active** (no extra parameter needed):
+
+| Package | Effect |
+|---|---|
+| **Privacy / telemetry** | telemetry, advertising ID, activity history, location, input collection, "Find my device", AI data analysis off |
+| **Block Microsoft accounts** | no MS-account sign-in, only local/domain accounts |
+| **Disable OneDrive** | OneDrive autostart & file sync off |
+| **First-run / OOBE / consumer** | "finish setup", Spotlight, Cortana, consumer features, Edge/first-run assistants off |
+| **Windows Update split** | **off for LINBO machines**, **on for non-LINBO devices** (`d_nopxe`) |
+| **Power** | no standby, display off after 30 min — *relaxed for teacher notebooks* |
+| **Screen lock** | lock after 30 min idle — *relaxed for teacher notebooks* |
+| **Hibernation off** | hibernate disabled — *except `d_nopxe`* |
+| **Wake-on-LAN + Fast Startup off** | WoL armed (startup script), `HiberbootEnabled=0` |
+| **Remote management** | RDP on, firewall exceptions (RDP/SMB/RPC/ICMP), remote-shutdown right |
+| **Global admins** | `global-admins` as local admins + RDP **everywhere** |
+| **School admins** | `<school>-admins` as local admins + RDP **per school** |
+| **Block mobile hotspot** | Windows hotspot / ICS blocked on **all** machines (toggle greyed out) — no exception |
+| **Student lockdown** | students (`role-student`) cannot change sensitive settings — above all **cannot remove the proxy** (+ Connections tab/PAC & Registry Editor locked); **teachers/admins unrestricted** (loopback + filter) |
+| **Time synchronisation (W32Time)** | clients sync from the domain server (NT5DS, "the Samba way"); **also corrects large offsets** (dead CMOS battery); switchable to explicit NTP via `ntp_mode` |
+
+**Optional** (enabled via `site.yaml` / the setup assistant):
+
+| Package | Enabled by | Effect |
+|---|---|---|
+| **KMS activation** | `kmshost` | activate Windows against the KMS host (startup script) |
+| **Branding per school** | wallpaper file | desktop **and** logon background per school (from NETLOGON) |
+| **Veyon** | `veyon_binddn` + password | classroom management, LDAP directory, roaming, **teachers only** (`role-teacher` + `all-teachers`) |
+| **Firefox hardening** | `firefox_enabled` | first-run off, clean new-tab (search + shortcuts, no ads) |
+| **Firefox homepage** | `firefox_homepage` | global default **or per school**, optionally locked |
+| **Role-based proxy** | `proxy_enabled` + host | **address follows the device** (school), **port follows the user** (teacher/student/staff), roaming-proof; all browsers on the system proxy; proxy host as Intranet zone (SSO) |
+| **Wi-Fi PSK (students)** | `wlan_psk_networks` | any number of PSK networks as machine profiles → connect **before login**, **roaming across sites**; *not* on teacher notebooks |
+| **Wi-Fi Enterprise (teachers)** | `wlan_enterprise_ssid` + CA cert | WPA2-Enterprise/PEAP with RADIUS, CA cert installed; **teachers only** (RADIUS enforces the group), exclusive to `d_nopxe` |
+| **UEFI boot order PXE first** | `bootorder_pxe_first: true` | scheduled task (SYSTEM/highest) forces network/PXE to the top (→ LINBO) if Windows pushes itself forward; robust pattern detection, idempotent. **Hardware-dependent — test on 1 machine first** |
+
+---
+
+# Guide
+
+## Installation
+
+On the **linuxmuster server (Samba AD DC)** as **root**:
+
+```bash
+cd /opt
+git clone https://github.com/faircomp/linuxmuster-gpo-template.git
+cd linuxmuster-gpo-template
+./lmgpo-cli doctor          # environment self-check – must be green
+```
+
+No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
+bindings and `samba-tool` come with linuxmuster). `./lmgpo-cli` is the single entry point.
+
+> **Important – where does `site.yaml` live?**
+> The assistant saves your settings by default to **`/etc/linuxmuster/lmgpo/site.yaml`** —
+> deliberately **outside** the repo. Only there does it survive every `git pull`/`git
+> clean`. **Keep it there and always apply from there**, then updates can never lose your
+> configuration (including Wi-Fi passwords).
+
+## Quick start
+
+```bash
+./lmgpo-cli doctor                     # 1. check the environment
+./lmgpo-cli setup                      # 2. configure interactively (asks only the decisions)
+                                       #    -> saves /etc/linuxmuster/lmgpo/site.yaml, shows dry-run
+./lmgpo-cli apply --yes                # 3. apply (uses the saved site.yaml automatically)
+```
+
+Then on a client `gpupdate /force` + reboot, and check with
+[`lmgpo-check.ps1`](#checking-on-the-client).
+
+## Usage
+
+All commands: `./lmgpo-cli <command>`. Everywhere: **read-only commands change nothing**,
+writing ones need `--yes` (or the prompt in the assistant).
+
+| Command | Purpose |
+|---|---|
+| `doctor` | environment self-check (realm, groups, sysvol, secret) — read-only |
+| `env` | print the detected environment (schools, groups, SIDs) |
+| `list` | existing GPOs + their links |
+| `setup` | interactive assistant → writes `site.yaml`, optionally applies right away |
+| `apply` | apply the catalog from a `site.yaml` (non-interactive) |
+| `remove` | remove the toolkit's `LMN-*` GPOs again |
+| `selftest --yes` | non-destructive end-to-end test of the engine (throwaway GPO) |
+| `veyon-encrypt-password` | encrypt the Veyon bind password (hex for `site.yaml`) |
+
+### Configuring with the assistant
+
+```bash
+./lmgpo-cli setup
+```
+
+The assistant detects the environment itself and only asks the **decisions** (schools,
+packages, firewall source, teacher-notebook group, KMS, wallpaper, Veyon, Firefox, proxy,
+Wi-Fi, boot order). Each question shows its default in `[…]` — **Enter = keep**. On a
+re-run **all previous answers are pre-filled** (including Wi-Fi SSIDs + passwords). At the
+end: dry-run preview, save, optionally apply.
+
+### Applying unattended
+
+```bash
+# preview without changing anything (always recommended first):
+./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run
+
+# actually apply:
+./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+
+# only specific schools or packages:
+./lmgpo-cli apply --school msg --pack 02-updates --pack 17-ntp-zeit --yes
+```
+
+Without `--config`, `apply`/`setup` use `/etc/linuxmuster/lmgpo/site.yaml` automatically.
+
+**Idempotent:** run `apply` as often as you like – a second run creates no new GPOs,
+rewrites no registry values and bumps no versions; only real deviations are corrected.
+
+### Removing again
+
+```bash
+./lmgpo-cli remove --dry-run    # shows what would be removed
+./lmgpo-cli remove --yes        # removes ALL LMN-* GPOs (default/sophomorix GPOs stay)
+```
+
+## Configuration (`site.yaml`)
+
+The assistant creates the file; you can also maintain it by hand and reuse it per customer.
+Full reference:
+
+```yaml
+schools: null                 # null = all detected schools, otherwise [school-a, school-b]
+packs: null                   # null = whole catalog, otherwise a list of pack IDs
+fwsource: serverip            # firewall source for remote mgmt: serverip | subnet | <IP/CIDR>
+teachernb: nopxe              # teacher-notebook group (relaxed power/lock): nopxe | skip | <CN>
+
+kmshost: "kms.school.de"      # empty = no KMS
+wallpaper_dir: ""             # empty = repo wallpapers/  (file: <school>.jpg, fallback default.jpg)
+
+firefox_enabled: true
+firefox_homepage: "https://start.school.de"
+firefox_homepage_locked: true
+firefox_homepage_by_school: { school-a: "https://a.school.de" }
+
+proxy_enabled: true
+proxy_host: "proxy.school.de"
+proxy_host_by_school: { school-b: "proxy-b.school.de" }
+proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
+proxy_exceptions: ""          # empty = sensible default (<local> + *.<realm> + private nets)
+
+veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
+veyon_bindpw_hex: "…"         # via ./lmgpo-cli veyon-encrypt-password
+
+wlan_psk_networks:                       # any number — one entry per site
+  - { ssid: "MSG-LINBO", psk: "…" }
+  - { ssid: "GSG-LINBO", psk: "…" }
+wlan_enterprise_ssid: "Teacher-WiFi"     # empty = no enterprise Wi-Fi
+wlan_enterprise_servernames: "radius.school.de"
+wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"
+
+bootorder_pxe_first: false    # true = force UEFI boot order to network/PXE first (opt-in!)
+ntp_mode: nt5ds               # time sync: nt5ds (domain / Samba way) | ntp (explicit server = @serverfqdn)
+```
+
+> `site.yaml` contains **secrets** (Wi-Fi PSKs, encrypted bind password) and is in
+> `.gitignore` — do **not** commit it. Best kept under `/etc/linuxmuster/lmgpo/` (outside
+> the repo).
+
+---
+
+# Setting up features
+
+The **always-active** packages need no configuration. For the **optional** ones here are
+the short guides (key in `site.yaml`, then `apply`).
+
+## KMS
+
+```yaml
+kmshost: "kms.school.de"
+```
+Sets the KMS host and activates Windows via a startup script (`slmgr /ato`).
+
+## Branding (wallpaper & logon background)
+
+Put the images as `wallpapers/<school>.jpg` (fallback `wallpapers/default.jpg`), or set
+`wallpaper_dir` to your own directory. The toolkit copies them to NETLOGON and sets the
+**desktop and logon background** per school. (The images themselves are not in the repo.)
+
+## Firefox
+
+```yaml
+firefox_enabled: true
+firefox_homepage: "https://start.school.de"      # optional
+firefox_homepage_locked: true                     # optional, locks the homepage
+firefox_homepage_by_school: { school-a: "https://a.school.de" }   # optional, per school
+```
+First-run/import assistants off, clean new-tab page (search + shortcuts, no ads), optional
+locked homepage.
+
+## Role-based proxy
+
+```yaml
+proxy_enabled: true
+proxy_host: "proxy.school.de"
+proxy_host_by_school: { school-b: "proxy-b.school.de" }   # optional
+proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
+```
+**Address follows the device** (proxy host per school, via loopback), **port follows the
+user** (teacher/student/staff per port, filtered exclusively to `role-*`) — roaming-ready.
+Edge, Chrome and Firefox are set to the Windows system proxy; the proxy host is placed in
+the Intranet zone for automatic SSO. The [student lockdown](#student-lockdown) prevents
+students from removing the proxy.
+
+## Wi-Fi: multiple networks & roaming
+
+Multiple student Wi-Fis (e.g. one per site) are simply **multiple entries** in
+`wlan_psk_networks`:
+
+```yaml
+wlan_psk_networks:
+  - { ssid: "MSG-LINBO", psk: "PSK-for-MSG" }
+  - { ssid: "GSG-LINBO", psk: "PSK-for-GSG" }
+```
+
+The package `13-wlan-psk` is deliberately **global**: **all** PSK profiles land as machine
+profiles (`connectionMode auto`, connect before login) on **every** student device — except
+teacher notebooks (`d_nopxe`). This makes a notebook **roam** automatically: at each site it
+connects to the SSID in range. Effective after a client **reboot**.
+
+> The price of roaming: every device carries **all** PSKs in its local profile store. Strict
+> per-school isolation and roaming are mutually exclusive.
+
+**Teacher Wi-Fi (WPA2-Enterprise):**
+```yaml
+wlan_enterprise_ssid: "Teacher-WiFi"
+wlan_enterprise_servernames: "radius.school.de"    # name(s) in the RADIUS server certificate
+wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"  # CA cert is installed on the client
+```
+PEAP-MSCHAPv2 with user auth + SSO; **teachers only** (RADIUS enforces the group), exclusive
+to `d_nopxe`. Note: the very first teacher login on a notebook needs a wired/other network
+once (pure user auth), after that Wi-Fi SSO.
+
+## Veyon (classroom management)
+
+Entirely via registry GPO (no `config.json`, file-less LDAP directory), multi-school capable
+with roaming: `BaseDN` = domain root, `ComputerTree` per school (room list stays per-school),
+groups/users global — so a teacher may open the Master at **any** school.
+
+**Setup:**
+```bash
+./lmgpo-cli veyon-encrypt-password        # encrypt the bind password -> copy the hex
+```
+```yaml
+veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
+veyon_bindpw_hex: "<hex>"
+```
+
+- **Access for teachers only:** authorises `all-teachers` **and** `role-teacher` as
+  **BaseDN-relative DNs** (`CN=role-teacher,OU=Groups,OU=GLOBAL`, without `,DC=…`), because
+  Veyon compares that way internally; `QueryNestedUserGroups=true` also resolves nested
+  membership. A student is in neither group → can never control.
+- Keep the **bind user** `global-veyon` dedicated and read-only: Veyon's bind password is
+  encrypted with a static, public key — i.e. reversible (details:
+  [`docs/VEYON-PLAN.md`](docs/VEYON-PLAN.md)).
+- The **Windows firewall** stays open for Veyon (port 11100); the site separation is done by
+  OPNsense.
+- **After rollout:** on the client `gpupdate /force` **and restart the Veyon service**
+  (reboot) — Veyon reads its config only at service start.
+
+## Student lockdown
+
+Two packages make sure that **only students** (`role-student`) cannot change certain Windows
+settings, while **teachers and admins stay unrestricted** (always active):
+
+- `15-lockdown-base` (computer): enables **loopback merge** (`UserPolicyMode=2`) so that
+  user-based, role-filtered policies take effect on shared classroom machines.
+- `15-lockdown-student` (user, exclusive to `role-student`): pure HKCU policies —
+  **proxy not changeable** (Settings app *and* Internet Options), Connections tab & PAC
+  locked, **Registry Editor** locked.
+
+Stricter is possible via extra HKCU entries in `catalog/15-lockdown-student.yaml`:
+
+| Effect | Registry (`class: user`) |
+|---|---|
+| Hide Control Panel + Settings entirely | `…\Policies\Explorer\NoControlPanel = 1` |
+| Lock Command Prompt | `…\Policies\Microsoft\Windows\System\DisableCMD = 1` |
+| Lock Task Manager | `…\Policies\System\DisableTaskMgr = 1` |
+| Lock wallpaper change | `…\Policies\ActiveDesktop\NoChangingWallPaper = 1` |
+
+## UEFI boot order PXE first
+
+Against Windows 11, which pushes its boot manager back to the top of the boot order after
+every start (machines then boot straight into Windows instead of LINBO). **Opt-in:**
+```yaml
+bootorder_pxe_first: true
+```
+
+Because the GPO startup-script context has a reduced token (no access to the UEFI NVRAM),
+it is **two-stage:** the GPO script registers a **scheduled task** (`SYSTEM`, highest
+privileges, at system start) which, with a full token, does the actual `bcdedit` reorder
+(network/PXE to the front, Windows Boot Manager to the end). Robust pattern detection
+(IPV4/IPV6/PXE/…), idempotent, never breaks the boot.
+
+> **Hardware-dependent — test on ONE machine first.** After `gpupdate /force` + 2 reboots:
+> `schtasks /query /tn LMGPO-BootOrderPXE` (task there?) and
+> `type %SystemRoot%\Temp\lmgpo-bootorder.log` (did the worker find the network entries and
+> reorder?). Prerequisite: Fast Startup off (package `05-wol` / BIOS), no BitLocker forcing
+> the Windows Boot Manager first.
+
+## Time synchronisation
+
+Fixes "not all clocks are correct" (always active). Default **NT5DS** ("the Samba way"):
+clients sync via the domain from the DC (signed via its `mssntp`/`ntpsigndsocket`).
+**Core fix:** `MaxPos/NegPhaseCorrection = 0xFFFFFFFF` → W32Time also corrects **large
+offsets** (typical for dead BIOS/CMOS batteries). Clients only (linked at `OU=SCHOOLS`); the
+DC stays untouched. Switchable:
+```yaml
+ntp_mode: nt5ds     # or: ntp  (then Type=NTP + NtpServer=<serverfqdn>,0x9)
+```
+Check on the client: `w32tm /query /source` and `w32tm /query /status`.
+
+---
+
+## Rolling out to clients
+
+GPOs only take effect once the client fetches them and the respective service reads them:
+
+1. **In general:** `gpupdate /force`, then **reboot** (computer policies + loopback +
+   startup/shutdown scripts take effect at boot).
+2. **Veyon:** additionally **restart the Veyon service** (reboot).
+3. **Wi-Fi (PSK/Enterprise):** **reboot** (machine profiles are imported at boot).
+4. **Boot order:** reboot twice, then check `…\Temp\lmgpo-bootorder.log`.
+5. **Time:** `gpupdate /force` → `w32tm /config /update` → `w32tm /resync` (or reboot).
+
+## Checking on the client
+
+`scripts/lmgpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
+have arrived **and take effect** — covering all 29 packages: `gpresult` (computer **and**
+user), registry actual values, firewall, local groups, KMS, hotspot, OneDrive, hibernation,
+loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
+**time sync (w32tm)** and the **boot-order log**. It also produces an HTML report.
+
+Best run **twice**:
+```powershell
+# 1) as ADMINISTRATOR → computer GPOs, firewall, groups, KMS, Veyon, time, boot order
+powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
+
+# 2) as the logged-in STUDENT (not elevated) → the user restrictions (lockdown/proxy)
+powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1
+```
+`-Refresh` runs `gpupdate /force` first (the only non-read-only action). Output: `[OK]`/`[!!]`
+per check + a summary.
+
+## Updating the toolkit
+
+```bash
+cd /opt/linuxmuster-gpo-template
+git pull
+./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run   # what changes?
+./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+```
+
+- A `git pull` does **not** touch your `site.yaml` (it is gitignored and ideally lives under
+  `/etc/linuxmuster/lmgpo/`). **Avoid** `git clean -fdx` / `git reset --hard` in the repo
+  folder — they delete ignored files, and thus a `site.yaml` kept there.
+- After the re-apply, do `gpupdate` + reboot on the clients as above.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `apply` says **"0 GPO(s) applied"** | an **opt-in package** is not enabled (e.g. `bootorder_pxe_first: true` missing), or filtered by `--pack`. `grep bootorder site.yaml`. |
+| **Settings lost after an update** | `site.yaml` was **inside** the repo folder and deleted by `git clean`/`reset`. → move it to `/etc/linuxmuster/lmgpo/`. |
+| **Two `site.yaml`** (assistant vs. `--config`) | `setup` saves to `/etc/linuxmuster/lmgpo/`. Always apply the **same** file. |
+| **Teachers can't open the Veyon Master** | on the client `gpupdate /force` + **restart the Veyon service**. The toolkit already sets the correct **BaseDN-relative** group DNs. |
+| **Boot-order log: "a required privilege is not held"** | old script version. The current package uses a **scheduled task** — re-roll out; check the log for `Worker (Scheduled Task…)` lines. |
+| **Clocks wrong** | apply package `17-ntp-zeit`; on the client `w32tm /resync`. The `MaxPhaseCorrection` fix also corrects battery machines. |
+| GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmgpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
+
+---
+
+## Requirements
+
+linuxmuster.net 7.x Samba AD DC, Python ≥ 3.10, `python3-yaml`, the `samba` Python bindings,
+`samba-tool` (Samba ≥ 4.16 for `gpo load`), `openssl` (for Veyon/Wi-Fi certificates).
+Runs as root on the DC.
+
+## Directory layout
+
+```
+lmgpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, cli)
+catalog/      29 YAML policy packages
+scripts/      Windows startup/shutdown scripts + lmgpo-check.ps1 (client diagnostics)
+lib/          veyon-default-pub.pem (Veyon's public key)
+docs/         RESEARCH.md, VEYON-PLAN.md
+wallpapers/   branding images per school (images not committed)
+```
+
+---
+---
+
+# 🇩🇪 linuxmuster-gpo-template (Deutsch)
+
 Ein wiederverwendbares **Group-Policy-Template-Toolkit** für **linuxmuster.net 7.x**
 (Ubuntu 24.04 + Samba 4.19 Active-Directory-DC). Es erstellt, verlinkt und berechtigt
 Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-GPMC –
@@ -12,11 +460,11 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 
 ## Inhalt
 
-- [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept)
+- [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
 - [Features (29 Pakete)](#features-29-pakete)
-- **Anleitung:** [Installation](#installation) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml)
-- **Features einrichten:** [KMS](#kms) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation)
-- [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting)
+- **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
+- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation)
+- [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
 - [Anforderungen](#anforderungen) · [Verzeichnisstruktur](#verzeichnisstruktur)
 
 ## Warum das funktioniert
@@ -303,8 +751,8 @@ veyon_bindpw_hex: "<Hex>"
 
 - **Zugriff nur für Lehrer:** autorisiert `all-teachers` **und** `role-teacher` als
   **BaseDN-relative DNs** (`CN=role-teacher,OU=Groups,OU=GLOBAL`, ohne `,DC=…`), weil Veyon
-  intern so vergleicht; `QueryNestedUserGroups=true` löst auch verschachtelte Mitgliedschaft auf.
-  Ein Schüler ist in keiner Gruppe → kann nie steuern.
+  intern so vergleicht; `QueryNestedUserGroups=true` löst auch verschachtelte Mitgliedschaft
+  auf. Ein Schüler ist in keiner Gruppe → kann nie steuern.
 - **Bind-User** `global-veyon` dediziert und read-only halten: Veyons Bind-Passwort ist mit
   einem statischen, öffentlichen Schlüssel verschlüsselt — also umkehrbar
   (Details: [`docs/VEYON-PLAN.md`](docs/VEYON-PLAN.md)).

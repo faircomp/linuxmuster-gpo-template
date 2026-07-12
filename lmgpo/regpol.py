@@ -38,7 +38,7 @@ class RegPol:
         if not entries:
             return
         if gpo_dir and not self.engine.dry_run and _all_present(gpo_dir, entries):
-            self.engine._log("    Registry unverändert — übersprungen")
+            self.engine._log("    Registry unchanged — skipped")
             return
         if self.engine.dry_run and self.engine.verbose:
             for e in entries:

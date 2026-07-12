@@ -1,12 +1,12 @@
 id: "06-remote-mgmt"
-title: "Remote-Management: RDP, Firewall, Shutdown"
+title: "Remote management: RDP, firewall, shutdown"
 scope: global
 target: computer
 description: >
-  Remote Desktop aktivieren (mit NLA); Windows-Firewall-Regeln für RDP (3389),
-  SMB (445), RPC-Endpoint-Mapper (135) und ICMP-Echo — eingehend nur von
-  @fwsource (Standard: Server-IP); Recht "Remote-Shutdown" für Admins.
-  Ermöglicht net rpc shutdown / linbo-remote vom Schulserver.
+  Enable Remote Desktop (with NLA); Windows firewall rules for RDP (3389),
+  SMB (445), RPC endpoint mapper (135) and ICMP echo — inbound only from
+  @fwsource (default: server IP); "Remote shutdown" right for admins.
+  Enables net rpc shutdown / linbo-remote from the school server.
 registry:
   - { key: 'Software\Policies\Microsoft\Windows NT\Terminal Services', name: fDenyTSConnections, class: machine, type: dword, data: 0 }
   - { key: 'Software\Policies\Microsoft\Windows NT\Terminal Services', name: UserAuthentication, class: machine, type: dword, data: 1 }

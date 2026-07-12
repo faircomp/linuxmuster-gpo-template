@@ -1,17 +1,17 @@
 id: "09-branding-schule"
-title: "Branding: Desktop- & Anmelde-Hintergrund (pro Schule)"
+title: "Branding: desktop & logon background (per school)"
 scope: school
 target: both
 loopback: merge
 requires: wallpaper
 description: >
-  Setzt Desktop-Hintergrund (User) und Sperr-/Anmeldebildschirm-Bild (Computer)
-  je Schule. Das Bild wird aus wallpapers/<schule>.<ext> (Fallback default.<ext>)
-  nach NETLOGON kopiert und per UNC referenziert. Nur aktiv, wenn ein Bild da ist.
-  HINWEIS: Der Desktop-Hintergrund (Wallpaper) greift auf allen Editionen; das
-  Sperr-/Anmeldebildschirm-Bild (LockScreenImage) nur auf Windows 11
-  Enterprise/Education — auf Pro/Home wird LockScreenImage still ignoriert
-  (dort ggf. das Bild ins LINBO-Image legen).
+  Sets the desktop background (user) and lock/logon screen image (computer)
+  per school. The image is copied from wallpapers/<school>.<ext> (fallback default.<ext>)
+  to NETLOGON and referenced via UNC. Only active when an image is present.
+  NOTE: The desktop background (wallpaper) applies on all editions; the
+  lock/logon screen image (LockScreenImage) only on Windows 11
+  Enterprise/Education — on Pro/Home LockScreenImage is silently ignored
+  (there, place the image into the LINBO image if needed).
 registry:
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: Wallpaper, class: user, type: sz, data: '@wallpaper' }
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: WallpaperStyle, class: user, type: sz, data: '10' }

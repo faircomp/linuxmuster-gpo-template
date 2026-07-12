@@ -90,20 +90,20 @@ class GpoEngine:
         if not m:
             raise GpoError(f"could not parse new GUID from: {p.stdout}")
         guid = m.group(0)
-        self._log(f"    GPO angelegt: {display} {guid}")
+        self._log(f"    GPO created: {display} {guid}")
         return guid
 
     def ensure(self, display: str) -> tuple[str, bool]:
         """Return (guid, created). Idempotent — reuses an existing GPO by name."""
         existing = self.find_by_name(display)
         if existing:
-            self._log(f"    GPO existiert: {display} {existing}")
+            self._log(f"    GPO exists: {display} {existing}")
             return existing, False
         return self.create(display), True
 
     def delete(self, guid: str):
         self._run(["samba-tool", "gpo", "del", guid])
-        self._log(f"    GPO gelöscht: {guid}")
+        self._log(f"    GPO deleted: {guid}")
 
     def backup(self, guid: str, tmpdir: str) -> str:
         self._run(["samba-tool", "gpo", "backup", guid, "--tmpdir", tmpdir], mutating=False)
@@ -121,7 +121,7 @@ class GpoEngine:
              disable: bool = False) -> bool:
         """Link GPO to a container. Returns True if a change was made."""
         if guid.upper() in self._linked_guids(container_dn) and not (enforce or disable):
-            self._log(f"    Link vorhanden: {guid} → {container_dn}")
+            self._log(f"    Link present: {guid} → {container_dn}")
             return False
         args = ["samba-tool", "gpo", "setlink", container_dn, guid]
         if enforce:
@@ -129,7 +129,7 @@ class GpoEngine:
         if disable:
             args.append("--disable")
         self._run(args)
-        self._log(f"    verlinkt: {guid} → {container_dn}"
+        self._log(f"    linked: {guid} → {container_dn}"
                   + (" (enforced)" if enforce else ""))
         return True
 
@@ -137,7 +137,7 @@ class GpoEngine:
         if guid.upper() not in self._linked_guids(container_dn):
             return False
         self._run(["samba-tool", "gpo", "dellink", container_dn, guid])
-        self._log(f"    Link entfernt: {guid} ⇹ {container_dn}")
+        self._log(f"    Link removed: {guid} ⇹ {container_dn}")
         return True
 
     # ------------------------------------------------------------------ #
@@ -162,13 +162,13 @@ class GpoEngine:
     def grant_apply(self, guid: str, sid: str) -> None:
         """Grant Read + Apply-Group-Policy to a trustee SID on the GPO object."""
         if not self.dry_run and self._has_apply_ace(guid, sid, deny=False):
-            self._log(f"    Filter: Apply für {sid} bereits erlaubt")
+            self._log(f"    Filter: Apply for {sid} already allowed")
             return
         sddl = (f"(OA;CI;CR;{APPLY_GROUP_POLICY};;{sid})"
                 + GPO_READ_ACE.format(sid=sid))
         self._run(["samba-tool", "dsacl", "set", "--objectdn", self.gpo_dn(guid),
                    "--action", "allow", "--sddl", sddl])
-        self._log(f"    Filter: Apply erlaubt für {sid} auf {guid}")
+        self._log(f"    Filter: Apply allowed for {sid} on {guid}")
 
     def deny_apply(self, guid: str, sid: str) -> None:
         """Deny Apply-Group-Policy to a trustee SID (deny wins over allow).
@@ -179,12 +179,12 @@ class GpoEngine:
         Idempotent — will not append a duplicate ACE on re-run.
         """
         if not self.dry_run and self._has_apply_ace(guid, sid, deny=True):
-            self._log(f"    Filter: Apply für {sid} bereits verweigert")
+            self._log(f"    Filter: Apply for {sid} already denied")
             return
         sddl = f"(OD;CI;CR;{APPLY_GROUP_POLICY};;{sid})"
         self._run(["samba-tool", "dsacl", "set", "--objectdn", self.gpo_dn(guid),
                    "--action", "deny", "--sddl", sddl])
-        self._log(f"    Filter: Apply verweigert für {sid} auf {guid}")
+        self._log(f"    Filter: Apply denied for {sid} on {guid}")
 
     def set_exclusive_filter(self, guid: str, sids: list) -> None:
         """Filter the GPO so ONLY the given group SIDs apply it — for user-role
@@ -198,7 +198,7 @@ class GpoEngine:
         if not sids:
             return
         if self.dry_run:
-            self._log(f"    [dry-run] Exklusiv-Filter: nur {sids} (AU-Apply entfernen) auf {guid}")
+            self._log(f"    [dry-run] Exclusive filter: only {sids} (remove AU-Apply) on {guid}")
             return
         from samba.sd_utils import SDUtils
 
@@ -214,7 +214,7 @@ class GpoEngine:
             if not self._has_apply_ace(guid, sid, deny=False):
                 sdu.dacl_add_ace(dn, f"(OA;CI;CR;{APPLY_GROUP_POLICY};;{sid})")
                 sdu.dacl_add_ace(dn, f"(A;CI;LCRPLORC;;;{sid})")
-        self._log(f"    Exklusiv-Filter: nur {len(sids)} Gruppe(n), AU nur noch Read, auf {guid}")
+        self._log(f"    Exclusive filter: only {len(sids)} group(s), AU now Read-only, on {guid}")
 
     def aclcheck(self) -> tuple[bool, str]:
         p = self._run(["samba-tool", "gpo", "aclcheck"], needs_creds=True,
@@ -235,9 +235,9 @@ class GpoEngine:
         where sysvolreset can strip ACLs.
         """
         if self.domain_admins_has_gidnumber():
-            self._log("    ⚠ Domain Admins hat eine gidNumber → sysvolreset übersprungen "
-                      "(Risiko). sysvol/AD-ACL bitte manuell prüfen.")
+            self._log("    ⚠ Domain Admins has a gidNumber → sysvolreset skipped "
+                      "(risk). Please check sysvol/AD ACL manually.")
             return False
         self._run(["samba-tool", "ntacl", "sysvolreset"], needs_creds=False)
-        self._log("    sysvol-ACLs mit AD abgeglichen (sysvolreset).")
+        self._log("    sysvol ACLs reconciled with AD (sysvolreset).")
         return True

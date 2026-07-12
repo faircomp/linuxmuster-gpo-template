@@ -1,24 +1,24 @@
 id: "16-bootorder-pxe"
-title: "UEFI-Bootreihenfolge: Netzwerk/PXE zuerst (opt-in, gegen Windows-Umstellung)"
+title: "UEFI boot order: network/PXE first (opt-in, counters Windows reordering)"
 scope: global
 target: computer
 requires: bootorder
 description: >
-  Setzt per Computer-Start- UND Shutdown-Skript (SYSTEM, bei jedem Boot und beim Herunterfahren)
-  die UEFI-Bootreihenfolge so, dass
-  Netzwerk/PXE ZUERST bootet (-> LINBO) und der Windows Boot Manager ZULETZT. Windows drängt
-  seinen Boot Manager sonst nach jedem Start wieder nach vorne, sodass die Rechner direkt in
-  Windows statt in LINBO booten. Das Skript findet den Netzwerk-Eintrag robust über Muster
-  (IPV4/IPV6/PXE/LAN/…, keine fest verdrahteten GUIDs), ist locale-tolerant, idempotent
-  (schreibt die NVRAM nur wenn nötig) und bricht den Boot nie ab.
-  OPT-IN: nur aktiv, wenn in der site.yaml 'bootorder_pxe_first: true' gesetzt ist —
-  Boot-Order-Änderungen sind hardwareabhängig und sollten erst auf EINEM Gerät getestet
-  werden (Log: %SystemRoot%\Temp\lmgpo-bootorder.log). Voraussetzung: Fast Startup aus
-  (BIOS oder Paket 05-wol), kein BitLocker mit Windows-Boot-Manager-Zwang.
+  Uses a computer startup AND shutdown script (SYSTEM, on every boot and at shutdown)
+  to set the UEFI boot order so that
+  network/PXE boots FIRST (-> LINBO) and the Windows Boot Manager LAST. Otherwise Windows
+  pushes its Boot Manager back to the front after every start, so the machines boot directly into
+  Windows instead of LINBO. The script finds the network entry robustly via patterns
+  (IPV4/IPV6/PXE/LAN/…, no hard-wired GUIDs), is locale-tolerant, idempotent
+  (writes NVRAM only when needed) and never aborts the boot.
+  OPT-IN: only active when 'bootorder_pxe_first: true' is set in site.yaml —
+  boot-order changes are hardware-dependent and should first be tested on ONE device
+  (log: %SystemRoot%\Temp\lmgpo-bootorder.log). Prerequisite: Fast Startup off
+  (BIOS or package 05-wol), no BitLocker enforcing the Windows Boot Manager.
 startup_scripts:
   - { file: 'bootorder-pxe-first.ps1' }
 shutdown_scripts:
-  # Zusätzlich beim Herunterfahren (SYSTEM, letzte Aktion): setzt die Reihenfolge direkt
-  # vor dem Ausschalten neu, falls Windows sie während der Sitzung wieder umgestellt hat —
-  # so ist der nächste Boot zuverlässig PXE/LINBO.
+  # Additionally at shutdown (SYSTEM, last action): re-sets the order right
+  # before powering off, in case Windows reordered it again during the session —
+  # so the next boot is reliably PXE/LINBO.
   - { file: 'bootorder-pxe-first.ps1' }

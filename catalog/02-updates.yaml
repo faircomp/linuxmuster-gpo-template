@@ -1,11 +1,11 @@
 id: "02-updates"
-title: "Windows-Update: aus für LINBO, an für noPXE"
+title: "Windows Update: off for LINBO, on for noPXE"
 scope: global
 target: computer
 description: >
-  Automatische Updates deaktivieren für LINBO/Image-gepflegte Rechner.
-  Die noPXE-Geräte (Gruppe d_nopxe) werden per Deny-Apply ausgenommen und
-  fallen auf den Windows-Standard (Updates AN) zurück.
+  Disable automatic updates for LINBO/image-maintained machines.
+  The noPXE devices (group d_nopxe) are excluded via Deny-Apply and
+  fall back to the Windows default (updates ON).
 filter_deny: ['@nopxe']
 registry:
   - { key: 'Software\Policies\Microsoft\Windows\WindowsUpdate\AU', name: NoAutoUpdate, class: machine, type: dword, data: 1 }

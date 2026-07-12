@@ -1,13 +1,13 @@
 id: "04-sperren"
-title: "Sperre nach 30 Min Inaktivität"
+title: "Lock after 30 min of inactivity"
 scope: global
 target: computer
 description: >
-  Computer sperrt nach 30 Min ohne Eingabe (Machine inactivity limit, greift für
-  alle Nutzer, manipulationssicher). Lehrer-Notebooks (@teachernb) ausgenommen.
+  Computer locks after 30 min without input (machine inactivity limit, applies to
+  all users, tamper-proof). Teacher notebooks (@teachernb) are excluded.
 filter_deny: ['@teachernb']
 registry:
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Policies\System', name: InactivityTimeoutSecs, class: machine, type: dword, data: 1800 }
-  # Passwort beim Aufwachen verlangen (Doppelabsicherung, 0e796bdb...)
+  # Require password on wake (double safeguard, 0e796bdb...)
   - { key: 'Software\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51', name: ACSettingIndex, class: machine, type: dword, data: 1 }
   - { key: 'Software\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51', name: DCSettingIndex, class: machine, type: dword, data: 1 }

@@ -1,14 +1,14 @@
 id: "14-hotspot-aus"
-title: "Mobiler Hotspot verbieten (alle Rechner)"
+title: "Prohibit mobile hotspot (all machines)"
 scope: global
 target: computer
 description: >
-  Verbietet den mobilen Windows-Hotspot / die Internetverbindungsfreigabe (ICS) auf
-  ALLEN verwalteten Rechnern — ohne Ausnahme, auch Lehrer-Notebooks. Der Hotspot-Schalter
-  wird ausgegraut. Umgesetzt über die ADMX-Richtlinie „Nutzung der Internetverbindungs-
-  freigabe im DNS-Domänennetzwerk verbieten" (NC_ShowSharedAccessUI=0). Kein Filter →
-  gilt für jedes Gerät in der Domäne.
+  Prohibits the Windows mobile hotspot / Internet Connection Sharing (ICS) on
+  ALL managed machines — no exceptions, including teacher laptops. The hotspot toggle
+  is greyed out. Implemented via the ADMX policy "Prohibit use of Internet Connection
+  Sharing on your DNS domain network" (NC_ShowSharedAccessUI=0). No filter →
+  applies to every device in the domain.
 registry:
-  # "Prohibit use of Internet Connection Sharing on your DNS domain network" = Aktiviert
-  # -> mobiler Hotspot / ICS gesperrt (Schalter ausgegraut, "von Organisation verwaltet").
+  # "Prohibit use of Internet Connection Sharing on your DNS domain network" = Enabled
+  # -> mobile hotspot / ICS locked (toggle greyed out, "managed by your organization").
   - { key: 'Software\Policies\Microsoft\Windows\Network Connections', name: NC_ShowSharedAccessUI, class: machine, type: dword, data: 0 }

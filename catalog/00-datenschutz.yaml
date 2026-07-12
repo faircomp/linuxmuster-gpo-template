@@ -1,11 +1,11 @@
 id: "00-datenschutz"
-title: "Datenschutz / Telemetrie"
+title: "Data Protection / Telemetry"
 scope: global
 target: both
 loopback: merge
 description: >
-  Telemetrie, Werbe-ID, Aktivitätsverlauf, Standort, Feedback, Find-My-Device,
-  Eingabe-Personalisierung, Copilot/Recall, Cloud-Sync abschalten.
+  Disable telemetry, advertising ID, activity history, location, feedback,
+  Find-My-Device, input personalization, Copilot/Recall and cloud sync.
 dsgvo: >
   DSK-Beschluss zu Windows: Enterprise/Education + AllowTelemetry=0 (Security) +
   Restricted-Traffic-Baseline. Auf Pro wird 0 als 1 (Required) behandelt.
@@ -27,6 +27,6 @@ registry:
   - { key: 'Software\Policies\Microsoft\Windows\WindowsAI', name: DisableAIDataAnalysis, class: machine, type: dword, data: 1 }
   - { key: 'Software\Policies\Microsoft\Windows\SettingSync', name: DisableSettingSync, class: machine, type: dword, data: 2 }
   - { key: 'Software\Policies\Microsoft\Windows\SettingSync', name: DisableSettingSyncUserOverride, class: machine, type: dword, data: 1 }
-  # User-Kontext (via Loopback=Merge auf verwalteten Rechnern wirksam)
+  # User context (effective on managed machines via Loopback=Merge)
   - { key: 'Software\Policies\Microsoft\Windows\CloudContent', name: DisableTailoredExperiencesWithDiagnosticData, class: user, type: dword, data: 1 }
   - { key: 'Software\Policies\Microsoft\Windows\WindowsCopilot', name: TurnOffWindowsCopilot, class: user, type: dword, data: 1 }

@@ -1,98 +1,98 @@
-# Veyon-GPO-Paket — Design A (UMGESETZT als `catalog/10-veyon-schule.yaml`)
+# Veyon GPO Pack — Design A (IMPLEMENTED as `catalog/10-veyon-schule.yaml`)
 
-Stand: **umgesetzt + serverseitig auf der crabbox verifiziert** (apply/idempotent/remove, MULTI_SZ,
-Firewall-Standortsperre, Bind-PW-Hex). Offen bleibt nur der echte Windows-Client-Test (`gpupdate`/
-`gpresult`) — wie bei allen Paketen. Umsetzung über unsere Registry-Engine (`samba-tool gpo load`).
+Status: **implemented + server-side verified on the crabbox** (apply/idempotent/remove, MULTI_SZ,
+firewall location lock, bind-PW hex). The only thing still open is the real Windows client test (`gpupdate`/
+`gpresult`) — as with all packs. Implemented via our registry engine (`samba-tool gpo load`).
 
-Nutzung: `veyon_binddn` + `veyon_bindpw_hex` in die `site.yaml` (Assistent fragt danach; Hex via
-`lmgpo-cli veyon-encrypt-password` oder aus einem Configurator-Export). Dann greift Paket `10-veyon-schule`
-pro Schule. Bind-Passwort ist reversibel (§5) → `global-veyon` eng berechtigt halten + Passwort rotieren.
+Usage: put `veyon_binddn` + `veyon_bindpw_hex` into `site.yaml` (the wizard asks for them; hex via
+`lmgpo-cli veyon-encrypt-password` or from a configurator export). Then pack `10-veyon-schule` applies
+per school. The bind password is reversible (§5) → keep `global-veyon` tightly permissioned + rotate the password.
 
-## 0. config.json vs. reine Registry — Entscheidung
+## 0. config.json vs. plain registry — decision
 
-**Reine Registry** (nicht `veyon-cli config import`). Begründung: die reale Config nutzt
-`AccessControlRulesProcessingEnabled=false` → keine `@JsonValue`-Regel-Arrays, also entfällt der
-einzige echte Nachteil des Registry-Wegs. Registry passt in unsere idempotente Engine, braucht kein
-`veyon-cli`/Startskript am Client und wird pro Schule aus dem AD generiert. (config.json nur nötig bei
-komplexen Regelsätzen/Golden-Config — hier nicht der Fall. Sicherheit identisch, da Bind-PW so oder so
-in world-lesbarem sysvol bzw. NETLOGON läge.)
+**Plain registry** (not `veyon-cli config import`). Rationale: the real config uses
+`AccessControlRulesProcessingEnabled=false` → no `@JsonValue` rule arrays, so the only real
+disadvantage of the registry route falls away. Registry fits our idempotent engine, needs no
+`veyon-cli`/startup script on the client, and is generated per school from AD. (config.json is only needed for
+complex rule sets/golden config — not the case here. Security is identical, since the bind PW would either way
+lie in world-readable sysvol or NETLOGON.)
 
-Config liegt unter `HKLM\SOFTWARE\Veyon Solutions\Veyon\<Sektion>` (64-Bit-View, tattooing). Wirkt nach Reboot.
+Config lives under `HKLM\SOFTWARE\Veyon Solutions\Veyon\<Sektion>` (64-bit view, tattooing). Takes effect after reboot.
 
-## 1. Grundsatz
+## 1. Principle
 
-- Auth = **Logon-Authentifizierung + LDAP-Directory** (dateilos, kein Key-File-Problem).
-- Ein GPO **pro Schule** (`scope: school`, an `OU=Devices,OU=<schule>`).
-- Directory = nur **Schüler-Computer** der Schule (`ComputersFilter=(sophomorixRole=classroom-studentcomputer)`).
-- Raum-Mapping über das **`sophomorixComputerRoom`-Attribut** des Computerobjekts
-  (`ComputerLocationsByAttribute=true`, `LocationNameAttribute=sophomorixComputerRoom`) — sauberer als by-container.
-- LDAP-Directory-Plugin-UUID (bestätigt): **`6f0a491e-c1c6-4338-8244-f823b0bf8670`** (für `NetworkObjectDirectory\Plugin` und `UserGroups\Backend`).
-- **Lehrer-Notebook-Master: zurückgestellt.**
+- Auth = **logon authentication + LDAP directory** (fileless, no key-file problem).
+- One GPO **per school** (`scope: school`, on `OU=Devices,OU=<schule>`).
+- Directory = only the school's **student computers** (`ComputersFilter=(sophomorixRole=classroom-studentcomputer)`).
+- Room mapping via the **`sophomorixComputerRoom` attribute** of the computer object
+  (`ComputerLocationsByAttribute=true`, `LocationNameAttribute=sophomorixComputerRoom`) — cleaner than by-container.
+- LDAP directory plugin UUID (confirmed): **`6f0a491e-c1c6-4338-8244-f823b0bf8670`** (for `NetworkObjectDirectory\Plugin` and `UserGroups\Backend`).
+- **Teacher notebook master: deferred.**
 
-## 2. Design A — Roaming (GEWÄHLT)
+## 2. Design A — Roaming (CHOSEN)
 
-Veyon hat **keine standortbasierte** Zugriffskontrolle, nur identitätsbasiert (ist-Lehrer). „Nur an der
-Schule, wo ich bin" erzwingt daher die **Netzwerkebene** — hier die **OPNsense** (§3).
+Veyon has **no location-based** access control, only identity-based (is-teacher). "Only at the
+school where I am" therefore has to be enforced at the **network level** — here the **OPNsense** (§3).
 
-- Auth global: jeder Lehrer darf grundsätzlich Master.
-- `BaseDN = DC=…` (Wurzel), `UserTree = OU=SCHOOLS`, `GroupTree = OU=Groups,OU=GLOBAL`.
+- Auth global: every teacher may in principle be master.
+- `BaseDN = DC=…` (root), `UserTree = OU=SCHOOLS`, `GroupTree = OU=Groups,OU=GLOBAL`.
 - `AccessControl\AuthorizedUserGroups = ["CN=all-teachers,OU=Groups,OU=GLOBAL", "CN=role-teacher,OU=Groups,OU=GLOBAL"]`.
-  **KRITISCH — BaseDN-RELATIVE DNs (ohne `,DC=…`-Suffix!):** Veyon speichert und vergleicht
-  Gruppen-DNs base-relativ (`LdapClient::stripBaseDn`, verifiziert am Quellcode + an einer echten,
-  per Configurator erzeugten Config). Eine VOLLE DN matcht deshalb KEINEN Lehrer → „Lehrer fehlen in
-  der autorisierten Gruppe", Master lässt sich nicht öffnen. Das war der reale Bug. Umsetzung:
-  `apply._reldn()` strippt den BaseDN; die Reps `@role-teacher`/`@all-teachers` liefern relative DNs.
-  Beide Lehrergruppen: `role-teacher` (direkte Mitglieder) + `all-teachers` (verschachtelt über
-  `<schule>-teachers`), daher zusätzlich **`LDAP\QueryNestedUserGroups=true`**. Fehlt eine Gruppe,
-  wird ihr leerer Eintrag aus dem MULTI_SZ gedroppt.
-- `ComputerTree` pro Schule → Raumliste schulscharf.
-- **Standort-Sperre = OPNsense** (§3): Windows-Firewall bleibt für Veyon offen; die Trennung zwischen
-  Schul-Subnetzen/VLANs macht die OPNsense.
+  **CRITICAL — BaseDN-RELATIVE DNs (without `,DC=…` suffix!):** Veyon stores and compares
+  group DNs base-relative (`LdapClient::stripBaseDn`, verified against the source code + against a real
+  config produced by the Configurator). A FULL DN therefore matches NO teacher → "teachers missing from
+  the authorized group", the master won't open. That was the actual bug. Implementation:
+  `apply._reldn()` strips the BaseDN; the reps `@role-teacher`/`@all-teachers` deliver relative DNs.
+  Both teacher groups: `role-teacher` (direct members) + `all-teachers` (nested via
+  `<schule>-teachers`), hence additionally **`LDAP\QueryNestedUserGroups=true`**. If a group is missing,
+  its empty entry is dropped from the MULTI_SZ.
+- `ComputerTree` per school → room list scoped to the school.
+- **Location lock = OPNsense** (§3): the Windows firewall stays open for Veyon; the separation between
+  school subnets/VLANs is done by the OPNsense.
 
-> Verworfene Alternative (Design B, strikt per Schule): `UserTree`/`GroupTree = OU=<schule>`,
-> `AuthorizedUserGroups` = Schul-Lehrergruppe → kein Roaming. Nicht gewählt.
+> Rejected alternative (Design B, strict per school): `UserTree`/`GroupTree = OU=<schule>`,
+> `AuthorizedUserGroups` = school teacher group → no roaming. Not chosen.
 
-**Schüler-Roaming (unkritisch, keine Anpassung nötig):** „Login nur für Lehrer" betrifft den Veyon-*Master*,
-nicht die Windows-Anmeldung — Schüler melden sich normal an und werden überwacht. Veyons AccessControl prüft
-den *verbindenden* Nutzer (Lehrer) gegen `role-teacher` (`AccessControlProvider::processAuthorizedGroups`:
-Schnittmenge der Gruppen des zugreifenden Nutzers), **nicht** den lokal angemeldeten Schüler. Ein Schüler ist
-nie in `role-teacher` → kann nie steuern, egal aus welcher Schule. Die Rechnerliste hängt am Computer-Objekt
-(`classroom-studentcomputer` + `sophomorixComputerRoom`), nicht am Schüler; Config ist rein HKLM. Einzige
-externe Voraussetzung: linuxmuster/AD muss die schulübergreifende Windows-Anmeldung erlauben.
+**Student roaming (uncritical, no adjustment needed):** "login for teachers only" concerns the Veyon *master*,
+not the Windows logon — students log in normally and are monitored. Veyon's AccessControl checks the
+*connecting* user (teacher) against `role-teacher` (`AccessControlProvider::processAuthorizedGroups`:
+intersection of the accessing user's groups), **not** the locally logged-in student. A student is
+never in `role-teacher` → can never control, regardless of which school. The computer list hangs off the computer object
+(`classroom-studentcomputer` + `sophomorixComputerRoom`), not the student; config is purely HKLM. The only
+external prerequisite: linuxmuster/AD must allow cross-school Windows logon.
 
-## 3. Standort-Sperre = OPNsense (nicht Windows-Firewall)
+## 3. Location lock = OPNsense (not Windows firewall)
 
-Die Windows-Firewall bleibt für Veyon **komplett offen**: Veyon öffnet Port 11100 selbst
-(`Network\FirewallExceptionEnabled=1`), das Paket setzt **keine** eigene Windows-Firewallregel.
-Die Trennung zwischen Schulen (kein Fernsteuern einer anderen Schule) macht die **OPNsense** zwischen
-den Schul-Subnetzen/VLANs. → Kein `subnets.csv`/Netzmasken-Handling im Toolkit nötig.
+The Windows firewall stays **completely open** for Veyon: Veyon opens port 11100 itself
+(`Network\FirewallExceptionEnabled=1`), the pack sets **no** Windows firewall rule of its own.
+The separation between schools (no remote-controlling another school) is done by the **OPNsense** between
+the school subnets/VLANs. → No `subnets.csv`/netmask handling needed in the toolkit.
 
-## 4. Master — aktueller Raum als Default, andere wählbar
+## 4. Master — current room as default, others selectable
 
-- `Master\AutoSelectCurrentLocation = true` (weiche Vorauswahl des eigenen Standorts).
-- `Master\ShowCurrentLocationOnly = false` (NICHT setzen — wäre harte Sperre).
-- aus der Real-Config zusätzlich sinnvoll: `Master\HideLocalComputer=true`, `Master\HideEmptyLocations=true`,
+- `Master\AutoSelectCurrentLocation = true` (soft preselection of one's own location).
+- `Master\ShowCurrentLocationOnly = false` (do NOT set — would be a hard lock).
+- also sensible from the real config: `Master\HideLocalComputer=true`, `Master\HideEmptyLocations=true`,
   `Master\AccessControlForMasterEnabled=true`.
-- Voraussetzung: Master-PC steht als Computerobjekt mit korrektem `sophomorixComputerRoom`; DNS vor-/rückwärts sauber.
+- Prerequisite: the master PC is present as a computer object with the correct `sophomorixComputerRoom`; DNS forward/reverse clean.
 
-## 5. SICHERHEIT — Bind-Passwort (Kernbefund)
+## 5. SECURITY — bind password (key finding)
 
-Veyon-`BindPassword` ist **NICHT gehasht** — RSA mit einem **statischen, öffentlich im Veyon-Repo
-liegenden Schlüssel** (`default-pkey.pem`, in jeder Installation identisch) → **trivial umkehrbar**
-(mit `openssl` bewiesen). Lesbar in **(1) sysvol-`Registry.pol`** (Authenticated Users/Schüler) und
-**(2) Client-Registry** (`HKLM\SOFTWARE\Veyon Solutions`, `BUILTIN\Users`-Read, da Veyon keine restriktive
-Registry-DACL setzt).
+Veyon's `BindPassword` is **NOT hashed** — RSA with a **static key that lies publicly in the Veyon repo**
+(`default-pkey.pem`, identical in every installation) → **trivially reversible**
+(proven with `openssl`). Readable in **(1) sysvol `Registry.pol`** (Authenticated Users/students) and
+**(2) client registry** (`HKLM\SOFTWARE\Veyon Solutions`, `BUILTIN\Users` read, since Veyon sets no restrictive
+registry DACL).
 
-Maßnahmen (Grundproblem bleibt, nur Schadensbegrenzung):
-- **Dedizierter Read-only-Bind-User `global-veyon`** (NICHT `global-binduser`), Leserechte möglichst eng
-  (Computerobjekte + `sophomorixComputerRoom`/MAC/`dNSHostName` + `role-teacher`) → bei Kompromittierung
-  kein Schüler-PII, nur Rechnernamen/Räume + Lehrerliste.
-- GPO auf **`Domain Computers` security-filtern** (Schüler raus → schließt sysvol-Weg; MS16-072 beachten).
-- **Client-Registry-DACL härten** (Users-Read auf `HKLM\SOFTWARE\Veyon Solutions` entziehen; SYSTEM behält).
-- **LDAPS erzwingen** (`ConnectionSecurity=2`, Port 636, CA `/etc/linuxmuster/ssl/cacert.pem`, `TLSVerifyMode=1`).
-- Anonymer Bind (linuxmuster verbietet ihn) / Kerberos-Bind (Veyon kann kein SASL) → keine Optionen.
+Measures (the underlying problem remains, only damage limitation):
+- **Dedicated read-only bind user `global-veyon`** (NOT `global-binduser`), read rights as tight as possible
+  (computer objects + `sophomorixComputerRoom`/MAC/`dNSHostName` + `role-teacher`) → on compromise
+  no student PII, only machine names/rooms + teacher list.
+- Security-filter the GPO on **`Domain Computers`** (students out → closes the sysvol route; mind MS16-072).
+- **Harden the client registry DACL** (revoke Users read on `HKLM\SOFTWARE\Veyon Solutions`; SYSTEM keeps it).
+- **Enforce LDAPS** (`ConnectionSecurity=2`, port 636, CA `/etc/linuxmuster/ssl/cacert.pem`, `TLSVerifyMode=1`).
+- Anonymous bind (linuxmuster forbids it) / Kerberos bind (Veyon can't do SASL) → not options.
 
-## 6. Config-Inventar (aus realer Export-Config, Schule „msg" als Muster)
+## 6. Config inventory (from the real export config, school "msg" as template)
 
 ```
 [Authentication] Method = 0                       (Logon)   ; DWORD
@@ -112,7 +112,7 @@ Maßnahmen (Grundproblem bleibt, nur Schadensbegrenzung):
   ComputerLocationsByAttribute = true   ComputerLocationsByContainer = false
   ComputerLocationAttribute = sophomorixComputerRoom
   LocationNameAttribute     = sophomorixComputerRoom
-  UserLoginNameAttribute    = sAMAccountName               ; (Real-Config: 'sAMAccountname' — prüfen)
+  UserLoginNameAttribute    = sAMAccountName               ; (Real-Config: 'sAMAccountname' — verify)
   GroupMemberAttribute      = member
   UserTree                  = OU=SCHOOLS                   ; Design A (Roaming)
   GroupTree                 = OU=Groups,OU=GLOBAL          ; Design A (Roaming)
@@ -127,23 +127,23 @@ Maßnahmen (Grundproblem bleibt, nur Schadensbegrenzung):
 [Service] RemoteConnectionNotifications = true
 [Windows] SoftwareSASEnabled = 1
 ```
-Typen: Strings=SZ, Ports/Enums=DWORD, bool="true"/"false"(SZ), Gruppenliste=MULTI_SZ.
-`Core\*` (InstallationID, PluginVersions) NICHT ausrollen (Veyon-intern/pro Maschine).
+Types: strings=SZ, ports/enums=DWORD, bool="true"/"false"(SZ), group list=MULTI_SZ.
+Do NOT roll out `Core\*` (InstallationID, PluginVersions) (Veyon-internal/per-machine).
 
-## 7. Was das Toolkit liefert vs. neue Setup-Fragen
+## 7. What the toolkit provides vs. new setup questions
 
-Auto: realm/BaseDN/Schulen/`OU=Devices`/serverip/`server.<realm>`/cacert-Pfad/`role-teacher`-DN/Subnetze.
-Neu zu klären: `global-veyon` (anlegen lassen? Rechte-Scope?), Design A vs. B, LDAPS-CA-Datei-Verteilung
-(GPP-Files/Share), Security-Filter+Registry-DACL-Härtung ein/aus, TLSCACertificateFile-Pfad am Client.
+Auto: realm/BaseDN/schools/`OU=Devices`/serverip/`server.<realm>`/cacert path/`role-teacher` DN/subnets.
+To be clarified anew: `global-veyon` (have it created? rights scope?), Design A vs. B, LDAPS CA file distribution
+(GPP files/share), security filter + registry DACL hardening on/off, TLSCACertificateFile path on the client.
 
-## 8. Caveats / Grenzen
+## 8. Caveats / limits
 
-- **WLAN-Geräte** (Rolle `wlan`) sind keine Computerobjekte → nicht im Directory.
-- `dNSHostName` case-sensitiv (Real-Config zeigt `sAMAccountname` klein — gegen echten Export prüfen).
-- Veyon liest Config beim Dienststart → Reboot nötig.
-- Exakte Location-/UUID-Werte final gegen einen `veyon-cli config export` eines per GUI konfigurierten Masters abgleichen.
-- Verifikation nur mit echtem Windows-Client (`lmgpo-check.ps1` erweitern).
+- **WLAN devices** (role `wlan`) are not computer objects → not in the directory.
+- `dNSHostName` case-sensitive (real config shows `sAMAccountname` lowercase — check against a real export).
+- Veyon reads config at service start → reboot needed.
+- Reconcile exact location/UUID values finally against a `veyon-cli config export` of a GUI-configured master.
+- Verification only with a real Windows client (extend `lmgpo-check.ps1`).
 
-## 9. Zurückgestellt
+## 9. Deferred
 
-Veyon-Master auf Lehrer-Notebooks (nicht alle noPXE-Geräte) — inkl. gesonderter Behandlung des Bind-PW-Risikos.
+Veyon master on teacher notebooks (not all noPXE devices) — including separate handling of the bind-PW risk.

@@ -47,8 +47,8 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_ssid": "",        # teacher enterprise SSID (WPA2/PEAP, user-auth)
     "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
-    "bootorder_pxe_first": False,      # opt-in: UEFI-Bootreihenfolge Netzwerk/PXE zuerst (Startskript)
-    "ntp_mode": "nt5ds",               # Zeitsync-Modus: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server)
+    "bootorder_pxe_first": False,      # opt-in: UEFI boot order network/PXE first (startup script)
+    "ntp_mode": "nt5ds",               # time-sync mode: nt5ds (domain/Samba way) | ntp (explicit server)
 }
 
 
@@ -159,7 +159,7 @@ class Applier:
         return dn[:-len(suffix)] if dn.lower().endswith(suffix.lower()) else dn
 
     def _resolve_str(self, s, school, extra=None):
-        # Reihenfolge: @firefox-homepage-locked VOR @firefox-homepage (Präfix-Kollision).
+        # order: @firefox-homepage-locked BEFORE @firefox-homepage (prefix collision).
         reps = {
             "@firefox-homepage-locked": "1" if self.answers.get("firefox_homepage_locked", True) else "0",
             "@firefox-homepage": self._firefox_homepage(school),
@@ -178,8 +178,8 @@ class Applier:
             "@basedn": self.env.basedn,
             "@veyon-binddn": self.answers.get("veyon_binddn", "") or "",
             "@veyon-bindpw": self.answers.get("veyon_bindpw_hex", "") or "",
-            # Veyon speichert/vergleicht Gruppen-DNs BaseDN-relativ (LdapClient::stripBaseDn),
-            # daher OHNE ,DC=…-Suffix — sonst matcht AuthorizedUserGroups keinen Lehrer.
+            # Veyon stores/compares group DNs base-relative (LdapClient::stripBaseDn),
+            # therefore WITHOUT the ,DC=… suffix — otherwise AuthorizedUserGroups matches no teacher.
             "@role-teacher": self._reldn(self.env.role_teacher.dn) if self.env.role_teacher else "",
             "@all-teachers": self._reldn(self.env.all_teachers.dn) if self.env.all_teachers else "",
             "@school": school.name if school else "GLOBAL",
@@ -256,7 +256,7 @@ class Applier:
             raw = e["data"]
             if isinstance(raw, str):
                 data = self._resolve_str(raw, school, extra)
-            elif isinstance(raw, list):   # REG_MULTI_SZ (leere Auflösungen droppen, z.B. fehlende Gruppe)
+            elif isinstance(raw, list):   # REG_MULTI_SZ (drop empty resolutions, e.g. missing group)
                 data = [v for x in raw
                         if (v := (self._resolve_str(x, school, extra) if isinstance(x, str) else x))]
             else:
@@ -348,8 +348,8 @@ class Applier:
                                  for sid in self._group_sids(token, school, schools)]
             if not filter_apply_sids:
                 print(f"\n▸ {name}")
-                print(f"    ⚠ übersprungen: Exklusiv-Filter-Gruppe(n) {pack.filter_apply} "
-                      f"nicht gefunden — sonst würde die GPO für ALLE gelten.")
+                print(f"    ⚠ skipped: exclusive-filter group(s) {pack.filter_apply} "
+                      f"not found — otherwise the GPO would apply to EVERYONE.")
                 return
         print(f"\n▸ {name}")
         guid, _ = self.eng.ensure(name)
@@ -378,9 +378,9 @@ class Applier:
     def run(self, packs):
         packs = self.selected_packs(packs)
         schools = self.selected_schools()
-        print(f"Anwenden auf {len(schools)} Schule(n): {', '.join(s.name for s in schools)}")
+        print(f"Applying to {len(schools)} school(s): {', '.join(s.name for s in schools)}")
         if self._kmshost():
-            print(f"KMS-Host: {self._kmshost()}")
+            print(f"KMS host: {self._kmshost()}")
         for pack in packs:
             if pack.scope == "school":
                 for school in schools:
@@ -390,25 +390,25 @@ class Applier:
 
         reconciled = True
         if not self.dry_run:
-            print("\nsysvol/AD-ACL abgleichen:")
+            print("\nReconciling sysvol/AD ACL:")
             reconciled = self.eng.reconcile_sysvol()
         ok, out = self.eng.aclcheck()
-        print(f"\naclcheck: {'ok' if ok else 'ABWEICHUNG — ' + (out.splitlines()[0] if out else '')}")
-        print(f"Fertig: {len(self.results)} GPO(s) angewandt.")
+        print(f"\naclcheck: {'ok' if ok else 'MISMATCH — ' + (out.splitlines()[0] if out else '')}")
+        print(f"Done: {len(self.results)} GPO(s) applied.")
 
         problems = []
         if not self.dry_run and not reconciled:
             problems.append(
-                "sysvolreset wurde übersprungen (Domain Admins hat eine gidNumber). Die selbst "
-                "geschriebenen GptTmpl/Groups/Skript-Dateien haben dann evtl. keine korrekten "
-                "sysvol-ACLs → Clients wenden diese GPOs womöglich NICHT an. Bitte sysvol-ACLs "
-                "manuell prüfen (samba-tool ntacl get/set).")
+                "sysvolreset was skipped (Domain Admins has a gidNumber). The self-written "
+                "GptTmpl/Groups/script files may then not have correct sysvol ACLs → clients "
+                "might NOT apply these GPOs. Please check the sysvol ACLs manually "
+                "(samba-tool ntacl get/set).")
         if not ok:
-            problems.append("gpo aclcheck meldet eine Abweichung zwischen AD- und sysvol-ACL.")
+            problems.append("gpo aclcheck reports a mismatch between the AD and sysvol ACL.")
         if problems:
             print()
             for p in problems:
-                print(f"⚠ WARNUNG: {p}")
+                print(f"⚠ WARNING: {p}")
             return 1
         return 0
 
@@ -430,12 +430,12 @@ def remove(env, dry_run=False, only_ids=None):
             continue
         if only_ids and not any(name.endswith("-" + pid) for pid in only_ids):
             continue
-        print(f"▸ entferne {name} {guid}")
+        print(f"▸ removing {name} {guid}")
         for container in gplinks.get(guid.upper(), []):
             eng.unlink(container, guid)
         eng.delete(guid)
         removed += 1
     if not dry_run and removed:
         eng.reconcile_sysvol()
-    print(f"\n{removed} GPO(s) entfernt.")
+    print(f"\n{removed} GPO(s) removed.")
     return 0

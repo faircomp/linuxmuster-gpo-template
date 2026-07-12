@@ -1,27 +1,27 @@
-# bootorder-pxe-first.ps1 — UEFI-Bootreihenfolge: Netzwerk/PXE zuerst (-> LINBO), Windows
-# Boot Manager zuletzt. Windows draengt seinen Boot Manager sonst nach jedem Start wieder vor.
+# bootorder-pxe-first.ps1 — UEFI boot order: network/PXE first (-> LINBO), Windows Boot
+# Manager last. Otherwise Windows pushes its boot manager back to the top after every start.
 #
-# WARUM ZWEISTUFIG (Scheduled Task):
-# Das GPO-Start-/Shutdown-Skript laeuft zwar als SYSTEM, aber mit einem ABGESPECKTEN Token
-# ohne SeSystemEnvironmentPrivilege (Client-Log: "Dem Client fehlt ein erforderliches Recht.",
-# auch fuer {bootmgr}). Damit ist KEIN bcdedit-Zugriff auf die UEFI-NVRAM moeglich. Loesung:
-#  - INSTALLER-Modus (Default, vom GPO aufgerufen): kopiert dieses Skript lokal und registriert
-#    einen Scheduled Task, der es als SYSTEM mit HOECHSTEN Rechten (volles Token, inkl.
-#    SeSystemEnvironmentPrivilege) beim Systemstart ausfuehrt — und startet ihn sofort einmal.
-#  - WORKER-Modus (-Worker, vom Task aufgerufen): macht die eigentliche bcdedit-Umsortierung.
-# Alles wird nach %SystemRoot%\Temp\lmgpo-bootorder.log geloggt.
+# WHY TWO-STAGE (scheduled task):
+# The GPO startup/shutdown script does run as SYSTEM, but with a REDUCED token that lacks
+# SeSystemEnvironmentPrivilege (client log: "a required privilege is not held by the client",
+# also for {bootmgr}). So no bcdedit access to the UEFI NVRAM is possible. Solution:
+#  - INSTALLER mode (default, called by the GPO): copies this script locally and registers a
+#    scheduled task that runs it as SYSTEM with HIGHEST privileges (full token, incl.
+#    SeSystemEnvironmentPrivilege) at system start — and starts it once immediately.
+#  - WORKER mode (-Worker, called by the task): does the actual bcdedit reorder.
+# Everything is logged to %SystemRoot%\Temp\lmgpo-bootorder.log.
 param([switch]$Worker)
 $ErrorActionPreference = 'SilentlyContinue'
 $log = Join-Path $env:SystemRoot 'Temp\lmgpo-bootorder.log'
 function Log($m) { try { ('{0}  {1}' -f (Get-Date -Format 's'), $m) | Out-File -LiteralPath $log -Append -Encoding utf8 } catch {} }
 
 # --------------------------------------------------------------------------- #
-# WORKER: eigentliche Umsortierung (laeuft mit vollen Rechten via Scheduled Task)
+# WORKER: the actual reorder (runs with full privileges via the scheduled task)
 # --------------------------------------------------------------------------- #
 function Invoke-Reorder {
     Log ('whoami /priv (SeSystemEnvironment): ' + ((& whoami /priv 2>&1 | Select-String 'SeSystemEnvironment') -join ' | '))
 
-    # SeSystemEnvironmentPrivilege aktivieren (im vollen Token vorhanden, aber ggf. disabled).
+    # Enable SeSystemEnvironmentPrivilege (present in the full token, but possibly disabled).
     $csharp = @'
 [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr h, uint a, out IntPtr t);
 [DllImport("advapi32.dll", SetLastError=true)] static extern bool LookupPrivilegeValue(string s, string n, out long l);
@@ -30,85 +30,88 @@ function Invoke-Reorder {
 [StructLayout(LayoutKind.Sequential)] public struct TP { public uint Count; public long Luid; public uint Attr; }
 public static string Enable(string priv) {
     IntPtr t;
-    if (!OpenProcessToken(GetCurrentProcess(), 0x0028, out t)) return "OpenProcessToken-Fehler " + Marshal.GetLastWin32Error();
+    if (!OpenProcessToken(GetCurrentProcess(), 0x0028, out t)) return "OpenProcessToken error " + Marshal.GetLastWin32Error();
     long luid;
-    if (!LookupPrivilegeValue(null, priv, out luid)) return "LookupPrivilegeValue-Fehler " + Marshal.GetLastWin32Error();
+    if (!LookupPrivilegeValue(null, priv, out luid)) return "LookupPrivilegeValue error " + Marshal.GetLastWin32Error();
     TP tp = new TP(); tp.Count = 1; tp.Luid = luid; tp.Attr = 0x00000002;
     bool r = AdjustTokenPrivileges(t, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
     int err = Marshal.GetLastWin32Error();
-    if (!r) return "AdjustTokenPrivileges-Fehler " + err;
-    if (err == 1300) return "NICHT im Token (ERROR_NOT_ALL_ASSIGNED)";
-    return "aktiviert";
+    if (!r) return "AdjustTokenPrivileges error " + err;
+    if (err == 1300) return "NOT in token (ERROR_NOT_ALL_ASSIGNED)";
+    return "enabled";
 }
 '@
-    try { Add-Type -Namespace LMGPO -Name Tok -MemberDefinition $csharp -ErrorAction Stop; Log ('SeSystemEnvironmentPrivilege: ' + [LMGPO.Tok]::Enable('SeSystemEnvironmentPrivilege')) } catch { Log ('Privileg-Enable Ausnahme: ' + $_.Exception.Message) }
+    try { Add-Type -Namespace LMGPO -Name Tok -MemberDefinition $csharp -ErrorAction Stop; Log ('SeSystemEnvironmentPrivilege: ' + [LMGPO.Tok]::Enable('SeSystemEnvironmentPrivilege')) } catch { Log ('privilege-enable exception: ' + $_.Exception.Message) }
 
     $bcd = Join-Path $env:SystemRoot 'System32\bcdedit.exe'
     if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
         $sn = Join-Path $env:SystemRoot 'Sysnative\bcdedit.exe'; if (Test-Path -LiteralPath $sn) { $bcd = $sn }
     }
     $fwEnum = (& $bcd /enum "{fwbootmgr}" 2>&1 | Out-String)
-    Log ("bcdedit /enum {fwbootmgr} (roh):`n" + $fwEnum.Trim())
+    Log ("bcdedit /enum {fwbootmgr} (raw):`n" + $fwEnum.Trim())
     if ($fwEnum -notmatch 'fwbootmgr') {
-        if ($fwEnum -match 'erforderliches Recht|required privilege|privilege is not held') { Log 'ABBRUCH: immer noch Rechte-Fehler — auch der Task-Kontext hat das Privileg nicht (sehr ungewoehnlich).' }
-        else { Log 'ABBRUCH: {fwbootmgr} nicht lesbar (evtl. Legacy/BIOS) — Rohausgabe oben pruefen.' }
+        # NOTE: the German 'erforderliches Recht' MUST stay — it matches localized bcdedit output.
+        if ($fwEnum -match 'erforderliches Recht|required privilege|privilege is not held') { Log 'ABORT: still a privilege error — even the task context lacks the privilege (very unusual).' }
+        else { Log 'ABORT: {fwbootmgr} not readable (maybe Legacy/BIOS) — check the raw output above.' }
         return
     }
 
+    # Network/PXE pattern (case-insensitive). 'Netzwerk' MUST stay — it matches localized entries.
     $netPattern = '(?i)\bIPV?4\b|\bIPV?6\b|\bIP4\b|\bIP6\b|PXE|Network|Netzwerk|\bLAN\b|Ethernet'
     $curId = $null; $net = New-Object System.Collections.Generic.List[object]; $bootmgrId = $null
     foreach ($line in (& $bcd /enum firmware 2>$null)) {
+        # 'Bezeichner'/'Beschreibung'/'Windows-Start-Manager' MUST stay (localized bcdedit output).
         $mi = [regex]::Match($line, '^\s*(?:identifier|Bezeichner)\s+(\{[^}]+\}|\S+)')
         if ($mi.Success) { $curId = $mi.Groups[1].Value; continue }
         $md = [regex]::Match($line, '^\s*(?:description|Beschreibung)\s+(.+?)\s*$')
         if (-not ($md.Success -and $curId)) { continue }
         $id = $curId; $desc = $md.Groups[1].Value; $curId = $null
         if ($id -eq '{fwbootmgr}') { continue }
-        Log ('Eintrag: {0}  =>  {1}' -f $id, $desc)
+        Log ('Entry: {0}  =>  {1}' -f $id, $desc)
         if ($id -eq '{bootmgr}' -or $desc -match 'Windows Boot Manager|Windows-Start-Manager') { $bootmgrId = $id; continue }
         if ($desc -match $netPattern) { $net.Add([pscustomobject]@{ id = $id; desc = $desc }) }
     }
-    if ($net.Count -eq 0) { Log 'WARNUNG: kein Netzwerk/PXE-Eintrag erkannt -> Reihenfolge NICHT geaendert (Eintraege oben pruefen).'; return }
+    if ($net.Count -eq 0) { Log 'WARNING: no network/PXE entry detected -> order NOT changed (check the entries above).'; return }
 
     $firstId = ([regex]::Match($fwEnum, '(?im)^\s*displayorder\s+(\{[^}]+\})')).Groups[1].Value
-    if ($net.id -contains $firstId) { Log ('Netzwerk steht bereits vorn ({0}) -> ok, keine Aenderung.' -f $firstId); return }
+    if ($net.id -contains $firstId) { Log ('Network already first ({0}) -> ok, no change.' -f $firstId); return }
 
-    if ($bootmgrId) { & $bcd /set "{fwbootmgr}" displayorder $bootmgrId /addlast | Out-Null; Log ('Windows Boot Manager ans Ende: {0}' -f $bootmgrId) }
+    if ($bootmgrId) { & $bcd /set "{fwbootmgr}" displayorder $bootmgrId /addlast | Out-Null; Log ('Windows Boot Manager to the end: {0}' -f $bootmgrId) }
     for ($i = $net.Count - 1; $i -ge 0; $i--) {
         & $bcd /set "{fwbootmgr}" displayorder $net[$i].id /addfirst | Out-Null
-        Log ('Netzwerk nach vorne: {0}  ({1})' -f $net[$i].id, $net[$i].desc)
+        Log ('Network to the front: {0}  ({1})' -f $net[$i].id, $net[$i].desc)
     }
-    Log ('Neue Reihenfolge: ' + ((& $bcd /enum "{fwbootmgr}" 2>$null) -join ' | '))
+    Log ('New order: ' + ((& $bcd /enum "{fwbootmgr}" 2>$null) -join ' | '))
 }
 
 # --------------------------------------------------------------------------- #
 if ($Worker) {
-    Log '--- Worker (Scheduled Task, volle Rechte) ---'
+    Log '--- Worker (scheduled task, full privileges) ---'
     Invoke-Reorder
-    Log '--- Worker Ende ---'
+    Log '--- Worker end ---'
     return
 }
 
 # --------------------------------------------------------------------------- #
-# INSTALLER (GPO-Start-/Shutdown-Skript, eingeschraenkter Token): Task anlegen + starten.
+# INSTALLER (GPO startup/shutdown script, restricted token): register + start the task.
 # --------------------------------------------------------------------------- #
-Log '--- Installer (GPO-Skript) ---'
+Log '--- Installer (GPO script) ---'
 $taskName = 'LMGPO-BootOrderPXE'
 $localDir = Join-Path $env:ProgramData 'lmgpo'
-$localScript = Join-Path $localDir 'bootorder-pxe-first.ps1'   # bewusst OHNE Leerzeichen im Pfad
+$localScript = Join-Path $localDir 'bootorder-pxe-first.ps1'   # deliberately WITHOUT spaces in the path
 try {
     New-Item -ItemType Directory -Force -Path $localDir | Out-Null
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         Copy-Item -LiteralPath $PSCommandPath -Destination $localScript -Force
-        Log ('Skript lokal kopiert -> ' + $localScript)
-    } else { Log 'WARN: $PSCommandPath leer — Worker-Skript nicht lokal ablegbar.' }
-} catch { Log ('Kopier-Fehler: ' + $_.Exception.Message) }
+        Log ('script copied locally -> ' + $localScript)
+    } else { Log 'WARN: $PSCommandPath empty — worker script cannot be placed locally.' }
+} catch { Log ('copy error: ' + $_.Exception.Message) }
 
 try {
-    # Task als SYSTEM/HOECHSTE Rechte, Trigger beim Systemstart. Pfad ohne Leerzeichen -> keine inneren Quotes noetig.
+    # Task as SYSTEM/HIGHEST privileges, trigger at system start. Path without spaces -> no inner quotes needed.
     $tr = "powershell.exe -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $localScript -Worker"
     (& schtasks.exe /Create /TN $taskName /TR $tr /SC ONSTART /RU 'SYSTEM' /RL HIGHEST /F 2>&1) | ForEach-Object { Log ('schtasks /Create: ' + $_) }
     (& schtasks.exe /Run /TN $taskName 2>&1) | ForEach-Object { Log ('schtasks /Run: ' + $_) }
-    Log 'Task registriert + sofort gestartet (die eigentliche Umsortierung erledigt der Task).'
-} catch { Log ('Task-Registrierung fehlgeschlagen: ' + $_.Exception.Message) }
-Log '--- Installer Ende ---'
+    Log 'task registered + started immediately (the task does the actual reorder).'
+} catch { Log ('task registration failed: ' + $_.Exception.Message) }
+Log '--- Installer end ---'

@@ -22,7 +22,7 @@ PROBE_KEY = r"Software\Policies\Lmgpo\Selftest"
 def run(dry_run: bool = False) -> int:
     e = envmod.detect()
     if not e.schools:
-        print("Keine Schule gefunden — Selbsttest nicht möglich.")
+        print("No school found — self-test not possible.")
         return 2
     school = e.schools[0]
     eng = GpoEngine(e, dry_run=dry_run)
@@ -35,14 +35,14 @@ def run(dry_run: bool = False) -> int:
         mark = "\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m"
         print(f"  {mark} {label}" + (f"  — {detail}" if detail else ""))
 
-    print(f"Selbsttest gegen Schule '{school.name}' (Devices-OU: {school.devices_ou})\n")
+    print(f"Self-test against school '{school.name}' (Devices OU: {school.devices_ou})\n")
     guid = None
     pol_base = f"CN=Policies,CN=System,{e.basedn}"
     try:
         guid, created = eng.ensure(TEST_NAME)
-        step(bool(guid), "GPO angelegt/gefunden", f"{guid} ({'neu' if created else 'bestehend'})")
+        step(bool(guid), "GPO created/found", f"{guid} ({'new' if created else 'existing'})")
         if dry_run:
-            print("\n(dry-run: keine echten Änderungen — Verifikation übersprungen)")
+            print("\n(dry-run: no real changes — verification skipped)")
             return 0
 
         entries = [
@@ -60,14 +60,14 @@ def run(dry_run: bool = False) -> int:
 
         pol = f"{eng.sysvol_path(guid)}/Machine/Registry.pol"
         size = os.path.getsize(pol) if os.path.exists(pol) else 0
-        step(size > 8, "Machine/Registry.pol geschrieben", f"{size} Bytes")
+        step(size > 8, "Machine/Registry.pol written", f"{size} Bytes")
 
         msg = ad.find_one(f"(cn={guid})", base=pol_base, scope="one",
                           attrs=["versionNumber", "gPCMachineExtensionNames"])
         ver = ad.val(msg, "versionNumber", "0")
         cse = ad.val(msg, "gPCMachineExtensionNames", "")
-        step(int(ver) > 0, "versionNumber gebumpt", f"v{ver}")
-        step("35378EAC" in cse.upper(), "Registry-CSE registriert", cse or "(leer)")
+        step(int(ver) > 0, "versionNumber bumped", f"v{ver}")
+        step("35378EAC" in cse.upper(), "Registry CSE registered", cse or "(empty)")
 
         # --- GptTmpl.inf (user rights + restricted groups) + Groups.xml (local admins) ---
         from .secedit import SecEdit
@@ -87,40 +87,40 @@ def run(dry_run: bool = False) -> int:
 
         gpo_dir = eng.sysvol_path(guid)
         step(os.path.exists(os.path.join(gpo_dir, "Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf")),
-             "GptTmpl.inf geschrieben")
+             "GptTmpl.inf written")
         step(os.path.exists(os.path.join(gpo_dir, "Machine/Preferences/Groups/Groups.xml")),
-             "Groups.xml geschrieben")
+             "Groups.xml written")
         msg2 = ad.find_one(f"(cn={guid})", base=pol_base, scope="one",
                            attrs=["versionNumber", "gPCMachineExtensionNames"])
         cse2 = ad.val(msg2, "gPCMachineExtensionNames", "").upper()
         step(all(g in cse2 for g in ("35378EAC", "827D319E", "17D89FEC")),
-             "alle 3 CSE registriert (Registry+Security+GPP)", cse2)
-        step(int(ad.val(msg2, "versionNumber", "0")) >= 3, "versionNumber weiter gebumpt",
+             "all 3 CSE registered (Registry+Security+GPP)", cse2)
+        step(int(ad.val(msg2, "versionNumber", "0")) >= 3, "versionNumber bumped further",
              f"v{ad.val(msg2, 'versionNumber', '0')}")
 
         eng.link(school.devices_ou, guid)
         step(guid.upper() in eng._linked_guids(school.devices_ou),
-             "an Devices-OU verlinkt", school.devices_ou)
+             "linked to Devices OU", school.devices_ou)
 
         ok0, _ = eng.aclcheck()
-        step(ok0, "aclcheck sauber (Baseline nach Link)")
+        step(ok0, "aclcheck clean (baseline after link)")
 
         if school.admins and school.admins.sid:
             eng.grant_apply(guid, school.admins.sid)
         if school.nopxe and school.nopxe.sid:
             eng.deny_apply(guid, school.nopxe.sid)
         sddl = (ad.descriptor_sddl(eng.gpo_dn(guid)) or "").lower()
-        step(APPLY_GROUP_POLICY.lower() in sddl, "Grant-Apply-ACE (admins) gesetzt")
+        step(APPLY_GROUP_POLICY.lower() in sddl, "Grant-Apply ACE (admins) set")
         step("od;" in sddl or not (school.nopxe and school.nopxe.sid),
-             "Deny-Apply-ACE (noPXE) gesetzt")
+             "Deny-Apply ACE (noPXE) set")
 
         eng.reconcile_sysvol()
         ok1, out1 = eng.aclcheck()
-        step(ok1, "aclcheck sauber nach Filter+sysvolreset",
+        step(ok1, "aclcheck clean after filter+sysvolreset",
              "" if ok1 else (out1.splitlines()[0] if out1 else ""))
     finally:
         if guid and not dry_run:
-            print("\nAufräumen:")
+            print("\nCleanup:")
             try:
                 eng.unlink(school.devices_ou, guid)
             except Exception as exc:
@@ -131,9 +131,9 @@ def run(dry_run: bool = False) -> int:
                 step(False, "delete", str(exc))
             gone = ad.find_one(f"(cn={guid})", base=pol_base, scope="one") is None
             gone_fs = not os.path.exists(eng.sysvol_path(guid))
-            step(gone and gone_fs, "GPO + sysvol restlos entfernt")
+            step(gone and gone_fs, "GPO + sysvol completely removed")
 
     passed = sum(1 for ok, _, _ in steps if ok)
     total = len(steps)
-    print(f"\n{'BESTANDEN' if passed == total else 'FEHLER'}: {passed}/{total} Schritte ok.")
+    print(f"\n{'PASSED' if passed == total else 'FAILED'}: {passed}/{total} steps ok.")
     return 0 if passed == total else 1

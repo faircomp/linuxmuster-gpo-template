@@ -1,29 +1,29 @@
 <#
 .SYNOPSIS
-    Prüft auf einem domänenverbundenen Windows-11-Client, welche LMN-*-GPOs
-    angekommen sind und ob die Einstellungen tatsächlich wirken.
+    Checks on a domain-joined Windows 11 client which LMN-* GPOs have arrived and
+    whether the settings actually take effect.
 
 .DESCRIPTION
-    REIN LESEND. Es wird nichts verändert. Nur mit dem Schalter -Refresh wird
-    vorab ein 'gpupdate /force' ausgeführt (Standard-Windows-Refresh, harmlos).
+    READ-ONLY. Nothing is changed. Only with the -Refresh switch is a 'gpupdate /force'
+    run first (standard Windows refresh, harmless).
 
-    Deckt Computer- UND User-Richtlinien ab: Datenschutz, Update-Split, Energie/Sperre,
-    RDP/Firewall/Gruppen, KMS, Hotspot-Sperre, OneDrive, Ruhezustand, Loopback, Firefox,
-    Rollen-Proxy, Schüler-Lockdown (HKCU), Veyon, WLAN, Zeitsync (W32Time) und das
-    Bootorder-Startskript-Log.
+    Covers computer AND user policies: privacy, update split, power/lock, RDP/firewall/
+    groups, KMS, hotspot block, OneDrive, hibernation, loopback, Firefox, role proxy,
+    student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time) and the boot-order
+    startup-script log.
 
-    Zweimal ausführen: (1) als ADMINISTRATOR für Computer-GPOs/Firewall/Gruppen,
-    (2) als angemeldeter SCHÜLER (nicht elevated) für die User-Sperren (Lockdown/Proxy).
+    Run twice: (1) as ADMINISTRATOR for computer GPOs/firewall/groups,
+    (2) as the logged-in STUDENT (not elevated) for the user restrictions (lockdown/proxy).
 
 .PARAMETER Refresh
-    Führt vor der Prüfung 'gpupdate /force' aus (empfohlen für einen frischen Stand).
+    Runs 'gpupdate /force' before checking (recommended for a fresh state).
 
 .PARAMETER ReportPath
-    Pfad für den vollständigen HTML-GPO-Bericht (Default: .\lmgpo-gpresult.html).
+    Path for the full HTML GPO report (default: .\lmgpo-gpresult.html).
 
 .PARAMETER WlanCaSubject
-    Optional: Subject (bzw. Teil davon) des RADIUS-CA-Zertifikats, das für das
-    Lehrer-Enterprise-WLAN im Trusted-Root-Store des Rechners liegen soll. Prüft dessen Vorhandensein.
+    Optional: subject (or part of it) of the RADIUS CA certificate that should be in the
+    machine's Trusted Root store for the teacher enterprise Wi-Fi. Checks its presence.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
@@ -42,53 +42,54 @@ $ok = 0; $fail = 0; $skip = 0
 function Write-Head($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Mark($cond) { if ($cond) { "[OK] " } else { "[!!] " } }
 function Test-Reg($c) {
-    # $c = @{ N=Name; P=RegPfad; K=Wertname; E=Soll (oder $null = nur 'gesetzt') }
+    # $c = @{ N=name; P=regPath; K=valueName; E=expected (or $null = only 'is set') }
     $v = (Get-ItemProperty -Path $c.P -Name $c.K -ErrorAction SilentlyContinue).($c.K)
     if ($null -eq $v) {
-        Write-Host ("  [--] {0,-30} nicht gesetzt (GPO evtl. nicht auf dieses Gerät/diesen User gefiltert)" -f $c.N) -ForegroundColor DarkGray
+        Write-Host ("  [--] {0,-30} not set (GPO may not be filtered to this device/user)" -f $c.N) -ForegroundColor DarkGray
         $script:skip++; return
     }
     if (($null -eq $c.E) -or ("$v" -eq "$($c.E)")) {
         Write-Host ("  {0}{1,-30} = {2}" -f (Mark $true), $c.N, $v) -ForegroundColor Green; $script:ok++
     } else {
-        Write-Host ("  {0}{1,-30} = {2}  (erwartet {3})" -f (Mark $false), $c.N, $v, $c.E) -ForegroundColor Red; $script:fail++
+        Write-Host ("  {0}{1,-30} = {2}  (expected {3})" -f (Mark $false), $c.N, $v, $c.E) -ForegroundColor Red; $script:fail++
     }
 }
 
-# --- Adminrechte? -----------------------------------------------------------
+# --- Admin rights? ----------------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "WARNUNG: nicht als Administrator gestartet — Computer-GPOs, Firewall" -ForegroundColor Yellow
-    Write-Host "         und Gruppen-Prüfungen sind evtl. unvollständig.`n" -ForegroundColor Yellow
+    Write-Host "WARNING: not started as Administrator — computer GPOs, firewall" -ForegroundColor Yellow
+    Write-Host "         and group checks may be incomplete.`n" -ForegroundColor Yellow
 }
 
-# --- optionaler Refresh (einzige nicht-lesende Aktion, nur mit -Refresh) -----
+# --- optional refresh (the only non-read-only action, only with -Refresh) -----
 if ($Refresh) {
-    Write-Head "gpupdate /force (nur wegen -Refresh)"
+    Write-Head "gpupdate /force (because of -Refresh)"
     gpupdate /force | Out-Host
 }
 
-# --- 1) Angewandte LMN-GPOs (gpresult) --------------------------------------
-Write-Head "Angewandte LMN-*-GPOs (gpresult)"
+# --- 1) Applied LMN GPOs (gpresult) -----------------------------------------
+Write-Head "Applied LMN-* GPOs (gpresult)"
 $gp = & gpresult /r /scope computer 2>$null
 $applied = @(); $denied = @()
 $section = ""
 foreach ($line in $gp) {
+    # NOTE: the German alternatives match localized gpresult output and MUST stay.
     if ($line -match "Applied Group Policy Objects|Angewendete Gruppenrichtlinienobjekte") { $section = "applied"; continue }
     if ($line -match "were filtered out|herausgefiltert")                                  { $section = "denied";  continue }
     if ($line -match "The (computer|following)|Die folgenden")                             { $section = "" }
     $t = $line.Trim()
     if ($t -like "LMN-*") { if ($section -eq "applied") { $applied += $t } elseif ($section -eq "denied") { $denied += $t } }
 }
-if ($applied) { $applied | Sort-Object -Unique | ForEach-Object { Write-Host "  [OK] angewandt:  $_" -ForegroundColor Green } }
-else { Write-Host "  [!!] Keine LMN-GPO als 'angewandt' gefunden (Computerscope)." -ForegroundColor Red }
-if ($denied) { $denied | Sort-Object -Unique | ForEach-Object { Write-Host "  [--] gefiltert:  $_ (z.B. per Deny-Apply, das kann korrekt sein)" -ForegroundColor DarkGray } }
+if ($applied) { $applied | Sort-Object -Unique | ForEach-Object { Write-Host "  [OK] applied:   $_" -ForegroundColor Green } }
+else { Write-Host "  [!!] No LMN GPO found as 'applied' (computer scope)." -ForegroundColor Red }
+if ($denied) { $denied | Sort-Object -Unique | ForEach-Object { Write-Host "  [--] filtered:  $_ (e.g. via deny-apply, which can be correct)" -ForegroundColor DarkGray } }
 
-# --- 1b) Angewandte LMN-GPOs (User-Scope) -----------------------------------
-Write-Head "Angewandte LMN-*-GPOs (User-Scope)"
-Write-Host "  Hinweis: als angemeldeter SCHÜLER/Lehrer ausführen zeigt DESSEN User-GPOs (Lockdown/Proxy/Firefox)." -ForegroundColor DarkGray
+# --- 1b) Applied LMN GPOs (user scope) --------------------------------------
+Write-Head "Applied LMN-* GPOs (user scope)"
+Write-Host "  Note: running as the logged-in STUDENT/teacher shows THEIR user GPOs (lockdown/proxy/Firefox)." -ForegroundColor DarkGray
 $gpu = & gpresult /r /scope user 2>$null
 $uapplied = @(); $usec = ""
 foreach ($line in $gpu) {
@@ -98,64 +99,68 @@ foreach ($line in $gpu) {
     $t = $line.Trim()
     if ($t -like "LMN-*" -and $usec -eq "applied") { $uapplied += $t }
 }
-if ($uapplied) { $uapplied | Sort-Object -Unique | ForEach-Object { Write-Host "  [OK] angewandt:  $_" -ForegroundColor Green } }
-else { Write-Host "  [--] Keine LMN-User-GPO angewandt (als Schüler/Lehrer ausführen; sonst keine User-Packs aktiv)." -ForegroundColor DarkGray }
+if ($uapplied) { $uapplied | Sort-Object -Unique | ForEach-Object { Write-Host "  [OK] applied:   $_" -ForegroundColor Green } }
+else { Write-Host "  [--] No LMN user GPO applied (run as student/teacher; otherwise no user packs active)." -ForegroundColor DarkGray }
 
-# --- 2) Ist-Werte vs. Soll-Werte (Registry) ---------------------------------
-Write-Head "Registry-Ist-Werte vs. Soll"
+# --- 2) Actual vs. expected values (registry) -------------------------------
+Write-Head "Registry actual vs. expected"
 $checks = @(
-    @{ N="Telemetrie aus";           P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"; K="AllowTelemetry"; E=0 }
-    @{ N="Auto-Update aus (LINBO)";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"; K="NoAutoUpdate"; E=1 }
-    @{ N="RDP aktiviert";            P="HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"; K="fDenyTSConnections"; E=0 }
-    @{ N="Sperre nach 30 Min";       P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="InactivityTimeoutSecs"; E=1800 }
-    @{ N="Sperrbildschirm weg";      P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"; K="NoLockScreen"; E=1 }
-    @{ N="Standby=Nie (AC)";         P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\29f6c1db-86da-48c5-9fdb-f2b67b1f44da"; K="ACSettingIndex"; E=0 }
-    @{ N="Display aus 1800s (AC)";   P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"; K="ACSettingIndex"; E=1800 }
-    @{ N="Fast Startup aus";         P="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"; K="HiberbootEnabled"; E=0 }
-    @{ N="MS-Konten blockiert";      P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="NoConnectedUser"; E=3 }
-    @{ N="Wallpaper gesetzt (User)"; P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="Wallpaper"; E=$null }
-    @{ N="Mobiler Hotspot verboten";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Network Connections"; K="NC_ShowSharedAccessUI"; E=0 }
-    @{ N="OneDrive-Sync aus";         P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"; K="DisableFileSyncNGSC"; E=1 }
-    @{ N="Ruhezustand aus (Hib.)";    P="HKLM:\SYSTEM\CurrentControlSet\Control\Power"; K="HibernateEnabled"; E=0 }
-    @{ N="Loopback-Merge aktiv";      P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=2 }
-    @{ N="Proxy per-User erzwungen";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxySettingsPerUser"; E=1 }
-    @{ N="Firefox First-Run aus";     P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
-    @{ N="KMS-Host gesetzt";          P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
+    @{ N="Telemetry off";            P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"; K="AllowTelemetry"; E=0 }
+    @{ N="Auto-update off (LINBO)";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"; K="NoAutoUpdate"; E=1 }
+    @{ N="RDP enabled";              P="HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"; K="fDenyTSConnections"; E=0 }
+    @{ N="Lock after 30 min";        P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="InactivityTimeoutSecs"; E=1800 }
+    @{ N="Lock screen removed";      P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"; K="NoLockScreen"; E=1 }
+    @{ N="Standby=Never (AC)";       P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\29f6c1db-86da-48c5-9fdb-f2b67b1f44da"; K="ACSettingIndex"; E=0 }
+    @{ N="Display off 1800s (AC)";   P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"; K="ACSettingIndex"; E=1800 }
+    @{ N="Fast Startup off";         P="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"; K="HiberbootEnabled"; E=0 }
+    @{ N="MS accounts blocked";      P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="NoConnectedUser"; E=3 }
+    @{ N="Wallpaper set (user)";     P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="Wallpaper"; E=$null }
+    @{ N="Mobile hotspot prohibited"; P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Network Connections"; K="NC_ShowSharedAccessUI"; E=0 }
+    @{ N="OneDrive sync off";        P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"; K="DisableFileSyncNGSC"; E=1 }
+    @{ N="Hibernation off (hib.)";   P="HKLM:\SYSTEM\CurrentControlSet\Control\Power"; K="HibernateEnabled"; E=0 }
+    @{ N="Loopback merge active";    P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=2 }
+    @{ N="Proxy per-user enforced";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxySettingsPerUser"; E=1 }
+    @{ N="Firefox first-run off";    P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
+    @{ N="KMS host set";             P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
 )
-Write-Host "  (Hinweis: manche gelten gefiltert — z.B. Hibernate NICHT auf noPXE, Loopback/Hotspot je Pack.)" -ForegroundColor DarkGray
+Write-Host "  (Note: some apply filtered — e.g. hibernation NOT on noPXE, loopback/hotspot per pack.)" -ForegroundColor DarkGray
 foreach ($c in $checks) { Test-Reg $c }
 
-# --- 3) Firewall-Regeln (LMN-*) ---------------------------------------------
-Write-Head "Windows-Firewall: LMN-Regeln"
+# --- 3) Firewall rules (LMN-*) ----------------------------------------------
+Write-Head "Windows firewall: LMN rules"
 $fw = Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LMN *" -or $_.Name -like "LMN-*" }
 if ($fw) { $fw | ForEach-Object { Write-Host ("  {0}{1}  ({2}, {3})" -f (Mark ($_.Enabled -eq 'True')), $_.DisplayName, $_.Direction, $_.Action) -ForegroundColor Green } }
-else { Write-Host "  [--] keine LMN-Firewallregeln gefunden (Paket 06 evtl. nicht angewandt)" -ForegroundColor DarkGray }
+else { Write-Host "  [--] no LMN firewall rules found (package 06 may not be applied)" -ForegroundColor DarkGray }
 
-# --- 4) Lokale Gruppen: Admins + RDP-Users ----------------------------------
-Write-Head "Lokale Gruppen (Domänen-Admins/RDP)"
+# --- 4) Local groups: admins + RDP users ------------------------------------
+Write-Head "Local groups (domain admins / RDP)"
+# The group names below are the localized Windows group names — keep both DE and EN.
 foreach ($grp in @("Administratoren","Administrators","Remotedesktopbenutzer","Remote Desktop Users")) {
     $m = net localgroup "$grp" 2>$null
     if ($LASTEXITCODE -eq 0) {
+        # -notmatch filters localized 'net localgroup' header/footer lines (DE + EN) — keep as is.
         $names = $m | Where-Object { $_ -and $_ -notmatch "Alias|Kommentar|Comment|Mitglied|Members|---|erfolgreich|command completed" }
         Write-Host ("  {0}:" -f $grp) -ForegroundColor Cyan
         $names | ForEach-Object { if ($_.Trim()) { Write-Host "     $_" } }
     }
 }
 
-# --- 5) Windows-Aktivierung (KMS) -------------------------------------------
-Write-Head "Windows-Aktivierung"
+# --- 5) Windows activation (KMS) --------------------------------------------
+Write-Head "Windows activation"
+# 'Lizenz|aktivier' match localized slmgr output — keep.
 (cscript //nologo "$env:windir\System32\slmgr.vbs" /dli 2>$null | Select-String -Pattern "Lizenz|License|aktivier|activat") | ForEach-Object { Write-Host "  $_" }
 
-# --- 6) WLAN (Profile / aktuelle Verbindung / RADIUS-CA) --------------------
-Write-Head "WLAN-Profile"
+# --- 6) Wi-Fi (profiles / current connection / RADIUS CA) -------------------
+Write-Head "Wi-Fi profiles"
 $rawProfiles = netsh wlan show profiles 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
-    Write-Host "  [--] Kein WLAN-Dienst/Adapter (z.B. Desktop/VM) — WLAN-Prüfung übersprungen." -ForegroundColor DarkGray
+    Write-Host "  [--] No Wi-Fi service/adapter (e.g. desktop/VM) — Wi-Fi check skipped." -ForegroundColor DarkGray
 } else {
     $wlanProfiles = @()
+    # 'Profil.*:' matches localized netsh output (DE 'Profil', EN 'Profile') — keep.
     foreach ($line in $rawProfiles) { if ($line -match 'Profil.*:\s*(.+?)\s*$') { $wlanProfiles += $matches[1].Trim() } }
     $wlanProfiles = @($wlanProfiles | Sort-Object -Unique)
-    if (-not $wlanProfiles) { Write-Host "  [--] Keine WLAN-Profile hinterlegt (13-wlan-* evtl. nicht angewandt)." -ForegroundColor DarkGray }
+    if (-not $wlanProfiles) { Write-Host "  [--] No Wi-Fi profiles present (13-wlan-* may not be applied)." -ForegroundColor DarkGray }
     foreach ($p in $wlanProfiles) {
         $d = netsh wlan show profile name="$p" 2>$null
         $authM = ($d | Select-String -Pattern 'WPA3-Enterprise|WPA2-Enterprise|WPA3-Personal|WPA2-Personal|WPA-Personal|Open' | Select-Object -First 1)
@@ -163,79 +168,82 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
         $auth  = if ($authM) { $authM.Matches[0].Value } else { "?" }
         $eap   = if ($eapM)  { " EAP=" + $eapM.Matches[0].Value } else { "" }
         $isEnt = $auth -match 'Enterprise'
-        Write-Host ("  Profil: {0,-22} [{1}]{2}" -f $p, $auth, $eap) -ForegroundColor $(if ($isEnt) { "Cyan" } else { "Green" })
+        Write-Host ("  Profile: {0,-22} [{1}]{2}" -f $p, $auth, $eap) -ForegroundColor $(if ($isEnt) { "Cyan" } else { "Green" })
     }
-    Write-Head "WLAN-Verbindung (aktuell)"
+    Write-Head "Wi-Fi connection (current)"
     $iface = netsh wlan show interfaces 2>$null
+    # 'Authentifiz' matches localized netsh output — keep.
     $shown = ($iface | Select-String -Pattern 'SSID|State|Status|Authentifiz|Authentication|Signal')
     if ($shown) { $shown | ForEach-Object { Write-Host "     $($_.Line.Trim())" } }
-    else { Write-Host "     (nicht verbunden)" -ForegroundColor DarkGray }
+    else { Write-Host "     (not connected)" -ForegroundColor DarkGray }
 }
 if ($WlanCaSubject) {
-    Write-Head "RADIUS-CA-Zertifikat (Trusted Root, für Lehrer-Enterprise-WLAN)"
+    Write-Head "RADIUS CA certificate (Trusted Root, for teacher enterprise Wi-Fi)"
     $ca = Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match [regex]::Escape($WlanCaSubject) }
-    if ($ca) { Write-Host ("  {0}RADIUS-CA vorhanden: {1}  (Thumbprint {2})" -f (Mark $true), $ca[0].Subject, $ca[0].Thumbprint) -ForegroundColor Green; $ok++ }
-    else     { Write-Host ("  {0}RADIUS-CA '{1}' NICHT im Trusted-Root-Store" -f (Mark $false), $WlanCaSubject) -ForegroundColor Red; $fail++ }
+    if ($ca) { Write-Host ("  {0}RADIUS CA present: {1}  (thumbprint {2})" -f (Mark $true), $ca[0].Subject, $ca[0].Thumbprint) -ForegroundColor Green; $ok++ }
+    else     { Write-Host ("  {0}RADIUS CA '{1}' NOT in the Trusted Root store" -f (Mark $false), $WlanCaSubject) -ForegroundColor Red; $fail++ }
 }
 
-# --- 6b) User-Richtlinien (HKCU): Schüler-Lockdown & Rollen-Proxy ------------
-Write-Head "User-Richtlinien (HKCU) — gelten nur für Schüler (role-student)"
-Write-Host "  Als angemeldeter SCHÜLER (nicht elevated) ausführen, sonst siehst du deine eigene Sicht." -ForegroundColor DarkGray
+# --- 6b) User policies (HKCU): student lockdown & role proxy ----------------
+Write-Head "User policies (HKCU) — apply to students only (role-student)"
+Write-Host "  Run as the logged-in STUDENT (not elevated), otherwise you see your own view." -ForegroundColor DarkGray
 $uchecks = @(
-    @{ N="Proxy nicht änderbar";      P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="Proxy"; E=1 }
-    @{ N="Verbindungen-Tab gesperrt"; P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="ConnectionsTab"; E=1 }
-    @{ N="Registry-Editor gesperrt";  P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="DisableRegistryTools"; E=2 }
-    @{ N="WinINET-Proxy aktiv";       P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyEnable"; E=1 }
-    @{ N="Proxy-Server (Rolle)";      P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyServer"; E=$null }
+    @{ N="Proxy not changeable";      P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="Proxy"; E=1 }
+    @{ N="Connections tab locked";    P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="ConnectionsTab"; E=1 }
+    @{ N="Registry Editor locked";    P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="DisableRegistryTools"; E=2 }
+    @{ N="WinINET proxy active";      P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyEnable"; E=1 }
+    @{ N="Proxy server (role)";       P="HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxyServer"; E=$null }
 )
 foreach ($c in $uchecks) { Test-Reg $c }
 
-# --- 6c) Veyon (Klassenraum-Steuerung) --------------------------------------
-Write-Head "Veyon (LDAP-Directory, nur Lehrer)"
+# --- 6c) Veyon (classroom management) ---------------------------------------
+Write-Head "Veyon (LDAP directory, teachers only)"
 if (Test-Path "HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP") {
     Test-Reg @{ N="Veyon LDAP ServerHost";     P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP"; K="ServerHost"; E=$null }
     Test-Reg @{ N="Veyon LDAPS (Security=2)";  P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP"; K="ConnectionSecurity"; E=2 }
-    Test-Reg @{ N="Nur autorisierte Gruppen"; P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\AccessControl"; K="AccessRestrictedToUserGroups"; E="true" }
+    Test-Reg @{ N="Authorized groups only";    P="HKLM:\SOFTWARE\Veyon Solutions\Veyon\AccessControl"; K="AccessRestrictedToUserGroups"; E="true" }
     $ag = (Get-ItemProperty "HKLM:\SOFTWARE\Veyon Solutions\Veyon\AccessControl" -Name AuthorizedUserGroups -ErrorAction SilentlyContinue).AuthorizedUserGroups
-    if ($ag) { Write-Host ("  [OK] Autorisierte Lehrergruppen: {0}" -f ($ag -join ', ')) -ForegroundColor Green }
-} else { Write-Host "  [--] Keine Veyon-Konfiguration (Paket 10 nicht angewandt)." -ForegroundColor DarkGray }
+    if ($ag) { Write-Host ("  [OK] Authorized teacher groups: {0}" -f ($ag -join ', ')) -ForegroundColor Green }
+} else { Write-Host "  [--] No Veyon configuration (package 10 not applied)." -ForegroundColor DarkGray }
 
-# --- 6d) Bootreihenfolge (Startskript-Log, Paket 16) ------------------------
-Write-Head "Bootreihenfolge (Log des PXE-zuerst-Startskripts)"
+# --- 6d) Boot order (startup-script log, package 16) ------------------------
+Write-Head "Boot order (log of the PXE-first startup script)"
 $blog = Join-Path $env:SystemRoot 'Temp\lmgpo-bootorder.log'
 if (Test-Path $blog) {
-    Write-Host "  Letzte Zeilen aus $blog :" -ForegroundColor Cyan
+    Write-Host "  Last lines from $blog :" -ForegroundColor Cyan
     Get-Content $blog -Tail 12 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "     $_" }
-} else { Write-Host "  [--] Kein Bootorder-Log (Paket 16 nicht aktiv / Skript noch nicht gelaufen)." -ForegroundColor DarkGray }
+} else { Write-Host "  [--] No boot-order log (package 16 inactive / script not run yet)." -ForegroundColor DarkGray }
 
-# --- 6e) Zeitsynchronisation (W32Time, Paket 17) ----------------------------
-Write-Head "Zeitsynchronisation (W32Time)"
+# --- 6e) Time synchronisation (W32Time, package 17) -------------------------
+Write-Head "Time synchronisation (W32Time)"
 if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient") {
-    Test-Reg @{ N="W32Time NTP-Client aktiv";  P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Enabled"; E=1 }
-    Test-Reg @{ N="Zeit-Modus (Type)";         P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Type"; E=$null }
-    Test-Reg @{ N="NtpServer (bei Type=NTP)";  P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="NtpServer"; E=$null }
-    Test-Reg @{ N="MaxPhaseCorrection (immer)"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxPosPhaseCorrection"; E=$null }
-} else { Write-Host "  [--] Keine W32Time-Policy (Paket 17 nicht angewandt)." -ForegroundColor DarkGray }
-# Laufzeit-Status (rein lesend): synct der Rechner wirklich vom Server?
+    Test-Reg @{ N="W32Time NTP client active"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Enabled"; E=1 }
+    Test-Reg @{ N="Time mode (Type)";          P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Type"; E=$null }
+    Test-Reg @{ N="NtpServer (if Type=NTP)";   P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="NtpServer"; E=$null }
+    Test-Reg @{ N="MaxPhaseCorrection (always)"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxPosPhaseCorrection"; E=$null }
+} else { Write-Host "  [--] No W32Time policy (package 17 not applied)." -ForegroundColor DarkGray }
+# Runtime status (read-only): does the machine actually sync from the server?
 $src = ((& w32tm /query /source 2>&1) -join ' ').Trim()
-if (-not $src) { Write-Host "  [--] W32Time-Dienst antwortet nicht." -ForegroundColor DarkGray }
+if (-not $src) { Write-Host "  [--] W32Time service not responding." -ForegroundColor DarkGray }
+# 'Freilaufend|Lokale CMOS' match localized w32tm output — keep.
 elseif ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
-    Write-Host ("  {0}Zeitquelle: {1}  (NICHT mit dem Server synchronisiert!)" -f (Mark $false), $src) -ForegroundColor Red; $fail++
-} else { Write-Host ("  {0}Zeitquelle: {1}" -f (Mark $true), $src) -ForegroundColor Green; $ok++ }
+    Write-Host ("  {0}Time source: {1}  (NOT synchronised with the server!)" -f (Mark $false), $src) -ForegroundColor Red; $fail++
+} else { Write-Host ("  {0}Time source: {1}" -f (Mark $true), $src) -ForegroundColor Green; $ok++ }
 $st = & w32tm /query /status 2>&1
+# 'Quelle|Abweichung|Letzte erfolgreiche' match localized w32tm output — keep.
 ($st | Select-String -Pattern 'Stratum|Source|Quelle|Offset|Abweichung|Last Successful|Letzte erfolgreiche|Poll') | ForEach-Object { Write-Host "     $($_.Line.Trim())" }
 
-# --- 7) Voller HTML-Bericht (Ausgabedatei; mit -NoReport überspringbar) ------
+# --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {
-    Write-Head "Vollständiger GPO-Bericht"
-    try { gpresult /h $ReportPath /f | Out-Null; Write-Host "  geschrieben: $ReportPath" -ForegroundColor Green } catch { Write-Host "  HTML-Bericht fehlgeschlagen: $_" -ForegroundColor Yellow }
+    Write-Head "Full GPO report"
+    try { gpresult /h $ReportPath /f | Out-Null; Write-Host "  written: $ReportPath" -ForegroundColor Green } catch { Write-Host "  HTML report failed: $_" -ForegroundColor Yellow }
 }
 
 Write-Host "`n===================================================" -ForegroundColor Cyan
-Write-Host ("Ergebnis: {0} OK, {1} FEHLER, {2} nicht gesetzt/übersprungen" -f $ok, $fail, $skip) -ForegroundColor $(if ($fail) { "Red" } else { "Green" })
+Write-Host ("Result: {0} OK, {1} FAIL, {2} not set/skipped" -f $ok, $fail, $skip) -ForegroundColor $(if ($fail) { "Red" } else { "Green" })
 $changed = @()
-if (-not $NoReport) { $changed += "HTML-Bericht $ReportPath geschrieben" }
-if ($Refresh)       { $changed += "gpupdate /force ausgeführt (angefordert)" }
-if ($changed) { Write-Host ("Keine System-/GPO-Einstellungen verändert. Ausgabe: " + ($changed -join "; ") + ".") -ForegroundColor DarkGray }
-else          { Write-Host "Rein lesend — nichts verändert, keine Datei geschrieben." -ForegroundColor DarkGray }
+if (-not $NoReport) { $changed += "HTML report $ReportPath written" }
+if ($Refresh)       { $changed += "gpupdate /force run (requested)" }
+if ($changed) { Write-Host ("No system/GPO settings changed. Output: " + ($changed -join "; ") + ".") -ForegroundColor DarkGray }
+else          { Write-Host "Read-only — nothing changed, no file written." -ForegroundColor DarkGray }
 exit $(if ($fail) { 1 } else { 0 })
