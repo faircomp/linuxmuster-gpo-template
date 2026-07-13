@@ -1,0 +1,89 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#   git tag v1.0.0 && git push origin v1.0.0
+# The tag (minus the leading "v") must match Version: in packaging/control.
+# A manual run (workflow_dispatch) only builds + uploads the .deb as an artifact.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sanity check (Python compiles, catalog parses)
+        run: |
+          python3 -m py_compile lmgpo/*.py
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in sorted(glob.glob('catalog/*.yaml'))]"
+          echo "sanity ok"
+
+      - name: Build .deb
+        run: |
+          sh packaging/build-deb.sh
+          ls -l dist/
+
+      - name: Inspect package
+        run: |
+          DEB=$(ls dist/*.deb)
+          dpkg-deb -I "$DEB"
+          echo "----- contents -----"
+          dpkg-deb -c "$DEB"
+
+      - name: Verify version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          CTRL_VER=$(sed -n 's/^Version: //p' packaging/control)
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          echo "control=$CTRL_VER  tag=$TAG_VER"
+          if [ "$CTRL_VER" != "$TAG_VER" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match packaging/control Version ${CTRL_VER}. Bump packaging/control + packaging/changelog first."
+            exit 1
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lmn-gpo-deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DEB=$(ls dist/*.deb)
+          BASE=$(basename "$DEB")
+          SHA=$(sha256sum "$DEB" | cut -d' ' -f1)
+          {
+            echo "## lmn-gpo ${GITHUB_REF_NAME}"
+            echo ""
+            echo "Debian package (\`Architecture: all\`) of the linuxmuster.net GPO template"
+            echo "toolkit, for the Samba AD domain controller."
+            echo ""
+            echo "### Install"
+            echo '```bash'
+            echo "apt install ./${BASE}      # or: dpkg -i ${BASE}"
+            echo "lmn-gpo doctor"
+            echo '```'
+            echo ""
+            echo "Installs entirely inside its own \`lmn-gpo\` namespace (no linuxmuster files"
+            echo "touched) and reads its config from \`/etc/linuxmuster/lmgpo/site.yaml\` —"
+            echo "migrated on install, kept on upgrade/remove."
+            echo ""
+            echo "\`SHA256: ${SHA}\`"
+          } > notes.md
+          gh release create "${GITHUB_REF_NAME}" "$DEB" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "lmn-gpo ${GITHUB_REF_NAME}" \
+            --notes-file notes.md
