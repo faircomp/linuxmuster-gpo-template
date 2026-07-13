@@ -65,6 +65,8 @@ class Env:
     global_ou: str
     samba_version: str = ""
     serverfqdn: str = ""
+    server_netbios: str = ""   # the server's MACHINE NetBIOS name (smb.conf 'netbios name'),
+                               # e.g. SERVER — matches how sophomorix connects printers (\\SERVER\..)
     global_admins: Group | None = None
     all_admins: Group | None = None
     role_globaladmin: Group | None = None
@@ -88,7 +90,7 @@ class Env:
         return {
             "realm": self.realm, "dnsdomain": self.dnsdomain, "basedn": self.basedn,
             "netbios": self.netbios, "serverip": self.serverip, "subnet": self.subnet,
-            "serverfqdn": self.serverfqdn,
+            "serverfqdn": self.serverfqdn, "server_netbios": self.server_netbios,
             "sysvol_policies": self.sysvol_policies, "samba_version": self.samba_version,
             "schools_ou": self.schools_ou, "global_ou": self.global_ou,
             "global_admins": self.global_admins.as_dict() if self.global_admins else None,
@@ -226,6 +228,8 @@ def detect() -> Env:
         schools_ou=schools_ou, global_ou=global_ou, samba_version=_samba_version(),
     )
     env.serverfqdn = _serverfqdn(dnsdomain)
+    env.server_netbios = (_smbconf("netbios name")
+                          or (env.serverfqdn.split(".")[0].upper() if env.serverfqdn else "")).strip()
 
     # Global (cross-school) groups.
     env.global_admins = _find_group("(&(objectClass=group)(cn=global-admins))", global_ou)

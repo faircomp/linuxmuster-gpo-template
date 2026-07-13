@@ -49,6 +49,8 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
     "bootorder_pxe_first": False,      # opt-in: UEFI boot order network/PXE first (startup script)
     "ntp_mode": "nt5ds",               # time-sync mode: nt5ds (domain/Samba way) | ntp (explicit server)
+    "pointandprint_enabled": False,    # opt-in: allow non-admin Point-and-Print driver install
+    "printservers_extra": [],          # extra/external print server FQDNs to also trust
 }
 
 
@@ -158,6 +160,20 @@ class Applier:
         suffix = "," + self.env.basedn
         return dn[:-len(suffix)] if dn.lower().endswith(suffix.lower()) else dn
 
+    def _printserver_list(self) -> str:
+        """Trusted Point-and-Print servers: this server (matching how sophomorix connects,
+        i.e. the NetBIOS name) plus its FQDN and IP, plus any configured extra servers.
+        Semicolon-separated, no spaces — the Point and Print Restrictions ServerList format."""
+        servers = [self.env.server_netbios, self.env.serverfqdn, self.env.serverip]
+        servers += list(self.answers.get("printservers_extra") or [])
+        seen, out = set(), []
+        for srv in servers:
+            srv = str(srv).strip()
+            if srv and srv.lower() not in seen:
+                seen.add(srv.lower())
+                out.append(srv)
+        return ";".join(out)
+
     def _resolve_str(self, s, school, extra=None):
         # order: @firefox-homepage-locked BEFORE @firefox-homepage (prefix collision).
         reps = {
@@ -169,6 +185,7 @@ class Applier:
             "@proxy-port-staff": self._proxy_port("staff"),
             "@proxy-exceptions": self._proxy_exceptions(),
             "@serverfqdn": self.env.serverfqdn,
+            "@printserver-list": self._printserver_list(),
             "@ntp-type": "NTP" if str(self.answers.get("ntp_mode", "nt5ds")).lower() == "ntp" else "NT5DS",
             "@serverip": self.env.serverip,
             "@subnet": self.env.subnet,
@@ -328,6 +345,8 @@ class Applier:
                         and (self.answers.get("wlan_enterprise_ca_cert") or "").strip())
         if req == "bootorder":
             return bool(self.answers.get("bootorder_pxe_first"))
+        if req == "pointandprint":
+            return bool(self.answers.get("pointandprint_enabled"))
         return True
 
     def apply_pack(self, pack, school, schools):

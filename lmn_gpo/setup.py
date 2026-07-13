@@ -114,6 +114,33 @@ def _ask_wlan(answers: dict) -> None:
         print("    network once (user auth); afterwards the WLAN connects automatically via SSO.")
 
 
+def _ask_pointandprint(answers: dict, e) -> None:
+    """Point and Print: allow standard users (students) to auto-install printer drivers
+    from the trusted print server(s). linuxmuster already CONNECTS the printers; this only
+    lifts the PrintNightmare admin-only driver-install block, scoped to your servers."""
+    print("\n  Point and Print (optional):")
+    print("    linuxmuster already CONNECTS the printers automatically (sophomorix).")
+    print("    But on patched Windows 11 students cannot INSTALL the driver without this")
+    print("    policy (PrintNightmare) — the connected printer then fails with 'administrator")
+    print("    required'. Enabling it allows the driver install AUTOMATICALLY, but ONLY from")
+    print("    your trusted print server(s). (Alternative: pre-stage drivers in the LINBO image.)")
+    if not _ask_yesno("Allow Point and Print (student driver install from the print server)?",
+                      bool(answers.get("pointandprint_enabled"))):
+        answers["pointandprint_enabled"] = False
+        return
+    answers["pointandprint_enabled"] = True
+    auto = [x for x in (e.server_netbios, e.serverfqdn, e.serverip) if x]
+    print(f"    Trusted automatically (matches how linuxmuster connects \\\\{e.server_netbios}\\...): "
+          + ", ".join(auto))
+    print("    Add EXTRA print servers only if you use a dedicated/external one. Enter each as")
+    print("    an FQDN (e.g. print1.school.example.org) EXACTLY as it appears in the printer")
+    print("    path — a short-name-vs-FQDN mismatch is the #1 cause of the 'administrator")
+    print("    required' prompt. Case matters for Samba shares. Empty = none.")
+    prior = ", ".join(answers.get("printservers_extra") or [])
+    extra = _ask("Additional print server FQDNs (comma-separated)", prior).strip()
+    answers["printservers_extra"] = [x.strip() for x in extra.split(",") if x.strip()]
+
+
 def run(site_path: str = DEFAULT_SITE) -> int:
     e = envmod.detect()
     packs = catalog.load_packs()
@@ -229,6 +256,9 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     answers["bootorder_pxe_first"] = _ask_yesno(
         "    Enable? (hardware-dependent — test on ONE device first, log under %SystemRoot%\\Temp)",
         bool(answers.get("bootorder_pxe_first")))
+
+    # Point and Print (optional): allow non-admin driver install from the print server
+    _ask_pointandprint(answers, e)
 
     # Preview
     print("\n-- Preview (dry run) ---------------------------------------")

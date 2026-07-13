@@ -1,0 +1,32 @@
+id: "18-point-and-print"
+title: "Allow Point and Print (non-admin printer-driver install from the print server)"
+scope: global
+target: computer
+requires: pointandprint
+description: >
+  linuxmuster/sophomorix already CONNECTS the printers automatically (it writes the school
+  GPO's Printers.xml). What is missing is the permission for STANDARD users (students) to
+  INSTALL the printer driver: since the PrintNightmare hardening (CVE-2021-34527, Aug 2021)
+  patched Windows 11 blocks non-admin driver installation by default, so an automatically
+  connected printer fails on first use with "administrator required". This pack allows
+  Point-and-Print driver installation for standard users, but ONLY from the trusted print
+  server(s) in @printserver-list (this server's NetBIOS name — matching how sophomorix
+  connects, i.e. \\SERVER\printer — plus its FQDN and IP, plus any printservers_extra).
+  Machine policy (HKLM), opt-in via pointandprint_enabled.
+  SECURITY: RestrictDriverInstallationToAdministrators=0 is a deliberate, scoped relaxation.
+  It is bounded to your print servers via TrustedServers=1 + ServerList. Safest alternative:
+  pre-stage the drivers in the LINBO image and leave this pack disabled.
+dsgvo: ""
+registry:
+  # --- Point and Print Restrictions: trust only our print server(s), install silently ---
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'Restricted', type: dword, data: '1' }
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'TrustedServers', type: dword, data: '1' }
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'InForest', type: dword, data: '0' }
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'ServerList', type: sz, data: '@printserver-list' }
+  # No warning / no UAC elevation when installing (NoWarningNoElevationOnInstall) or updating
+  # (UpdatePromptSettings=2) a driver from a trusted server.
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'NoWarningNoElevationOnInstall', type: dword, data: '1' }
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'UpdatePromptSettings', type: dword, data: '2' }
+  # The post-PrintNightmare master gate (HKLM only): 0 = standard users may install
+  # drivers via Point-and-Print again, bounded by the trusted-server list above.
+  - { key: 'Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint', name: 'RestrictDriverInstallationToAdministrators', type: dword, data: '0' }

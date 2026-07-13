@@ -11,7 +11,7 @@ Policies **directly from the Linux server** – without the Windows GPMC – and
 **multi-school capable** (several schools per server, and identical rollout across many
 customer servers).
 
-> **Status: complete & verified.** 29 policy packages, idempotent, with `--dry-run`.
+> **Status: complete & verified.** 30 policy packages, idempotent, with `--dry-run`.
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
 
@@ -22,9 +22,9 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features (29 packages)](#features-29-packages)
+- [Features (30 packages)](#features-30-packages)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
-- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation)
+- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Point and Print](#point-and-print-printer-drivers-for-students)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
 - [Requirements](#requirements) · [Directory layout](#directory-layout)
 
@@ -52,7 +52,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
   (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
   `sysvolreset`.
 
-## Features (29 packages)
+## Features (30 packages)
 
 **Always active** (no extra parameter needed):
 
@@ -87,6 +87,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 | **Wi-Fi PSK (students)** | `wlan_psk_networks` | any number of PSK networks as machine profiles → connect **before login**, **roaming across sites**; *not* on teacher notebooks |
 | **Wi-Fi Enterprise (teachers)** | `wlan_enterprise_ssid` + CA cert | WPA2-Enterprise/PEAP with RADIUS, CA cert installed; **teachers only** (RADIUS enforces the group), exclusive to `d_nopxe` |
 | **UEFI boot order PXE first** | `bootorder_pxe_first: true` | scheduled task (SYSTEM/highest) forces network/PXE to the top (→ LINBO) if Windows pushes itself forward; robust pattern detection, idempotent. **Hardware-dependent — test on 1 machine first** |
+| **Allow Point and Print** | `pointandprint_enabled: true` | lets students auto-install printer drivers from your print server(s) — the printers linuxmuster/sophomorix already connects — which patched Windows 11 otherwise blocks (PrintNightmare). Trusts **only** your servers (auto-detected `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
 
 ---
 
@@ -249,6 +250,9 @@ wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = force UEFI boot order to network/PXE first (opt-in!)
 ntp_mode: nt5ds               # time sync: nt5ds (domain / Samba way) | ntp (explicit server = @serverfqdn)
+
+pointandprint_enabled: false  # true = allow students to install printer drivers from the print server(s) (opt-in)
+printservers_extra: []        # extra/external print-server FQDNs to also trust (the local server is auto-detected)
 ```
 
 > `site.yaml` contains **secrets** (Wi-Fi PSKs, encrypted bind password) and is in
@@ -408,6 +412,25 @@ ntp_mode: nt5ds     # or: ntp  (then Type=NTP + NtpServer=<serverfqdn>,0x9)
 ```
 Check on the client: `w32tm /query /source` and `w32tm /query /status`.
 
+## Point and Print (printer drivers for students)
+
+linuxmuster already **connects** the printers itself (sophomorix writes the school GPO's
+`Printers.xml`). This pack only adds the missing piece: on patched Windows 11 a standard user
+(student) may **not install the printer driver** (PrintNightmare, CVE-2021-34527), so a
+connected printer fails on first use with *"administrator required"*. Enable it to allow the
+driver install **automatically, but only from your print server(s)**:
+```yaml
+pointandprint_enabled: true
+printservers_extra: []        # only for a dedicated/external print server (FQDN)
+```
+The trusted-server list is **auto-detected** to match how linuxmuster connects
+(`\\SERVER` + FQDN + IP) — avoiding the classic short-name-vs-FQDN mismatch. Add
+`printservers_extra` (FQDN, exactly as in the printer path) only for an external print server.
+
+> **Security:** this sets `RestrictDriverInstallationToAdministrators=0` — a deliberate,
+> scoped relaxation, bounded to your servers (`TrustedServers=1` + `ServerList`). The safest
+> alternative is to pre-stage the drivers in the **LINBO image** and leave this disabled.
+
 ---
 
 ## Rolling out to clients
@@ -424,7 +447,7 @@ GPOs only take effect once the client fetches them and the respective service re
 ## Checking on the client
 
 `scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
-have arrived **and take effect** — covering all 29 packages: `gpresult` (computer **and**
+have arrived **and take effect** — covering all 30 packages: `gpresult` (computer **and**
 user), registry actual values, firewall, local groups, KMS, hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
 **time sync (w32tm)** and the **boot-order log**. It also produces an HTML report.
@@ -502,7 +525,7 @@ machine, not just the DC. Installing the ready-made `.deb` from a release needs 
 
 ```
 lmn_gpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      29 YAML policy packages
+catalog/      30 YAML policy packages
 scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagnostics)
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
@@ -527,7 +550,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 29 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 30 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -538,9 +561,9 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features (29 Pakete)](#features-29-pakete)
+- [Features (30 Pakete)](#features-30-pakete)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
-- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation)
+- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
 - [Anforderungen](#anforderungen) · [Verzeichnisstruktur](#verzeichnisstruktur)
 
@@ -567,7 +590,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (29 Pakete)
+## Features (30 Pakete)
 
 **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
@@ -602,6 +625,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 | **WLAN PSK (Schüler)** | `wlan_psk_networks` | beliebig viele PSK-Netze als Maschinen-Profil → verbinden **vor dem Login**, **standortübergreifend roaming-fähig**; *nicht* auf Lehrer-Notebooks |
 | **WLAN Enterprise (Lehrer)** | `wlan_enterprise_ssid` + CA-Cert | WPA2-Enterprise/PEAP mit RADIUS, CA-Zertifikat wird installiert; **nur Lehrer** (RADIUS erzwingt Gruppe), exklusiv auf `d_nopxe` |
 | **UEFI-Bootreihenfolge PXE zuerst** | `bootorder_pxe_first: true` | Scheduled Task (SYSTEM/höchste Rechte) zwingt Netzwerk/PXE an die erste Stelle (→ LINBO), falls Windows sich vordrängt; robuste Muster-Erkennung, idempotent. **Hardwareabhängig — erst auf 1 Gerät testen** |
+| **Point and Print erlauben** | `pointandprint_enabled: true` | lässt Schüler Druckertreiber von euren Druckservern automatisch installieren — die Drucker, die linuxmuster/sophomorix ohnehin verbindet — was gepatchtes Windows 11 sonst blockiert (PrintNightmare). Vertraut **nur** euren Servern (auto-erkannt `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
 
 ---
 
@@ -766,6 +790,9 @@ wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = UEFI-Bootreihenfolge auf Netzwerk/PXE zuerst (opt-in!)
 ntp_mode: nt5ds               # Zeitsync: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server = @serverfqdn)
+
+pointandprint_enabled: false  # true = Schüler dürfen Druckertreiber von den Druckservern installieren (opt-in)
+printservers_extra: []        # zusätzliche/externe Druckserver-FQDNs (der lokale Server wird automatisch erkannt)
 ```
 
 > Die `site.yaml` enthält **Geheimnisse** (WLAN-PSKs, verschlüsseltes Bind-Passwort) und ist
@@ -925,6 +952,26 @@ ntp_mode: nt5ds     # oder: ntp  (dann Type=NTP + NtpServer=<serverfqdn>,0x9)
 ```
 Am Client prüfen: `w32tm /query /source` und `w32tm /query /status`.
 
+## Point and Print (Druckertreiber für Schüler)
+
+linuxmuster **verbindet** die Drucker schon selbst (sophomorix schreibt die `Printers.xml`
+der Schul-GPO). Dieses Pack ergänzt nur das Fehlende: auf gepatchtem Windows 11 darf ein
+Standard-User (Schüler) den **Druckertreiber nicht installieren** (PrintNightmare,
+CVE-2021-34527) — der verbundene Drucker scheitert beim ersten Druck mit *„Administrator
+erforderlich"*. Aktivieren erlaubt die Treiberinstallation **automatisch, aber nur von euren
+Druckservern**:
+```yaml
+pointandprint_enabled: true
+printservers_extra: []        # nur für einen dedizierten/externen Druckserver (FQDN)
+```
+Die Vertrauensliste wird **automatisch** so gefüllt, wie linuxmuster verbindet (`\\SERVER` +
+FQDN + IP) — das vermeidet den klassischen Kurzname-vs-FQDN-Fehler. `printservers_extra`
+(FQDN, exakt wie im Druckerpfad) nur für externe Druckserver.
+
+> **Sicherheit:** setzt `RestrictDriverInstallationToAdministrators=0` — eine bewusste,
+> eingegrenzte Lockerung, begrenzt auf eure Server (`TrustedServers=1` + `ServerList`). Am
+> sichersten: Treiber ins **LINBO-Image** vorinstallieren und dies deaktiviert lassen.
+
 ---
 
 ## Ausrollen auf die Clients
@@ -941,7 +988,7 @@ GPOs wirken erst, wenn der Client sie holt und der jeweilige Dienst sie liest:
 ## Prüfen am Client
 
 `scripts/lmn-gpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
-angekommen sind **und wirken** — deckt alle 29 Pakete ab: `gpresult` (Computer **und** User),
+angekommen sind **und wirken** — deckt alle 30 Pakete ab: `gpresult` (Computer **und** User),
 Registry-Ist-Werte, Firewall, lokale Gruppen, KMS, Hotspot, OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync
 (w32tm)** und das **Bootorder-Log**. Erzeugt zusätzlich einen HTML-Report.
@@ -1021,7 +1068,7 @@ ist nichts Zusätzliches nötig.
 
 ```
 lmn_gpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      29 YAML-Policy-Pakete
+catalog/      30 YAML-Policy-Pakete
 scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
