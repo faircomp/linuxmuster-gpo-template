@@ -5,7 +5,8 @@ lmn-gpo (1.1.0) stable; urgency=medium
     script is lmn-gpo-check.ps1.
   * Config directory moved to /etc/linuxmuster/lmn-gpo/ (was /etc/linuxmuster/lmgpo/).
     An existing site.yaml at the old path is migrated on install and is still read
-    from a source checkout as a fallback — no settings are lost.
+    from a source checkout as a fallback — no settings are lost. Once the migration
+    copy has succeeded, the old /etc/linuxmuster/lmgpo/site.yaml is removed.
 
  -- Kevin Stenzel <kevin@ks98.de>  Mon, 13 Jul 2026 13:00:00 +0000
 

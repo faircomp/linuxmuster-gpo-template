@@ -29,6 +29,13 @@ case "$1" in
                     cp -p "$cand" "$CONF"
                     chmod 600 "$CONF" 2>/dev/null || true
                     echo "lmn-gpo: migrated existing configuration $cand -> $CONF"
+                    # Only AFTER a confirmed migration, remove the file at the renamed
+                    # /etc/linuxmuster/lmgpo path. Repo-local candidates are left untouched.
+                    if [ -f "$CONF" ] && [ "$cand" = /etc/linuxmuster/lmgpo/site.yaml ]; then
+                        rm -f "$cand"
+                        rmdir /etc/linuxmuster/lmgpo 2>/dev/null || true
+                        echo "lmn-gpo: removed migrated legacy file $cand"
+                    fi
                     break
                 fi
             done
