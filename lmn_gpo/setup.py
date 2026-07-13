@@ -1,7 +1,7 @@
 """Interactive setup assistant.
 
 Auto-detects everything environment-specific, asks only the decisions, previews
-as a dry-run, optionally saves the answers to a site.yaml (so `lmgpo apply` can
+as a dry-run, optionally saves the answers to a site.yaml (so `lmn-gpo apply` can
 run unattended later / be reused per customer), then applies.
 """
 from __future__ import annotations
@@ -14,7 +14,18 @@ from . import catalog
 from . import env as envmod
 from .apply import Applier, DEFAULT_ANSWERS
 
-DEFAULT_SITE = "/etc/linuxmuster/lmgpo/site.yaml"
+DEFAULT_SITE = "/etc/linuxmuster/lmn-gpo/site.yaml"
+# Config path used before the rename to lmn-gpo; still read + migrated so no settings are lost.
+LEGACY_SITE = "/etc/linuxmuster/lmgpo/site.yaml"
+
+
+def default_site() -> str:
+    """Preferred config path; fall back to the legacy location if only that one exists."""
+    if os.path.exists(DEFAULT_SITE):
+        return DEFAULT_SITE
+    if os.path.exists(LEGACY_SITE):
+        return LEGACY_SITE
+    return DEFAULT_SITE
 
 
 def load_site(path: str) -> dict:
@@ -106,7 +117,10 @@ def _ask_wlan(answers: dict) -> None:
 def run(site_path: str = DEFAULT_SITE) -> int:
     e = envmod.detect()
     packs = catalog.load_packs()
-    answers = {**DEFAULT_ANSWERS, **load_site(site_path)}
+    prior = load_site(site_path)
+    if not prior and site_path == DEFAULT_SITE:
+        prior = load_site(LEGACY_SITE)  # carry over answers from the pre-rename config
+    answers = {**DEFAULT_ANSWERS, **prior}
 
     print("linuxmuster-gpo-template — setup assistant\n")
     print(f"Detected: realm {e.realm} · server {e.serverip}/{e.subnet.split('/')[-1]} "
@@ -168,7 +182,7 @@ def run(site_path: str = DEFAULT_SITE) -> int:
                answers.get("veyon_binddn", "") or "")
     answers["veyon_binddn"] = vbd.strip()
     if answers["veyon_binddn"]:
-        vph = _ask("Veyon bind password hex (from Configurator export or 'lmgpo veyon-encrypt-password')",
+        vph = _ask("Veyon bind password hex (from Configurator export or 'lmn-gpo veyon-encrypt-password')",
                    answers.get("veyon_bindpw_hex", "") or "")
         answers["veyon_bindpw_hex"] = vph.strip()
 

@@ -33,7 +33,7 @@ DEFAULT_ANSWERS = {
     "kmshost": "",            # KMS host FQDN/IP ("" = KMS pack skipped)
     "wallpaper_dir": "",      # source dir for <school>.jpg ("" = repo wallpapers/)
     "veyon_binddn": "",       # Veyon LDAP bind DN ("" = Veyon pack skipped)
-    "veyon_bindpw_hex": "",   # Veyon bind password as Veyon-encrypted hex (see lmgpo/veyon.py)
+    "veyon_bindpw_hex": "",   # Veyon bind password as Veyon-encrypted hex (see lmn_gpo/veyon.py)
     "firefox_enabled": False,          # gate the Firefox packs
     "firefox_homepage": "",            # global default homepage URL ("" = homepage pack skipped)
     "firefox_homepage_by_school": {},  # optional per-school override {schoolname: url}
@@ -103,9 +103,9 @@ class Applier:
             self._wp_cache[school.name] = None
             return None
         ext = os.path.splitext(src)[1].lower()
-        unc = f"\\\\{self.env.dnsdomain}\\NETLOGON\\lmgpo-wallpapers\\{school.name}{ext}"
+        unc = f"\\\\{self.env.dnsdomain}\\NETLOGON\\lmn-gpo-wallpapers\\{school.name}{ext}"
         if not self.dry_run:
-            dest_dir = f"/var/lib/samba/sysvol/{self.env.dnsdomain}/scripts/lmgpo-wallpapers"
+            dest_dir = f"/var/lib/samba/sysvol/{self.env.dnsdomain}/scripts/lmn-gpo-wallpapers"
             os.makedirs(dest_dir, exist_ok=True)
             shutil.copy(src, os.path.join(dest_dir, f"{school.name}{ext}"))
         self._wp_cache[school.name] = unc
@@ -291,13 +291,13 @@ class Applier:
         mode = pack.wlan.get("mode")
         if mode == "psk":
             content = wlanmod.build_psk_script(self.answers.get("wlan_psk_networks") or [])
-            fname = "lmgpo-wlan-psk.ps1"
+            fname = "lmn-gpo-wlan-psk.ps1"
         elif mode == "enterprise":
             ca = wlanmod.read_cert_der(self.answers["wlan_enterprise_ca_cert"])
             content = wlanmod.build_enterprise_script(
                 (self.answers.get("wlan_enterprise_ssid") or "").strip(),
                 (self.answers.get("wlan_enterprise_servernames") or "").strip(), ca)
-            fname = "lmgpo-wlan-enterprise.ps1"
+            fname = "lmn-gpo-wlan-enterprise.ps1"
         else:
             return
         self.sc.set_startup_powershell(guid, [{"file": fname, "content": content}])

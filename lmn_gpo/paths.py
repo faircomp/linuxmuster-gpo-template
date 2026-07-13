@@ -1,6 +1,6 @@
 """Resolve the toolkit's read-only data directories (catalog, scripts, lib, wallpapers).
 
-Works both from a source checkout (repo layout: ``catalog/`` sits next to ``lmgpo/``)
+Works both from a source checkout (repo layout: ``catalog/`` sits next to ``lmn_gpo/``)
 and from an installed .deb, where the data lives under ``/usr/share/lmn-gpo``. Override
 the base with the ``LMN_GPO_DATA_DIR`` environment variable.
 """
@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import os
 
-# Repo root when run from a source checkout (parent of the lmgpo/ package dir).
+# Repo root when run from a source checkout (parent of the lmn_gpo/ package dir).
 _SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _INSTALLED_DATA = "/usr/share/lmn-gpo"
 _INSTALLED_WALLPAPERS = "/var/lib/lmn-gpo/wallpapers"
 
 
 def _is_source() -> bool:
-    """True when we run from the repo (catalog/ is a sibling of lmgpo/)."""
+    """True when we run from the repo (catalog/ is a sibling of lmn_gpo/)."""
     return os.path.isdir(os.path.join(_SRC_ROOT, "catalog"))
 
 

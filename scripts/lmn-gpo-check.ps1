@@ -19,20 +19,20 @@
     Runs 'gpupdate /force' before checking (recommended for a fresh state).
 
 .PARAMETER ReportPath
-    Path for the full HTML GPO report (default: .\lmgpo-gpresult.html).
+    Path for the full HTML GPO report (default: .\lmn-gpo-gpresult.html).
 
 .PARAMETER WlanCaSubject
     Optional: subject (or part of it) of the RADIUS CA certificate that should be in the
     machine's Trusted Root store for the teacher enterprise Wi-Fi. Checks its presence.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
+    powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
 #>
 [CmdletBinding()]
 param(
     [switch]$Refresh,
     [switch]$NoReport,
-    [string]$ReportPath = ".\lmgpo-gpresult.html",
+    [string]$ReportPath = ".\lmn-gpo-gpresult.html",
     [string]$WlanCaSubject = ""
 )
 
@@ -208,7 +208,7 @@ if (Test-Path "HKLM:\SOFTWARE\Veyon Solutions\Veyon\LDAP") {
 
 # --- 6d) Boot order (startup-script log, package 16) ------------------------
 Write-Head "Boot order (log of the PXE-first startup script)"
-$blog = Join-Path $env:SystemRoot 'Temp\lmgpo-bootorder.log'
+$blog = Join-Path $env:SystemRoot 'Temp\lmn-gpo-bootorder.log'
 if (Test-Path $blog) {
     Write-Host "  Last lines from $blog :" -ForegroundColor Cyan
     Get-Content $blog -Tail 12 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "     $_" }

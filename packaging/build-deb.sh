@@ -21,14 +21,14 @@ echo "Building $PKG $VERSION ($ARCH) ..."
 # ---- file tree -----------------------------------------------------------
 install -d "$ROOT/DEBIAN" \
            "$ROOT/usr/bin" \
-           "$ROOT/usr/lib/python3/dist-packages/lmgpo" \
+           "$ROOT/usr/lib/python3/dist-packages/lmn_gpo" \
            "$ROOT/usr/share/$PKG" \
            "$ROOT/usr/share/doc/$PKG" \
            "$ROOT/var/lib/$PKG/wallpapers"
 
 # Python module (source .py only; no __pycache__)
-for f in "$REPO"/lmgpo/*.py; do
-    install -m 644 "$f" "$ROOT/usr/lib/python3/dist-packages/lmgpo/"
+for f in "$REPO"/lmn_gpo/*.py; do
+    install -m 644 "$f" "$ROOT/usr/lib/python3/dist-packages/lmn_gpo/"
 done
 
 # Read-only data shared by the toolkit
@@ -42,7 +42,7 @@ cat > "$ROOT/usr/bin/$PKG" <<'PY'
 """Command-line entry point for the lmn-gpo toolkit."""
 import sys
 
-from lmgpo.cli import main
+from lmn_gpo.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

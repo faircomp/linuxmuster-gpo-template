@@ -1,3 +1,14 @@
+lmn-gpo (1.1.0) stable; urgency=medium
+
+  * Rename for consistency with the lmn-gpo command: the Python module is now
+    lmn_gpo (was lmgpo), the source launcher is lmn-gpo-cli, and the client check
+    script is lmn-gpo-check.ps1.
+  * Config directory moved to /etc/linuxmuster/lmn-gpo/ (was /etc/linuxmuster/lmgpo/).
+    An existing site.yaml at the old path is migrated on install and is still read
+    from a source checkout as a fallback — no settings are lost.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Mon, 13 Jul 2026 13:00:00 +0000
+
 lmn-gpo (1.0.0) stable; urgency=medium
 
   * Initial Debian package of the linuxmuster-gpo-template toolkit.

@@ -13,7 +13,7 @@ description: >
   (writes NVRAM only when needed) and never aborts the boot.
   OPT-IN: only active when 'bootorder_pxe_first: true' is set in site.yaml —
   boot-order changes are hardware-dependent and should first be tested on ONE device
-  (log: %SystemRoot%\Temp\lmgpo-bootorder.log). Prerequisite: Fast Startup off
+  (log: %SystemRoot%\Temp\lmn-gpo-bootorder.log). Prerequisite: Fast Startup off
   (BIOS or package 05-wol), no BitLocker enforcing the Windows Boot Manager.
 startup_scripts:
   - { file: 'bootorder-pxe-first.ps1' }

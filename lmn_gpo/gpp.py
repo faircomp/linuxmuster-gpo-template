@@ -58,7 +58,7 @@ class GppGroups:
         # Deterministic changed/uid so the XML is byte-stable across runs (idempotent),
         # but uid is derived from the GPO guid so two GPOs never share a GPP item uid.
         changed = "2024-01-01 00:00:00"
-        group_uid = "{%s}" % uuid.uuid5(uuid.NAMESPACE_DNS, "lmgpo-local-admins:" + guid)
+        group_uid = "{%s}" % uuid.uuid5(uuid.NAMESPACE_DNS, "lmn-gpo-local-admins:" + guid)
         content = render(members, changed=changed, group_uid=group_uid)
         path = os.path.join(self.engine.sysvol_path(guid), GROUPS_REL)
         if not self.engine.dry_run and os.path.exists(path):

@@ -1,7 +1,7 @@
 # Site-/customer-specific answers (contain bind passwords etc.)
 site.yaml
 *.site.yaml
-/etc/linuxmuster/lmgpo/
+/etc/linuxmuster/lmn-gpo/
 
 # Wallpapers (customer-specific, not part of the repo)
 wallpapers/*.jpg

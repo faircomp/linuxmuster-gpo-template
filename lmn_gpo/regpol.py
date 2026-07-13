@@ -44,7 +44,7 @@ class RegPol:
             for e in entries:
                 print(f"    [dry-run] load {e['class']:7} {e['type']:12} "
                       f"{e['keyname']}\\{e['valuename']} = {e['data']!r}")
-        fd, path = tempfile.mkstemp(suffix=".json", prefix="lmgpo-")
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="lmn-gpo-")
         try:
             with os.fdopen(fd, "w") as fh:
                 json.dump(entries, fh)
@@ -63,7 +63,7 @@ class RegPol:
         entries = [e for e in entries if e]
         if not entries:
             return
-        fd, path = tempfile.mkstemp(suffix=".json", prefix="lmgpo-rm-")
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="lmn-gpo-rm-")
         try:
             with os.fdopen(fd, "w") as fh:
                 json.dump(entries, fh)

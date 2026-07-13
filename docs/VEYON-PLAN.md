@@ -5,7 +5,7 @@ firewall location lock, bind-PW hex). The only thing still open is the real Wind
 `gpresult`) — as with all packs. Implemented via our registry engine (`samba-tool gpo load`).
 
 Usage: put `veyon_binddn` + `veyon_bindpw_hex` into `site.yaml` (the wizard asks for them; hex via
-`lmgpo-cli veyon-encrypt-password` or from a configurator export). Then pack `10-veyon-schule` applies
+`lmn-gpo-cli veyon-encrypt-password` or from a configurator export). Then pack `10-veyon-schule` applies
 per school. The bind password is reversible (§5) → keep `global-veyon` tightly permissioned + rotate the password.
 
 ## 0. config.json vs. plain registry — decision
@@ -92,7 +92,7 @@ Measures (the underlying problem remains, only damage limitation):
 - **Enforce LDAPS** (`ConnectionSecurity=2`, port 636, CA `/etc/linuxmuster/ssl/cacert.pem`, `TLSVerifyMode=1`).
 - Anonymous bind (linuxmuster forbids it) / Kerberos bind (Veyon can't do SASL) → not options.
 
-## 6. Config inventory (from the real export config, school "msg" as template)
+## 6. Config inventory (from an example export config, one school as template)
 
 ```
 [Authentication] Method = 0                       (Logon)   ; DWORD
@@ -142,7 +142,7 @@ To be clarified anew: `global-veyon` (have it created? rights scope?), Design A 
 - `dNSHostName` case-sensitive (real config shows `sAMAccountname` lowercase — check against a real export).
 - Veyon reads config at service start → reboot needed.
 - Reconcile exact location/UUID values finally against a `veyon-cli config export` of a GUI-configured master.
-- Verification only with a real Windows client (extend `lmgpo-check.ps1`).
+- Verification only with a real Windows client (extend `lmn-gpo-check.ps1`).
 
 ## 9. Deferred
 

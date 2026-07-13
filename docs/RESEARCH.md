@@ -78,4 +78,4 @@ Sources: [DSK resolution Windows 10 (PDF)](https://www.datenschutzkonferenz-onli
 [MS – manage-connections](https://learn.microsoft.com/en-us/windows/privacy/manage-connections-from-windows-operating-system-components-to-microsoft-services)
 
 > Note: Every setting is documented in the catalog (`catalog/*.yaml`) with plain-text names and
-> can be inspected before rollout with `lmgpo apply --dry-run`.
+> can be inspected before rollout with `lmn-gpo apply --dry-run`.

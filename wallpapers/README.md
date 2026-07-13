@@ -1,7 +1,7 @@
 # Wallpapers (desktop + logon screen)
 
 Place one image per school here. During `apply` the toolkit copies it to
-**NETLOGON** (`\\<domain>\NETLOGON\lmgpo-wallpapers\<schule>.<ext>`, readable by all
+**NETLOGON** (`\\<domain>\NETLOGON\lmn-gpo-wallpapers\<schule>.<ext>`, readable by all
 clients) and sets it as the **desktop wallpaper** (user) and
 **lock/logon screen image** (computer) for the respective school.
 

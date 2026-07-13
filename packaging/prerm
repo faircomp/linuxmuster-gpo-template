@@ -2,7 +2,7 @@
 # prerm for lmn-gpo
 set -e
 
-MODDIR=/usr/lib/python3/dist-packages/lmgpo
+MODDIR=/usr/lib/python3/dist-packages/lmn_gpo
 
 case "$1" in
     remove|upgrade|deconfigure)

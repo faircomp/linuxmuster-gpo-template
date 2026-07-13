@@ -23,7 +23,7 @@ jobs:
 
       - name: Sanity check (Python compiles, catalog parses)
         run: |
-          python3 -m py_compile lmgpo/*.py
+          python3 -m py_compile lmn_gpo/*.py
           python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in sorted(glob.glob('catalog/*.yaml'))]"
           echo "sanity ok"
 
@@ -78,7 +78,7 @@ jobs:
             echo '```'
             echo ""
             echo "Installs entirely inside its own \`lmn-gpo\` namespace (no linuxmuster files"
-            echo "touched) and reads its config from \`/etc/linuxmuster/lmgpo/site.yaml\` —"
+            echo "touched) and reads its config from \`/etc/linuxmuster/lmn-gpo/site.yaml\` —"
             echo "migrated on install, kept on upgrade/remove."
             echo ""
             echo "\`SHA256: ${SHA}\`"

@@ -2,8 +2,8 @@
 # postinst for lmn-gpo
 set -e
 
-MODDIR=/usr/lib/python3/dist-packages/lmgpo
-CONF=/etc/linuxmuster/lmgpo/site.yaml
+MODDIR=/usr/lib/python3/dist-packages/lmn_gpo
+CONF=/etc/linuxmuster/lmn-gpo/site.yaml
 
 case "$1" in
     configure)
@@ -19,13 +19,13 @@ case "$1" in
         # existing site.yaml from a previous source checkout so no settings are lost.
         if [ ! -f "$CONF" ]; then
             for cand in \
-                /etc/linuxmuster/lmn-gpo/site.yaml \
+                /etc/linuxmuster/lmgpo/site.yaml \
                 /opt/linuxmuster-gpo-template/site.yaml \
                 /root/linuxmuster-gpo-template/site.yaml \
                 /usr/local/linuxmuster-gpo-template/site.yaml \
                 /srv/linuxmuster-gpo-template/site.yaml; do
                 if [ -f "$cand" ]; then
-                    mkdir -p /etc/linuxmuster/lmgpo
+                    mkdir -p /etc/linuxmuster/lmn-gpo
                     cp -p "$cand" "$CONF"
                     chmod 600 "$CONF" 2>/dev/null || true
                     echo "lmn-gpo: migrated existing configuration $cand -> $CONF"

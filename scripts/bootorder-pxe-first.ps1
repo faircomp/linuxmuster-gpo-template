@@ -9,10 +9,10 @@
 #    scheduled task that runs it as SYSTEM with HIGHEST privileges (full token, incl.
 #    SeSystemEnvironmentPrivilege) at system start — and starts it once immediately.
 #  - WORKER mode (-Worker, called by the task): does the actual bcdedit reorder.
-# Everything is logged to %SystemRoot%\Temp\lmgpo-bootorder.log.
+# Everything is logged to %SystemRoot%\Temp\lmn-gpo-bootorder.log.
 param([switch]$Worker)
 $ErrorActionPreference = 'SilentlyContinue'
-$log = Join-Path $env:SystemRoot 'Temp\lmgpo-bootorder.log'
+$log = Join-Path $env:SystemRoot 'Temp\lmn-gpo-bootorder.log'
 function Log($m) { try { ('{0}  {1}' -f (Get-Date -Format 's'), $m) | Out-File -LiteralPath $log -Append -Encoding utf8 } catch {} }
 
 # --------------------------------------------------------------------------- #
@@ -41,7 +41,7 @@ public static string Enable(string priv) {
     return "enabled";
 }
 '@
-    try { Add-Type -Namespace LMGPO -Name Tok -MemberDefinition $csharp -ErrorAction Stop; Log ('SeSystemEnvironmentPrivilege: ' + [LMGPO.Tok]::Enable('SeSystemEnvironmentPrivilege')) } catch { Log ('privilege-enable exception: ' + $_.Exception.Message) }
+    try { Add-Type -Namespace LMNGPO -Name Tok -MemberDefinition $csharp -ErrorAction Stop; Log ('SeSystemEnvironmentPrivilege: ' + [LMNGPO.Tok]::Enable('SeSystemEnvironmentPrivilege')) } catch { Log ('privilege-enable exception: ' + $_.Exception.Message) }
 
     $bcd = Join-Path $env:SystemRoot 'System32\bcdedit.exe'
     if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
@@ -96,8 +96,8 @@ if ($Worker) {
 # INSTALLER (GPO startup/shutdown script, restricted token): register + start the task.
 # --------------------------------------------------------------------------- #
 Log '--- Installer (GPO script) ---'
-$taskName = 'LMGPO-BootOrderPXE'
-$localDir = Join-Path $env:ProgramData 'lmgpo'
+$taskName = 'LMN-GPO-BootOrderPXE'
+$localDir = Join-Path $env:ProgramData 'lmn-gpo'
 $localScript = Join-Path $localDir 'bootorder-pxe-first.ps1'   # deliberately WITHOUT spaces in the path
 try {
     New-Item -ItemType Directory -Force -Path $localDir | Out-Null

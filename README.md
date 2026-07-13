@@ -15,8 +15,8 @@ customer servers).
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
 
-> **Command name:** the examples below use `./lmgpo-cli` (source checkout). If you installed
-> the Debian package `lmn-gpo`, the command is `lmn-gpo` and works from any directory — same
+> **Command name:** the examples below use `lmn-gpo` (the installed Debian package — the
+> recommended way). From a source checkout the command is `./lmn-gpo-cli` instead — same
 > commands, same behaviour.
 
 ## Contents
@@ -43,7 +43,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 - **Declarative YAML catalog** (`catalog/`): one package per concern, with scope
   (global / per school) and target (computer/user), optionally filtered exclusively to
   device or role groups.
-- **`lmgpo` CLI** with an interactive **setup assistant**, **idempotent** (run as often
+- **`lmn-gpo` CLI** with an interactive **setup assistant**, **idempotent** (run as often
   as you like), `--dry-run` everywhere, persistent parameters in `site.yaml`.
 - **Dynamic detection**: realm, base DN, server IP/subnet, schools and their prefixes,
   admin groups, the `d_nopxe` device group, role groups and rooms are read live from AD –
@@ -104,45 +104,45 @@ Download the latest release asset and install it. The command is then **`lmn-gpo
 ```bash
 # download the latest release .deb (via the GitHub CLI):
 gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
-# — or download lmn-gpo_1.0.0_all.deb by hand from the releases page:
+# — or download lmn-gpo_*_all.deb by hand from the releases page:
 #   https://github.com/faircomp/linuxmuster-gpo-template/releases/latest
 
 # install on the linuxmuster server:
-apt install ./lmn-gpo_1.0.0_all.deb          # or: dpkg -i lmn-gpo_1.0.0_all.deb
+apt install ./lmn-gpo_*_all.deb          # or: dpkg -i lmn-gpo_*_all.deb
 lmn-gpo doctor                               # environment self-check – must be green
 ```
 
 ### From a source checkout (alternative)
 
-Clone the repo and run it in place; here the command stays **`./lmgpo-cli`** (from the repo
+Clone the repo and run it in place; here the command stays **`./lmn-gpo-cli`** (from the repo
 folder, not `lmn-gpo`):
 
 ```bash
 cd /opt
 git clone https://github.com/faircomp/linuxmuster-gpo-template.git
 cd linuxmuster-gpo-template
-./lmgpo-cli doctor          # environment self-check – must be green
+./lmn-gpo-cli doctor          # environment self-check – must be green
 ```
 
 You can also build the `.deb` yourself from the checkout (needs only `dpkg-deb`, no
 debhelper) and install it — the command is then `lmn-gpo` as above:
 
 ```bash
-sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
-apt install ./dist/lmn-gpo_1.0.0_all.deb     # or: dpkg -i dist/lmn-gpo_1.0.0_all.deb
+sh packaging/build-deb.sh                    # -> dist/lmn-gpo_*_all.deb
+apt install ./dist/lmn-gpo_*_all.deb     # or: dpkg -i dist/lmn-gpo_*_all.deb
 ```
 
 No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
 bindings and `samba-tool` come with linuxmuster).
 
 The package installs the CLI to `/usr/bin/lmn-gpo` and the catalog/scripts to
-`/usr/share/lmn-gpo/`, and reads the **same** config `/etc/linuxmuster/lmgpo/site.yaml`. An
+`/usr/share/lmn-gpo/`, and reads the **same** config `/etc/linuxmuster/lmn-gpo/site.yaml`. An
 existing `site.yaml` from a source checkout is **migrated automatically** on install and is
 **never removed** on upgrade/remove — no settings are lost. It installs entirely inside its
 own namespace (`lmn-gpo`) and touches no linuxmuster files.
 
 > **Important – where does `site.yaml` live?**
-> The assistant saves your settings by default to **`/etc/linuxmuster/lmgpo/site.yaml`** —
+> The assistant saves your settings by default to **`/etc/linuxmuster/lmn-gpo/site.yaml`** —
 > deliberately **outside** the repo. Only there does it survive every `git pull`/`git
 > clean`. **Keep it there and always apply from there**, then updates can never lose your
 > configuration (including Wi-Fi passwords).
@@ -150,18 +150,18 @@ own namespace (`lmn-gpo`) and touches no linuxmuster files.
 ## Quick start
 
 ```bash
-./lmgpo-cli doctor                     # 1. check the environment
-./lmgpo-cli setup                      # 2. configure interactively (asks only the decisions)
-                                       #    -> saves /etc/linuxmuster/lmgpo/site.yaml, shows dry-run
-./lmgpo-cli apply --yes                # 3. apply (uses the saved site.yaml automatically)
+lmn-gpo doctor                     # 1. check the environment
+lmn-gpo setup                      # 2. configure interactively (asks only the decisions)
+                                       #    -> saves /etc/linuxmuster/lmn-gpo/site.yaml, shows dry-run
+lmn-gpo apply --yes                # 3. apply (uses the saved site.yaml automatically)
 ```
 
 Then on a client `gpupdate /force` + reboot, and check with
-[`lmgpo-check.ps1`](#checking-on-the-client).
+[`lmn-gpo-check.ps1`](#checking-on-the-client).
 
 ## Usage
 
-All commands: `./lmgpo-cli <command>`. Everywhere: **read-only commands change nothing**,
+All commands: `lmn-gpo <command>`. Everywhere: **read-only commands change nothing**,
 writing ones need `--yes` (or the prompt in the assistant).
 
 | Command | Purpose |
@@ -178,7 +178,7 @@ writing ones need `--yes` (or the prompt in the assistant).
 ### Configuring with the assistant
 
 ```bash
-./lmgpo-cli setup
+lmn-gpo setup
 ```
 
 The assistant detects the environment itself and only asks the **decisions** (schools,
@@ -191,16 +191,16 @@ end: dry-run preview, save, optionally apply.
 
 ```bash
 # preview without changing anything (always recommended first):
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run
+lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run
 
 # actually apply:
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 
 # only specific schools or packages:
-./lmgpo-cli apply --school msg --pack 02-updates --pack 17-ntp-zeit --yes
+lmn-gpo apply --school schule1 --pack 02-updates --pack 17-ntp-zeit --yes
 ```
 
-Without `--config`, `apply`/`setup` use `/etc/linuxmuster/lmgpo/site.yaml` automatically.
+Without `--config`, `apply`/`setup` use `/etc/linuxmuster/lmn-gpo/site.yaml` automatically.
 
 **Idempotent:** run `apply` as often as you like – a second run creates no new GPOs,
 rewrites no registry values and bumps no versions; only real deviations are corrected.
@@ -208,8 +208,8 @@ rewrites no registry values and bumps no versions; only real deviations are corr
 ### Removing again
 
 ```bash
-./lmgpo-cli remove --dry-run    # shows what would be removed
-./lmgpo-cli remove --yes        # removes ALL LMN-* GPOs (default/sophomorix GPOs stay)
+lmn-gpo remove --dry-run    # shows what would be removed
+lmn-gpo remove --yes        # removes ALL LMN-* GPOs (default/sophomorix GPOs stay)
 ```
 
 ## Configuration (`site.yaml`)
@@ -218,7 +218,7 @@ The assistant creates the file; you can also maintain it by hand and reuse it pe
 Full reference:
 
 ```yaml
-schools: null                 # null = all detected schools, otherwise [school-a, school-b]
+schools: null                 # null = all detected schools, otherwise [schule1, schule2]
 packs: null                   # null = whole catalog, otherwise a list of pack IDs
 fwsource: serverip            # firewall source for remote mgmt: serverip | subnet | <IP/CIDR>
 teachernb: nopxe              # teacher-notebook group (relaxed power/lock): nopxe | skip | <CN>
@@ -229,20 +229,20 @@ wallpaper_dir: ""             # empty = repo wallpapers/  (file: <school>.jpg, f
 firefox_enabled: true
 firefox_homepage: "https://start.school.de"
 firefox_homepage_locked: true
-firefox_homepage_by_school: { school-a: "https://a.school.de" }
+firefox_homepage_by_school: { schule1: "https://schule1.school.de" }
 
 proxy_enabled: true
 proxy_host: "proxy.school.de"
-proxy_host_by_school: { school-b: "proxy-b.school.de" }
+proxy_host_by_school: { schule2: "proxy-schule2.school.de" }
 proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
 proxy_exceptions: ""          # empty = sensible default (<local> + *.<realm> + private nets)
 
 veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
-veyon_bindpw_hex: "…"         # via ./lmgpo-cli veyon-encrypt-password
+veyon_bindpw_hex: "…"         # via lmn-gpo veyon-encrypt-password
 
 wlan_psk_networks:                       # any number — one entry per site
-  - { ssid: "MSG-LINBO", psk: "…" }
-  - { ssid: "GSG-LINBO", psk: "…" }
+  - { ssid: "SCHULE1-LINBO", psk: "…" }
+  - { ssid: "SCHULE2-LINBO", psk: "…" }
 wlan_enterprise_ssid: "Teacher-WiFi"     # empty = no enterprise Wi-Fi
 wlan_enterprise_servernames: "radius.school.de"
 wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"
@@ -252,7 +252,7 @@ ntp_mode: nt5ds               # time sync: nt5ds (domain / Samba way) | ntp (exp
 ```
 
 > `site.yaml` contains **secrets** (Wi-Fi PSKs, encrypted bind password) and is in
-> `.gitignore` — do **not** commit it. Best kept under `/etc/linuxmuster/lmgpo/` (outside
+> `.gitignore` — do **not** commit it. Best kept under `/etc/linuxmuster/lmn-gpo/` (outside
 > the repo).
 
 ---
@@ -281,7 +281,7 @@ Put the images as `wallpapers/<school>.jpg` (fallback `wallpapers/default.jpg`),
 firefox_enabled: true
 firefox_homepage: "https://start.school.de"      # optional
 firefox_homepage_locked: true                     # optional, locks the homepage
-firefox_homepage_by_school: { school-a: "https://a.school.de" }   # optional, per school
+firefox_homepage_by_school: { schule1: "https://schule1.school.de" }   # optional, per school
 ```
 First-run/import assistants off, clean new-tab page (search + shortcuts, no ads), optional
 locked homepage.
@@ -291,7 +291,7 @@ locked homepage.
 ```yaml
 proxy_enabled: true
 proxy_host: "proxy.school.de"
-proxy_host_by_school: { school-b: "proxy-b.school.de" }   # optional
+proxy_host_by_school: { schule2: "proxy-schule2.school.de" }   # optional
 proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
 ```
 **Address follows the device** (proxy host per school, via loopback), **port follows the
@@ -307,8 +307,8 @@ Multiple student Wi-Fis (e.g. one per site) are simply **multiple entries** in
 
 ```yaml
 wlan_psk_networks:
-  - { ssid: "MSG-LINBO", psk: "PSK-for-MSG" }
-  - { ssid: "GSG-LINBO", psk: "PSK-for-GSG" }
+  - { ssid: "SCHULE1-LINBO", psk: "PSK-for-SCHULE1" }
+  - { ssid: "SCHULE2-LINBO", psk: "PSK-for-SCHULE2" }
 ```
 
 The package `13-wlan-psk` is deliberately **global**: **all** PSK profiles land as machine
@@ -337,7 +337,7 @@ groups/users global — so a teacher may open the Master at **any** school.
 
 **Setup:**
 ```bash
-./lmgpo-cli veyon-encrypt-password        # encrypt the bind password -> copy the hex
+lmn-gpo veyon-encrypt-password        # encrypt the bind password -> copy the hex
 ```
 ```yaml
 veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
@@ -391,8 +391,8 @@ privileges, at system start) which, with a full token, does the actual `bcdedit`
 (IPV4/IPV6/PXE/…), idempotent, never breaks the boot.
 
 > **Hardware-dependent — test on ONE machine first.** After `gpupdate /force` + 2 reboots:
-> `schtasks /query /tn LMGPO-BootOrderPXE` (task there?) and
-> `type %SystemRoot%\Temp\lmgpo-bootorder.log` (did the worker find the network entries and
+> `schtasks /query /tn LMN-GPO-BootOrderPXE` (task there?) and
+> `type %SystemRoot%\Temp\lmn-gpo-bootorder.log` (did the worker find the network entries and
 > reorder?). Prerequisite: Fast Startup off (package `05-wol` / BIOS), no BitLocker forcing
 > the Windows Boot Manager first.
 
@@ -418,12 +418,12 @@ GPOs only take effect once the client fetches them and the respective service re
    startup/shutdown scripts take effect at boot).
 2. **Veyon:** additionally **restart the Veyon service** (reboot).
 3. **Wi-Fi (PSK/Enterprise):** **reboot** (machine profiles are imported at boot).
-4. **Boot order:** reboot twice, then check `…\Temp\lmgpo-bootorder.log`.
+4. **Boot order:** reboot twice, then check `…\Temp\lmn-gpo-bootorder.log`.
 5. **Time:** `gpupdate /force` → `w32tm /config /update` → `w32tm /resync` (or reboot).
 
 ## Checking on the client
 
-`scripts/lmgpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
+`scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
 have arrived **and take effect** — covering all 29 packages: `gpresult` (computer **and**
 user), registry actual values, firewall, local groups, KMS, hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
@@ -432,17 +432,17 @@ loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADI
 Best run **twice**:
 ```powershell
 # 1) as ADMINISTRATOR → computer GPOs, firewall, groups, KMS, Veyon, time, boot order
-powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
+powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
 
 # 2) as the logged-in STUDENT (not elevated) → the user restrictions (lockdown/proxy)
-powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1
+powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1
 ```
 `-Refresh` runs `gpupdate /force` first (the only non-read-only action). Output: `[OK]`/`[!!]`
 per check + a summary.
 
 ## Updating the toolkit
 
-How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmgpo/site.yaml`
+How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmn-gpo/site.yaml`
 is preserved** (Wi-Fi passwords and all) — so no settings are lost.
 
 **Packaged install (`lmn-gpo`) — recommended.** Download the newer release `.deb` and install
@@ -458,20 +458,20 @@ lmn-gpo apply --yes
 ```
 
 Releases: <https://github.com/faircomp/linuxmuster-gpo-template/releases/latest>. On upgrade
-your existing `/etc/linuxmuster/lmgpo/site.yaml` is **kept untouched** (it is never removed on
+your existing `/etc/linuxmuster/lmn-gpo/site.yaml` is **kept untouched** (it is never removed on
 upgrade/remove), so your configuration carries over automatically.
 
-**Source checkout (`./lmgpo-cli`).** Pull the new code and re-apply:
+**Source checkout (`./lmn-gpo-cli`).** Pull the new code and re-apply:
 
 ```bash
 cd /opt/linuxmuster-gpo-template
 git pull
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run   # what changes?
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+./lmn-gpo-cli apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run   # what changes?
+./lmn-gpo-cli apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 ```
 
 - A `git pull` does **not** touch your `site.yaml` (it is gitignored and ideally lives under
-  `/etc/linuxmuster/lmgpo/`). **Avoid** `git clean -fdx` / `git reset --hard` in the repo
+  `/etc/linuxmuster/lmn-gpo/`). **Avoid** `git clean -fdx` / `git reset --hard` in the repo
   folder — they delete ignored files, and thus a `site.yaml` kept there.
 - After the re-apply, do `gpupdate` + reboot on the clients as above.
 
@@ -480,12 +480,12 @@ git pull
 | Symptom | Cause / fix |
 |---|---|
 | `apply` says **"0 GPO(s) applied"** | an **opt-in package** is not enabled (e.g. `bootorder_pxe_first: true` missing), or filtered by `--pack`. `grep bootorder site.yaml`. |
-| **Settings lost after an update** | `site.yaml` was **inside** the repo folder and deleted by `git clean`/`reset`. → move it to `/etc/linuxmuster/lmgpo/`. |
-| **Two `site.yaml`** (assistant vs. `--config`) | `setup` saves to `/etc/linuxmuster/lmgpo/`. Always apply the **same** file. |
+| **Settings lost after an update** | `site.yaml` was **inside** the repo folder and deleted by `git clean`/`reset`. → move it to `/etc/linuxmuster/lmn-gpo/`. |
+| **Two `site.yaml`** (assistant vs. `--config`) | `setup` saves to `/etc/linuxmuster/lmn-gpo/`. Always apply the **same** file. |
 | **Teachers can't open the Veyon Master** | on the client `gpupdate /force` + **restart the Veyon service**. The toolkit already sets the correct **BaseDN-relative** group DNs. |
 | **Boot-order log: "a required privilege is not held"** | old script version. The current package uses a **scheduled task** — re-roll out; check the log for `Worker (Scheduled Task…)` lines. |
 | **Clocks wrong** | apply package `17-ntp-zeit`; on the client `w32tm /resync`. The `MaxPhaseCorrection` fix also corrects battery machines. |
-| GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmgpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
+| GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmn-gpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
 
 ---
 
@@ -501,9 +501,9 @@ machine, not just the DC. Installing the ready-made `.deb` from a release needs 
 ## Directory layout
 
 ```
-lmgpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
+lmn_gpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
 catalog/      29 YAML policy packages
-scripts/      Windows startup/shutdown scripts + lmgpo-check.ps1 (client diagnostics)
+scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagnostics)
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   branding images per school (images not committed)
@@ -531,9 +531,9 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
-> **Befehlsname:** die Beispiele unten nutzen `./lmgpo-cli` (Source-Checkout). Wenn du das
-> Debian-Paket `lmn-gpo` installiert hast, heißt das Kommando `lmn-gpo` und funktioniert aus
-> jedem Verzeichnis — gleiche Befehle, gleiches Verhalten.
+> **Befehlsname:** die Beispiele unten nutzen `lmn-gpo` (das installierte Debian-Paket — der
+> empfohlene Weg). Aus einem Source-Checkout heißt das Kommando stattdessen `./lmn-gpo-cli` —
+> gleiche Befehle, gleiches Verhalten.
 
 ## Inhalt
 
@@ -559,7 +559,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Deklarativer YAML-Katalog** (`catalog/`): ein Paket pro Anliegen, mit Scope
   (global / pro Schule) und Ziel (Computer/User), optional exklusiv auf Geräte- oder
   Rollen-Gruppen gefiltert.
-- **`lmgpo`-CLI** mit interaktivem **Setup-Assistenten**, **idempotent** (beliebig oft
+- **`lmn-gpo`-CLI** mit interaktivem **Setup-Assistenten**, **idempotent** (beliebig oft
   ausführbar), überall `--dry-run`, persistente Parameter in `site.yaml`.
 - **Dynamische Erkennung**: Realm, Base-DN, Server-IP/Subnetz, Schulen, deren Präfixe,
   Admin-Gruppen, die `d_nopxe`-Gerätegruppe, Rollen-Gruppen und Räume werden live aus dem
@@ -619,39 +619,39 @@ Das aktuelle Release-Asset herunterladen und installieren. Das Kommando ist dann
 ```bash
 # aktuelles Release-.deb laden (via GitHub-CLI):
 gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
-# — oder lmn-gpo_1.0.0_all.deb von Hand von der Releases-Seite holen:
+# — oder lmn-gpo_*_all.deb von Hand von der Releases-Seite holen:
 #   https://github.com/faircomp/linuxmuster-gpo-template/releases/latest
 
 # auf dem linuxmuster-Server installieren:
-apt install ./lmn-gpo_1.0.0_all.deb          # oder: dpkg -i lmn-gpo_1.0.0_all.deb
+apt install ./lmn-gpo_*_all.deb          # oder: dpkg -i lmn-gpo_*_all.deb
 lmn-gpo doctor                               # Umgebungs-Selbstcheck – muss grün sein
 ```
 
 ### Aus einem Source-Checkout (Alternative)
 
-Das Repo klonen und direkt daraus fahren; hier bleibt das Kommando **`./lmgpo-cli`** (aus
+Das Repo klonen und direkt daraus fahren; hier bleibt das Kommando **`./lmn-gpo-cli`** (aus
 dem Repo-Ordner, nicht `lmn-gpo`):
 
 ```bash
 cd /opt
 git clone https://github.com/faircomp/linuxmuster-gpo-template.git
 cd linuxmuster-gpo-template
-./lmgpo-cli doctor          # Umgebungs-Selbstcheck – muss grün sein
+./lmn-gpo-cli doctor          # Umgebungs-Selbstcheck – muss grün sein
 ```
 
 Optional das `.deb` selbst aus dem Checkout bauen (braucht nur `dpkg-deb`, kein debhelper)
 und installieren — das Kommando ist dann `lmn-gpo` wie oben:
 
 ```bash
-sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
-apt install ./dist/lmn-gpo_1.0.0_all.deb     # oder: dpkg -i dist/lmn-gpo_1.0.0_all.deb
+sh packaging/build-deb.sh                    # -> dist/lmn-gpo_*_all.deb
+apt install ./dist/lmn-gpo_*_all.deb     # oder: dpkg -i dist/lmn-gpo_*_all.deb
 ```
 
 Es sind keine zusätzlichen Pakete nötig (siehe [Anforderungen](#anforderungen) – Python,
 `samba`-Bindings und `samba-tool` bringt linuxmuster mit).
 
 Das Paket legt die CLI unter `/usr/bin/lmn-gpo` ab, Katalog/Skripte unter
-`/usr/share/lmn-gpo/`, und liest **dieselbe** Config `/etc/linuxmuster/lmgpo/site.yaml`.
+`/usr/share/lmn-gpo/`, und liest **dieselbe** Config `/etc/linuxmuster/lmn-gpo/site.yaml`.
 Eine vorhandene `site.yaml` aus einem Source-Checkout wird bei der Installation
 **automatisch migriert** und bei Upgrade/Remove **nie gelöscht** — es gehen keine
 Einstellungen verloren. Es installiert komplett im eigenen Namespace (`lmn-gpo`) und fasst
@@ -659,25 +659,25 @@ keine linuxmuster-Dateien an.
 
 > **Wichtig – wo liegt die `site.yaml`?**
 > Der Assistent speichert deine Einstellungen standardmäßig unter
-> **`/etc/linuxmuster/lmgpo/site.yaml`** — bewusst **außerhalb** des Repos. Nur so
+> **`/etc/linuxmuster/lmn-gpo/site.yaml`** — bewusst **außerhalb** des Repos. Nur so
 > überlebt sie jedes `git pull`/`git clean`. **Lege sie dort ab und wende immer von dort
 > an**, dann können Updates deine Konfiguration (inkl. WLAN-Passwörter) nie verlieren.
 
 ## Schnellstart
 
 ```bash
-./lmgpo-cli doctor                     # 1. Umgebung prüfen
-./lmgpo-cli setup                      # 2. interaktiv einrichten (fragt nur die Entscheidungen)
-                                       #    -> speichert /etc/linuxmuster/lmgpo/site.yaml, zeigt Dry-Run
-./lmgpo-cli apply --yes                # 3. anwenden (nutzt automatisch die gespeicherte site.yaml)
+lmn-gpo doctor                     # 1. Umgebung prüfen
+lmn-gpo setup                      # 2. interaktiv einrichten (fragt nur die Entscheidungen)
+                                       #    -> speichert /etc/linuxmuster/lmn-gpo/site.yaml, zeigt Dry-Run
+lmn-gpo apply --yes                # 3. anwenden (nutzt automatisch die gespeicherte site.yaml)
 ```
 
 Danach auf einem Client `gpupdate /force` + Neustart, dann mit
-[`lmgpo-check.ps1`](#prüfen-am-client) kontrollieren.
+[`lmn-gpo-check.ps1`](#prüfen-am-client) kontrollieren.
 
 ## Bedienung
 
-Alle Kommandos: `./lmgpo-cli <befehl>`. Überall gilt: **read-only-Befehle ändern nichts**,
+Alle Kommandos: `lmn-gpo <befehl>`. Überall gilt: **read-only-Befehle ändern nichts**,
 schreibende brauchen `--yes` (oder die Rückfrage im Assistenten).
 
 | Befehl | Zweck |
@@ -694,7 +694,7 @@ schreibende brauchen `--yes` (oder die Rückfrage im Assistenten).
 ### Einrichten mit dem Assistenten
 
 ```bash
-./lmgpo-cli setup
+lmn-gpo setup
 ```
 
 Der Assistent erkennt die Umgebung selbst und fragt nur die **Entscheidungen** ab
@@ -707,16 +707,16 @@ WLAN-SSIDs + Passwörter). Am Ende: Dry-Run-Vorschau, Speichern, optional anwend
 
 ```bash
 # Vorschau ohne Änderung (immer zuerst empfohlen):
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run
+lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run
 
 # Wirklich anwenden:
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 
 # Nur einzelne Schulen bzw. Pakete:
-./lmgpo-cli apply --school msg --pack 02-updates --pack 17-ntp-zeit --yes
+lmn-gpo apply --school schule1 --pack 02-updates --pack 17-ntp-zeit --yes
 ```
 
-Ohne `--config` nutzt `apply`/`setup` automatisch `/etc/linuxmuster/lmgpo/site.yaml`.
+Ohne `--config` nutzt `apply`/`setup` automatisch `/etc/linuxmuster/lmn-gpo/site.yaml`.
 
 **Idempotent:** `apply` beliebig oft ausführen – ein zweiter Lauf erzeugt keine neuen GPOs,
 schreibt keine Registry-Werte neu und bumpt keine Versionen; nur echte Abweichungen werden
@@ -725,8 +725,8 @@ korrigiert.
 ### Wieder entfernen
 
 ```bash
-./lmgpo-cli remove --dry-run    # zeigt, was entfernt würde
-./lmgpo-cli remove --yes        # entfernt ALLE LMN-*-GPOs restlos (Default-/sophomorix-GPOs bleiben)
+lmn-gpo remove --dry-run    # zeigt, was entfernt würde
+lmn-gpo remove --yes        # entfernt ALLE LMN-*-GPOs restlos (Default-/sophomorix-GPOs bleiben)
 ```
 
 ## Konfiguration (`site.yaml`)
@@ -755,11 +755,11 @@ proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
 proxy_exceptions: ""          # leer = sinnvoller Default (<local> + *.<realm> + private Netze)
 
 veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
-veyon_bindpw_hex: "…"         # via ./lmgpo-cli veyon-encrypt-password
+veyon_bindpw_hex: "…"         # via lmn-gpo veyon-encrypt-password
 
 wlan_psk_networks:                       # beliebig viele — je Standort ein Eintrag
-  - { ssid: "MSG-LINBO", psk: "…" }
-  - { ssid: "GSG-LINBO", psk: "…" }
+  - { ssid: "SCHULE1-LINBO", psk: "…" }
+  - { ssid: "SCHULE2-LINBO", psk: "…" }
 wlan_enterprise_ssid: "Lehrer-WLAN"      # leer = kein Enterprise-WLAN
 wlan_enterprise_servernames: "radius.schule.de"
 wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
@@ -769,7 +769,7 @@ ntp_mode: nt5ds               # Zeitsync: nt5ds (Domäne/Samba-Weg) | ntp (expli
 ```
 
 > Die `site.yaml` enthält **Geheimnisse** (WLAN-PSKs, verschlüsseltes Bind-Passwort) und ist
-> in `.gitignore` — **nicht** einchecken. Am besten unter `/etc/linuxmuster/lmgpo/` (außerhalb
+> in `.gitignore` — **nicht** einchecken. Am besten unter `/etc/linuxmuster/lmn-gpo/` (außerhalb
 > des Repos) halten.
 
 ---
@@ -824,8 +824,8 @@ Mehrere Schüler-WLANs (z. B. je Standort ein eigenes) sind einfach **mehrere Ei
 
 ```yaml
 wlan_psk_networks:
-  - { ssid: "MSG-LINBO", psk: "PSK-für-MSG" }
-  - { ssid: "GSG-LINBO", psk: "PSK-für-GSG" }
+  - { ssid: "SCHULE1-LINBO", psk: "PSK-für-SCHULE1" }
+  - { ssid: "SCHULE2-LINBO", psk: "PSK-für-SCHULE2" }
 ```
 
 Das Pack `13-wlan-psk` ist bewusst **global**: **alle** PSK-Profile landen als Maschinen-
@@ -854,7 +854,7 @@ Gruppen/Nutzer global — ein Lehrer darf so an **jeder** Schule den Master öff
 
 **Einrichten:**
 ```bash
-./lmgpo-cli veyon-encrypt-password        # Bind-Passwort verschlüsseln -> Hex kopieren
+lmn-gpo veyon-encrypt-password        # Bind-Passwort verschlüsseln -> Hex kopieren
 ```
 ```yaml
 veyon_binddn: "CN=global-veyon,OU=Management,OU=GLOBAL,DC=..."
@@ -908,8 +908,8 @@ macht (Netzwerk/PXE nach vorne, Windows Boot Manager ans Ende). Robuste Muster-E
 (IPV4/IPV6/PXE/…), idempotent, bricht den Boot nie ab.
 
 > **Hardwareabhängig — erst auf EINEM Gerät testen.** Nach `gpupdate /force` + 2× Neustart:
-> `schtasks /query /tn LMGPO-BootOrderPXE` (Task da?) und
-> `type %SystemRoot%\Temp\lmgpo-bootorder.log` (hat der Worker die Netzwerk-Einträge gefunden
+> `schtasks /query /tn LMN-GPO-BootOrderPXE` (Task da?) und
+> `type %SystemRoot%\Temp\lmn-gpo-bootorder.log` (hat der Worker die Netzwerk-Einträge gefunden
 > und umsortiert?). Voraussetzung: Fast Startup aus (Paket `05-wol` / BIOS), kein BitLocker mit
 > Windows-Boot-Manager-Zwang.
 
@@ -935,12 +935,12 @@ GPOs wirken erst, wenn der Client sie holt und der jeweilige Dienst sie liest:
    Start-/Shutdown-Skripte greifen beim Boot).
 2. **Veyon:** zusätzlich den **Veyon-Dienst neu starten** (Reboot).
 3. **WLAN (PSK/Enterprise):** **Neustart** (Maschinen-Profile werden beim Boot importiert).
-4. **Bootreihenfolge:** 2× neu starten, dann `…\Temp\lmgpo-bootorder.log` prüfen.
+4. **Bootreihenfolge:** 2× neu starten, dann `…\Temp\lmn-gpo-bootorder.log` prüfen.
 5. **Zeit:** `gpupdate /force` → `w32tm /config /update` → `w32tm /resync` (oder Neustart).
 
 ## Prüfen am Client
 
-`scripts/lmgpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
+`scripts/lmn-gpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
 angekommen sind **und wirken** — deckt alle 29 Pakete ab: `gpresult` (Computer **und** User),
 Registry-Ist-Werte, Firewall, lokale Gruppen, KMS, Hotspot, OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync
@@ -949,10 +949,10 @@ Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), 
 Am besten **zweimal** ausführen:
 ```powershell
 # 1) als ADMINISTRATOR → Computer-GPOs, Firewall, Gruppen, KMS, Veyon, Zeit, Bootorder
-powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
+powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1 -Refresh -WlanCaSubject "RADIUS CA"
 
 # 2) als angemeldeter SCHÜLER (nicht elevated) → die User-Sperren (Lockdown/Proxy)
-powershell -ExecutionPolicy Bypass -File lmgpo-check.ps1
+powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1
 ```
 `-Refresh` macht vorher `gpupdate /force` (einzige nicht-lesende Aktion). Ausgabe: `[OK]`/`[!!]`
 je Prüfung + Summe.
@@ -960,7 +960,7 @@ je Prüfung + Summe.
 ## Update des Toolkits
 
 Wie du aktualisierst, hängt von der Installationsart ab. **In beiden Fällen bleibt
-`/etc/linuxmuster/lmgpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine
+`/etc/linuxmuster/lmn-gpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine
 Einstellungen verloren.
 
 **Paket-Installation (`lmn-gpo`) — empfohlen.** Das neuere Release-`.deb` herunterladen und
@@ -976,20 +976,20 @@ lmn-gpo apply --yes
 ```
 
 Releases: <https://github.com/faircomp/linuxmuster-gpo-template/releases/latest>. Beim Upgrade
-bleibt deine vorhandene `/etc/linuxmuster/lmgpo/site.yaml` **unangetastet** (sie wird bei
+bleibt deine vorhandene `/etc/linuxmuster/lmn-gpo/site.yaml` **unangetastet** (sie wird bei
 Upgrade/Remove nie gelöscht), deine Konfiguration wird also automatisch übernommen.
 
-**Source-Checkout (`./lmgpo-cli`).** Neuen Code ziehen und neu anwenden:
+**Source-Checkout (`./lmn-gpo-cli`).** Neuen Code ziehen und neu anwenden:
 
 ```bash
 cd /opt/linuxmuster-gpo-template
 git pull
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --dry-run   # was ändert sich?
-./lmgpo-cli apply --config /etc/linuxmuster/lmgpo/site.yaml --yes
+./lmn-gpo-cli apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run   # was ändert sich?
+./lmn-gpo-cli apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 ```
 
 - Ein `git pull` fasst deine `site.yaml` **nicht** an (sie ist gitignored und liegt idealerweise
-  unter `/etc/linuxmuster/lmgpo/`). **Vermeide** `git clean -fdx` / `git reset --hard` im
+  unter `/etc/linuxmuster/lmn-gpo/`). **Vermeide** `git clean -fdx` / `git reset --hard` im
   Repo-Ordner — die löschen ignorierte Dateien und damit eine dort liegende `site.yaml`.
 - Nach dem Re-Apply auf den Clients wie oben `gpupdate` + Neustart.
 
@@ -998,12 +998,12 @@ git pull
 | Symptom | Ursache / Lösung |
 |---|---|
 | `apply` sagt **„0 GPO(s) angewandt"** | Ein **Opt-in-Pack** ist nicht aktiviert (z. B. `bootorder_pxe_first: true` fehlt), oder `--pack` gefiltert. `grep bootorder site.yaml`. |
-| **Einstellungen nach Update weg** | `site.yaml` lag **im** Repo-Ordner und wurde von `git clean`/`reset` gelöscht. → nach `/etc/linuxmuster/lmgpo/` verschieben. |
-| **Zwei `site.yaml`** (Assistent vs. `--config`) | `setup` speichert nach `/etc/linuxmuster/lmgpo/`. Immer **dieselbe** Datei anwenden. |
+| **Einstellungen nach Update weg** | `site.yaml` lag **im** Repo-Ordner und wurde von `git clean`/`reset` gelöscht. → nach `/etc/linuxmuster/lmn-gpo/` verschieben. |
+| **Zwei `site.yaml`** (Assistent vs. `--config`) | `setup` speichert nach `/etc/linuxmuster/lmn-gpo/`. Immer **dieselbe** Datei anwenden. |
 | **Lehrer können Veyon-Master nicht öffnen** | am Client `gpupdate /force` + **Veyon-Dienst neu starten**. Das Toolkit setzt bereits die korrekten **BaseDN-relativen** Gruppen-DNs. |
 | **Bootorder-Log: „fehlt ein erforderliches Recht"** | alte Skript-Version. Aktuelles Pack nutzt einen **Scheduled Task** — neu ausrollen; Log auf `Worker (Scheduled Task…)`-Zeilen prüfen. |
 | **Uhren falsch** | Pack `17-ntp-zeit` anwenden; am Client `w32tm /resync`. Der `MaxPhaseCorrection`-Fix korrigiert auch Batterie-Rechner. |
-| GPO angeblich nicht angewandt | am Client als Admin `gpresult /r`; mit [`lmgpo-check.ps1`](#prüfen-am-client) gegenprüfen; auf `-Refresh` + Neustart achten. |
+| GPO angeblich nicht angewandt | am Client als Admin `gpresult /r`; mit [`lmn-gpo-check.ps1`](#prüfen-am-client) gegenprüfen; auf `-Refresh` + Neustart achten. |
 
 ---
 
@@ -1020,9 +1020,9 @@ ist nichts Zusätzliches nötig.
 ## Verzeichnisstruktur
 
 ```
-lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
+lmn_gpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
 catalog/      29 YAML-Policy-Pakete
-scripts/      Windows-Start-/Shutdown-Skripte + lmgpo-check.ps1 (Client-Diagnose)
+scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   Branding-Bilder je Schule (Bilder nicht eingecheckt)

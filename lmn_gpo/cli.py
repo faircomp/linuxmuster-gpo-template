@@ -1,4 +1,4 @@
-"""`lmgpo` command-line entry point.
+"""`lmn-gpo` command-line entry point.
 
 Subcommands implemented so far:
   doctor   environment self-check (read-only)
@@ -201,7 +201,7 @@ def cmd_apply(args) -> int:
         print(f"{BAD} {exc}", file=sys.stderr)
         return 2
     packs = catalog.load_packs()
-    answers = setupmod.load_site(args.config or setupmod.DEFAULT_SITE)
+    answers = setupmod.load_site(args.config or setupmod.default_site())
     if args.school:
         answers["schools"] = args.school
     if args.pack:
@@ -262,7 +262,7 @@ def cmd_selftest(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="lmgpo",
+        prog="lmn-gpo",
         description="GPO template toolkit for linuxmuster.net 7.x (Samba AD DC).")
     p.add_argument("--no-color", action="store_true", help="disable colored output")
     sub = p.add_subparsers(dest="cmd", required=True)

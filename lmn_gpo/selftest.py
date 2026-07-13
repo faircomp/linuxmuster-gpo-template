@@ -16,7 +16,7 @@ from .gpo import GpoEngine, APPLY_GROUP_POLICY
 from .regpol import RegPol, firewall_entries
 
 TEST_NAME = "LMN-SELFTEST-DELETEME"
-PROBE_KEY = r"Software\Policies\Lmgpo\Selftest"
+PROBE_KEY = r"Software\Policies\LmnGpo\Selftest"
 
 
 def run(dry_run: bool = False) -> int:
