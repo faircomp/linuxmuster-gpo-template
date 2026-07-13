@@ -1,5 +1,8 @@
 # linuxmuster-gpo-template
 
+[![Latest release](https://img.shields.io/github/v/release/faircomp/linuxmuster-gpo-template)](https://github.com/faircomp/linuxmuster-gpo-template/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/github/license/faircomp/linuxmuster-gpo-template)](https://github.com/faircomp/linuxmuster-gpo-template/blob/HEAD/LICENSE)
+
 *(English first — deutsche Version weiter unten / German version below.)*
 
 A reusable **Group Policy template toolkit** for **linuxmuster.net 7.x** (Ubuntu 24.04 +
@@ -11,6 +14,10 @@ customer servers).
 > **Status: complete & verified.** 29 policy packages, idempotent, with `--dry-run`.
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
+
+> **Command name:** the examples below use `./lmgpo-cli` (source checkout). If you installed
+> the Debian package `lmn-gpo`, the command is `lmn-gpo` and works from any directory — same
+> commands, same behaviour.
 
 ## Contents
 
@@ -87,7 +94,28 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 
 ## Installation
 
-On the **linuxmuster server (Samba AD DC)** as **root**:
+On the **linuxmuster server (Samba AD DC)** as **root**. Two ways to install — pick one.
+
+### Install the released `.deb` (recommended)
+
+Download the latest release asset and install it. The command is then **`lmn-gpo`**
+(`/usr/bin/lmn-gpo`), usable from any directory:
+
+```bash
+# download the latest release .deb (via the GitHub CLI):
+gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
+# — or download lmn-gpo_1.0.0_all.deb by hand from the releases page:
+#   https://github.com/faircomp/linuxmuster-gpo-template/releases/latest
+
+# install on the linuxmuster server:
+apt install ./lmn-gpo_1.0.0_all.deb          # or: dpkg -i lmn-gpo_1.0.0_all.deb
+lmn-gpo doctor                               # environment self-check – must be green
+```
+
+### From a source checkout (alternative)
+
+Clone the repo and run it in place; here the command stays **`./lmgpo-cli`** (from the repo
+folder, not `lmn-gpo`):
 
 ```bash
 cd /opt
@@ -96,22 +124,16 @@ cd linuxmuster-gpo-template
 ./lmgpo-cli doctor          # environment self-check – must be green
 ```
 
-No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
-bindings and `samba-tool` come with linuxmuster). `./lmgpo-cli` is the single entry point.
-
-### As a Debian package (`lmn-gpo`)
-
-Alternatively install the toolkit as a `.deb`. Then the command is **`lmn-gpo`** (instead
-of `./lmgpo-cli`) and works from any directory:
+You can also build the `.deb` yourself from the checkout (needs only `dpkg-deb`, no
+debhelper) and install it — the command is then `lmn-gpo` as above:
 
 ```bash
-# build the package (needs only dpkg-deb — build anywhere):
 sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
-
-# install on the linuxmuster server:
 apt install ./dist/lmn-gpo_1.0.0_all.deb     # or: dpkg -i dist/lmn-gpo_1.0.0_all.deb
-lmn-gpo doctor
 ```
+
+No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
+bindings and `samba-tool` come with linuxmuster).
 
 The package installs the CLI to `/usr/bin/lmn-gpo` and the catalog/scripts to
 `/usr/share/lmn-gpo/`, and reads the **same** config `/etc/linuxmuster/lmgpo/site.yaml`. An
@@ -420,6 +442,27 @@ per check + a summary.
 
 ## Updating the toolkit
 
+How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmgpo/site.yaml`
+is preserved** (Wi-Fi passwords and all) — so no settings are lost.
+
+**Packaged install (`lmn-gpo`) — recommended.** Download the newer release `.deb` and install
+it over the old one:
+
+```bash
+# fetch the latest release .deb (or download it from the releases page):
+gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
+apt install ./lmn-gpo_*_all.deb          # or: dpkg -i lmn-gpo_*_all.deb
+lmn-gpo doctor                           # verify the environment
+lmn-gpo apply --dry-run                   # what changes? (uses the saved site.yaml)
+lmn-gpo apply --yes
+```
+
+Releases: <https://github.com/faircomp/linuxmuster-gpo-template/releases/latest>. On upgrade
+your existing `/etc/linuxmuster/lmgpo/site.yaml` is **kept untouched** (it is never removed on
+upgrade/remove), so your configuration carries over automatically.
+
+**Source checkout (`./lmgpo-cli`).** Pull the new code and re-apply:
+
 ```bash
 cd /opt/linuxmuster-gpo-template
 git pull
@@ -452,21 +495,31 @@ linuxmuster.net 7.x Samba AD DC, Python ≥ 3.10, `python3-yaml`, the `samba` Py
 `samba-tool` (Samba ≥ 4.16 for `gpo load`), `openssl` (for Veyon/Wi-Fi certificates).
 Runs as root on the DC.
 
+Building the `.deb` yourself needs only `dpkg-deb` (no debhelper) — and can be done on any
+machine, not just the DC. Installing the ready-made `.deb` from a release needs nothing extra.
+
 ## Directory layout
 
 ```
-lmgpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, cli)
+lmgpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
 catalog/      29 YAML policy packages
 scripts/      Windows startup/shutdown scripts + lmgpo-check.ps1 (client diagnostics)
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   branding images per school (images not committed)
+packaging/    Debian packaging (build-deb.sh, control, copyright, changelog, postinst/prerm/postrm)
+.github/workflows/  GitHub Actions (release.yml builds the .deb and attaches it on a v* tag)
+LICENSE       GPL-3.0
+dist/         build output (the .deb) — gitignored
 ```
 
 ---
 ---
 
 # 🇩🇪 linuxmuster-gpo-template (Deutsch)
+
+[![Aktuelles Release](https://img.shields.io/github/v/release/faircomp/linuxmuster-gpo-template)](https://github.com/faircomp/linuxmuster-gpo-template/releases/latest)
+[![Lizenz: GPL-3.0](https://img.shields.io/github/license/faircomp/linuxmuster-gpo-template)](https://github.com/faircomp/linuxmuster-gpo-template/blob/HEAD/LICENSE)
 
 Ein wiederverwendbares **Group-Policy-Template-Toolkit** für **linuxmuster.net 7.x**
 (Ubuntu 24.04 + Samba 4.19 Active-Directory-DC). Es erstellt, verlinkt und berechtigt
@@ -477,6 +530,10 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 > **Status: fertig & verifiziert.** 29 Policy-Pakete, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
+
+> **Befehlsname:** die Beispiele unten nutzen `./lmgpo-cli` (Source-Checkout). Wenn du das
+> Debian-Paket `lmn-gpo` installiert hast, heißt das Kommando `lmn-gpo` und funktioniert aus
+> jedem Verzeichnis — gleiche Befehle, gleiches Verhalten.
 
 ## Inhalt
 
@@ -552,7 +609,28 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 
 ## Installation
 
-Auf dem **linuxmuster-Server (Samba-AD-DC)** als **root**:
+Auf dem **linuxmuster-Server (Samba-AD-DC)** als **root**. Zwei Wege — einen wählen.
+
+### Das veröffentlichte `.deb` installieren (empfohlen)
+
+Das aktuelle Release-Asset herunterladen und installieren. Das Kommando ist dann
+**`lmn-gpo`** (`/usr/bin/lmn-gpo`) und funktioniert aus jedem Verzeichnis:
+
+```bash
+# aktuelles Release-.deb laden (via GitHub-CLI):
+gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
+# — oder lmn-gpo_1.0.0_all.deb von Hand von der Releases-Seite holen:
+#   https://github.com/faircomp/linuxmuster-gpo-template/releases/latest
+
+# auf dem linuxmuster-Server installieren:
+apt install ./lmn-gpo_1.0.0_all.deb          # oder: dpkg -i lmn-gpo_1.0.0_all.deb
+lmn-gpo doctor                               # Umgebungs-Selbstcheck – muss grün sein
+```
+
+### Aus einem Source-Checkout (Alternative)
+
+Das Repo klonen und direkt daraus fahren; hier bleibt das Kommando **`./lmgpo-cli`** (aus
+dem Repo-Ordner, nicht `lmn-gpo`):
 
 ```bash
 cd /opt
@@ -561,23 +639,16 @@ cd linuxmuster-gpo-template
 ./lmgpo-cli doctor          # Umgebungs-Selbstcheck – muss grün sein
 ```
 
-Es sind keine zusätzlichen Pakete nötig (siehe [Anforderungen](#anforderungen) – Python,
-`samba`-Bindings und `samba-tool` bringt linuxmuster mit). `./lmgpo-cli` ist der einzige
-Einstiegspunkt.
-
-### Als Debian-Paket (`lmn-gpo`)
-
-Alternativ das Toolkit als `.deb` installieren. Dann ist das Kommando **`lmn-gpo`** (statt
-`./lmgpo-cli`) und funktioniert aus jedem Verzeichnis:
+Optional das `.deb` selbst aus dem Checkout bauen (braucht nur `dpkg-deb`, kein debhelper)
+und installieren — das Kommando ist dann `lmn-gpo` wie oben:
 
 ```bash
-# Paket bauen (braucht nur dpkg-deb — überall baubar):
 sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
-
-# auf dem linuxmuster-Server installieren:
 apt install ./dist/lmn-gpo_1.0.0_all.deb     # oder: dpkg -i dist/lmn-gpo_1.0.0_all.deb
-lmn-gpo doctor
 ```
+
+Es sind keine zusätzlichen Pakete nötig (siehe [Anforderungen](#anforderungen) – Python,
+`samba`-Bindings und `samba-tool` bringt linuxmuster mit).
 
 Das Paket legt die CLI unter `/usr/bin/lmn-gpo` ab, Katalog/Skripte unter
 `/usr/share/lmn-gpo/`, und liest **dieselbe** Config `/etc/linuxmuster/lmgpo/site.yaml`.
@@ -888,6 +959,28 @@ je Prüfung + Summe.
 
 ## Update des Toolkits
 
+Wie du aktualisierst, hängt von der Installationsart ab. **In beiden Fällen bleibt
+`/etc/linuxmuster/lmgpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine
+Einstellungen verloren.
+
+**Paket-Installation (`lmn-gpo`) — empfohlen.** Das neuere Release-`.deb` herunterladen und
+über die alte Version installieren:
+
+```bash
+# das neueste Release-.deb holen (oder von der Releases-Seite herunterladen):
+gh release download --repo faircomp/linuxmuster-gpo-template --pattern '*.deb'
+apt install ./lmn-gpo_*_all.deb          # oder: dpkg -i lmn-gpo_*_all.deb
+lmn-gpo doctor                           # Umgebung prüfen
+lmn-gpo apply --dry-run                   # was ändert sich? (nutzt die gespeicherte site.yaml)
+lmn-gpo apply --yes
+```
+
+Releases: <https://github.com/faircomp/linuxmuster-gpo-template/releases/latest>. Beim Upgrade
+bleibt deine vorhandene `/etc/linuxmuster/lmgpo/site.yaml` **unangetastet** (sie wird bei
+Upgrade/Remove nie gelöscht), deine Konfiguration wird also automatisch übernommen.
+
+**Source-Checkout (`./lmgpo-cli`).** Neuen Code ziehen und neu anwenden:
+
 ```bash
 cd /opt/linuxmuster-gpo-template
 git pull
@@ -920,13 +1013,21 @@ linuxmuster.net 7.x Samba-AD-DC, Python ≥ 3.10, `python3-yaml`, `samba` Python
 `samba-tool` (Samba ≥ 4.16 für `gpo load`), `openssl` (für Veyon-/WLAN-Zertifikate).
 Läuft als root auf dem DC.
 
+Das `.deb` selbst zu bauen braucht nur `dpkg-deb` (kein debhelper) — und geht auf jedem
+Rechner, nicht nur auf dem DC. Für das Installieren eines fertigen `.deb` aus einem Release
+ist nichts Zusätzliches nötig.
+
 ## Verzeichnisstruktur
 
 ```
-lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, cli)
+lmgpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
 catalog/      29 YAML-Policy-Pakete
 scripts/      Windows-Start-/Shutdown-Skripte + lmgpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   Branding-Bilder je Schule (Bilder nicht eingecheckt)
+packaging/    Debian-Paketierung (build-deb.sh, control, copyright, changelog, postinst/prerm/postrm)
+.github/workflows/  GitHub Actions (release.yml baut das .deb und hängt es an einen v*-Tag)
+LICENSE       GPL-3.0
+dist/         Build-Ausgabe (das .deb) — gitignored
 ```
