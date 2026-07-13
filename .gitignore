@@ -1,18 +1,22 @@
-# Standort-/Kundenspezifische Antworten (enthalten Bind-Passwörter etc.)
+# Site-/customer-specific answers (contain bind passwords etc.)
 site.yaml
 *.site.yaml
 /etc/linuxmuster/lmgpo/
 
-# Hintergrundbilder (kundenspezifisch, nicht ins Repo)
+# Wallpapers (customer-specific, not part of the repo)
 wallpapers/*.jpg
 wallpapers/*.jpeg
 wallpapers/*.png
 wallpapers/*.bmp
 
+# Build artifacts (.deb output)
+dist/
+build/
+
 # Python
 __pycache__/
 *.py[cod]
 
-# Sonstiges
+# Misc
 *.log
 .DS_Store

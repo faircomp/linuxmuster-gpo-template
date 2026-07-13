@@ -1,0 +1,41 @@
+#!/bin/sh
+# postinst for lmn-gpo
+set -e
+
+MODDIR=/usr/lib/python3/dist-packages/lmgpo
+CONF=/etc/linuxmuster/lmgpo/site.yaml
+
+case "$1" in
+    configure)
+        # Byte-compile the Python module for the system python3.
+        if command -v py3compile >/dev/null 2>&1; then
+            py3compile "$MODDIR" >/dev/null 2>&1 || true
+        fi
+
+        # Writable runtime dir for admin-provided per-school wallpapers.
+        mkdir -p /var/lib/lmn-gpo/wallpapers
+
+        # Config migration: if the default config does not exist yet, adopt an
+        # existing site.yaml from a previous source checkout so no settings are lost.
+        if [ ! -f "$CONF" ]; then
+            for cand in \
+                /etc/linuxmuster/lmn-gpo/site.yaml \
+                /opt/linuxmuster-gpo-template/site.yaml \
+                /root/linuxmuster-gpo-template/site.yaml \
+                /usr/local/linuxmuster-gpo-template/site.yaml \
+                /srv/linuxmuster-gpo-template/site.yaml; do
+                if [ -f "$cand" ]; then
+                    mkdir -p /etc/linuxmuster/lmgpo
+                    cp -p "$cand" "$CONF"
+                    chmod 600 "$CONF" 2>/dev/null || true
+                    echo "lmn-gpo: migrated existing configuration $cand -> $CONF"
+                    break
+                fi
+            done
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+esac
+
+exit 0

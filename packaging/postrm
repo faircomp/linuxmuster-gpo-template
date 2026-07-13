@@ -1,0 +1,15 @@
+#!/bin/sh
+# postrm for lmn-gpo
+set -e
+
+case "$1" in
+    purge)
+        # Remove our runtime state. We deliberately keep the admin configuration
+        # under /etc/linuxmuster/lmgpo (it may be shared / valuable); remove it by hand.
+        rm -rf /var/lib/lmn-gpo
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+esac
+
+exit 0

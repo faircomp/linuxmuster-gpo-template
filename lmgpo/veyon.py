@@ -14,8 +14,9 @@ from __future__ import annotations
 import os
 import subprocess
 
-PUBKEY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "lib", "veyon-default-pub.pem")
+from .paths import LIB_DIR
+
+PUBKEY = os.path.join(LIB_DIR, "veyon-default-pub.pem")
 
 
 def encrypt_bindpw(plaintext: str) -> str:

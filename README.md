@@ -99,6 +99,26 @@ cd linuxmuster-gpo-template
 No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
 bindings and `samba-tool` come with linuxmuster). `./lmgpo-cli` is the single entry point.
 
+### As a Debian package (`lmn-gpo`)
+
+Alternatively install the toolkit as a `.deb`. Then the command is **`lmn-gpo`** (instead
+of `./lmgpo-cli`) and works from any directory:
+
+```bash
+# build the package (needs only dpkg-deb — build anywhere):
+sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
+
+# install on the linuxmuster server:
+apt install ./dist/lmn-gpo_1.0.0_all.deb     # or: dpkg -i dist/lmn-gpo_1.0.0_all.deb
+lmn-gpo doctor
+```
+
+The package installs the CLI to `/usr/bin/lmn-gpo` and the catalog/scripts to
+`/usr/share/lmn-gpo/`, and reads the **same** config `/etc/linuxmuster/lmgpo/site.yaml`. An
+existing `site.yaml` from a source checkout is **migrated automatically** on install and is
+**never removed** on upgrade/remove — no settings are lost. It installs entirely inside its
+own namespace (`lmn-gpo`) and touches no linuxmuster files.
+
 > **Important – where does `site.yaml` live?**
 > The assistant saves your settings by default to **`/etc/linuxmuster/lmgpo/site.yaml`** —
 > deliberately **outside** the repo. Only there does it survive every `git pull`/`git
@@ -544,6 +564,27 @@ cd linuxmuster-gpo-template
 Es sind keine zusätzlichen Pakete nötig (siehe [Anforderungen](#anforderungen) – Python,
 `samba`-Bindings und `samba-tool` bringt linuxmuster mit). `./lmgpo-cli` ist der einzige
 Einstiegspunkt.
+
+### Als Debian-Paket (`lmn-gpo`)
+
+Alternativ das Toolkit als `.deb` installieren. Dann ist das Kommando **`lmn-gpo`** (statt
+`./lmgpo-cli`) und funktioniert aus jedem Verzeichnis:
+
+```bash
+# Paket bauen (braucht nur dpkg-deb — überall baubar):
+sh packaging/build-deb.sh                    # -> dist/lmn-gpo_1.0.0_all.deb
+
+# auf dem linuxmuster-Server installieren:
+apt install ./dist/lmn-gpo_1.0.0_all.deb     # oder: dpkg -i dist/lmn-gpo_1.0.0_all.deb
+lmn-gpo doctor
+```
+
+Das Paket legt die CLI unter `/usr/bin/lmn-gpo` ab, Katalog/Skripte unter
+`/usr/share/lmn-gpo/`, und liest **dieselbe** Config `/etc/linuxmuster/lmgpo/site.yaml`.
+Eine vorhandene `site.yaml` aus einem Source-Checkout wird bei der Installation
+**automatisch migriert** und bei Upgrade/Remove **nie gelöscht** — es gehen keine
+Einstellungen verloren. Es installiert komplett im eigenen Namespace (`lmn-gpo`) und fasst
+keine linuxmuster-Dateien an.
 
 > **Wichtig – wo liegt die `site.yaml`?**
 > Der Assistent speichert deine Einstellungen standardmäßig unter

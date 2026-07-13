@@ -1,0 +1,15 @@
+Package: lmn-gpo
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: Kevin Stenzel <kevin@ks98.de>
+Depends: python3 (>= 3.10), python3-yaml, python3-samba, samba-common-bin, openssl
+Homepage: https://github.com/faircomp/linuxmuster-gpo-template
+Description: Windows Group Policy toolkit for linuxmuster.net (Samba AD DC)
+ lmn-gpo builds, links and permissions Windows 11 Group Policy Objects directly
+ on the linuxmuster.net 7.x Samba Active Directory domain controller, without the
+ Windows GPMC. It ships a declarative YAML catalog (privacy, lockdown, KMS,
+ branding, Firefox, proxy, WLAN, Veyon, boot order, time sync and more), is
+ multi-school capable and idempotent, and includes a setup assistant, a doctor
+ environment check, a self-test and a dry-run mode.

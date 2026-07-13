@@ -18,7 +18,7 @@ from .secedit import SecEdit
 
 GPO_PREFIX = "LMN-"
 LOOPBACK_MODE = {"merge": 2, "replace": 1}
-WALLPAPER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wallpapers")
+from .paths import WALLPAPER_DIR  # noqa: E402
 WALLPAPER_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
 
 TYPE_MAP = {"dword": "REG_DWORD", "sz": "REG_SZ", "expand_sz": "REG_EXPAND_SZ",

@@ -1,0 +1,9 @@
+lmn-gpo (1.0.0) stable; urgency=medium
+
+  * Initial Debian package of the linuxmuster-gpo-template toolkit.
+  * Installs the lmn-gpo CLI (/usr/bin/lmn-gpo), the lmgpo Python module and the
+    read-only policy data under /usr/share/lmn-gpo (catalog, scripts, lib).
+  * Reads its configuration from /etc/linuxmuster/lmgpo/site.yaml; an existing
+    site.yaml from a previous source checkout is migrated on install.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Mon, 13 Jul 2026 12:00:00 +0000

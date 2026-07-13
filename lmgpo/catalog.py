@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-CATALOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "catalog")
-SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+from .paths import CATALOG_DIR, SCRIPTS_DIR
 
 
 @dataclass

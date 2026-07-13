@@ -1,0 +1,18 @@
+#!/bin/sh
+# prerm for lmn-gpo
+set -e
+
+MODDIR=/usr/lib/python3/dist-packages/lmgpo
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Remove byte-compiled artifacts we created in postinst.
+        if command -v py3clean >/dev/null 2>&1; then
+            py3clean "$MODDIR" >/dev/null 2>&1 || true
+        fi
+        ;;
+    failed-upgrade)
+        ;;
+esac
+
+exit 0
