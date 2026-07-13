@@ -9,8 +9,8 @@
 
     Covers computer AND user policies: privacy, update split, power/lock, RDP/firewall/
     groups, KMS, hotspot block, OneDrive, hibernation, loopback, Firefox, role proxy,
-    student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time) and the boot-order
-    startup-script log.
+    student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time), Point and Print and the
+    boot-order startup-script log.
 
     Run twice: (1) as ADMINISTRATOR for computer GPOs/firewall/groups,
     (2) as the logged-in STUDENT (not elevated) for the user restrictions (lockdown/proxy).
@@ -232,6 +232,22 @@ elseif ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
 $st = & w32tm /query /status 2>&1
 # 'Quelle|Abweichung|Letzte erfolgreiche' match localized w32tm output — keep.
 ($st | Select-String -Pattern 'Stratum|Source|Quelle|Offset|Abweichung|Last Successful|Letzte erfolgreiche|Poll') | ForEach-Object { Write-Host "     $($_.Line.Trim())" }
+
+# --- 6f) Point and Print (printer-driver install from the print server, pack 18) ---
+Write-Head "Point and Print (printer-driver install from the print server)"
+$pnpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
+if (Test-Path $pnpKey) {
+    Test-Reg @{ N="Restricted";                    P=$pnpKey; K="Restricted"; E=1 }
+    Test-Reg @{ N="TrustedServers only";           P=$pnpKey; K="TrustedServers"; E=1 }
+    Test-Reg @{ N="No prompt/elevation (install)"; P=$pnpKey; K="NoWarningNoElevationOnInstall"; E=1 }
+    Test-Reg @{ N="No prompt/elevation (update)";  P=$pnpKey; K="UpdatePromptSettings"; E=2 }
+    Test-Reg @{ N="Students may install driver";   P=$pnpKey; K="RestrictDriverInstallationToAdministrators"; E=0 }
+    $srv = (Get-ItemProperty $pnpKey -Name ServerList -ErrorAction SilentlyContinue).ServerList
+    if ($srv) { Write-Host ("  [OK] Trusted print servers: {0}" -f $srv) -ForegroundColor Green; $ok++ }
+    else      { Write-Host "  [!!] ServerList empty — no trusted print server!" -ForegroundColor Red; $fail++ }
+    Write-Host "  Note: a ServerList entry MUST match the server in the printer path (\\SERVER\..)" -ForegroundColor DarkGray
+    Write-Host "        — a short-name-vs-FQDN mismatch blocks the silent driver install." -ForegroundColor DarkGray
+} else { Write-Host "  [--] No Point-and-Print policy (package 18 not applied / not enabled)." -ForegroundColor DarkGray }
 
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {

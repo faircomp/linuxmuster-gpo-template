@@ -1,3 +1,18 @@
+lmn-gpo (1.2.0) stable; urgency=medium
+
+  * New pack 18-point-and-print: allow standard users (students) to install printer
+    drivers from the trusted print server(s) via Point and Print. Patched Windows 11
+    otherwise blocks this after the PrintNightmare hardening (CVE-2021-34527), so the
+    printers that linuxmuster/sophomorix already connects fail with "administrator
+    required". Registry-only, opt-in (pointandprint_enabled); the trusted-server list is
+    auto-detected (server NetBIOS name + FQDN + IP) plus printservers_extra. The printer
+    connection itself is left to linuxmuster/sophomorix.
+  * env: expose the server's machine NetBIOS name (server_netbios) so the trusted list
+    matches how sophomorix connects (\\SERVER\..).
+  * lmn-gpo-check.ps1: add a Point and Print client check section.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Mon, 13 Jul 2026 14:00:00 +0000
+
 lmn-gpo (1.1.0) stable; urgency=medium
 
   * Rename for consistency with the lmn-gpo command: the Python module is now
