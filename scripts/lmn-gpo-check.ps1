@@ -8,9 +8,9 @@
     run first (standard Windows refresh, harmless).
 
     Covers computer AND user policies: privacy, update split, power/lock, RDP/firewall/
-    groups, KMS, hotspot block, OneDrive, hibernation, loopback, Firefox, role proxy,
-    student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time), Point and Print and the
-    boot-order startup-script log.
+    groups, KMS (Windows and Office), hotspot block, OneDrive, hibernation, loopback,
+    Firefox, role proxy, student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time),
+    Point and Print and the boot-order startup-script log.
 
     Run twice: (1) as ADMINISTRATOR for computer GPOs/firewall/groups,
     (2) as the logged-in STUDENT (not elevated) for the user restrictions (lockdown/proxy).
@@ -121,7 +121,7 @@ $checks = @(
     @{ N="Loopback merge active";    P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=2 }
     @{ N="Proxy per-user enforced";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxySettingsPerUser"; E=1 }
     @{ N="Firefox first-run off";    P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
-    @{ N="KMS host set";             P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
+    @{ N="KMS host (Windows)";       P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
 )
 Write-Host "  (Note: some apply filtered — e.g. hibernation NOT on noPXE, loopback/hotspot per pack.)" -ForegroundColor DarkGray
 foreach ($c in $checks) { Test-Reg $c }
@@ -248,6 +248,38 @@ if (Test-Path $pnpKey) {
     Write-Host "  Note: a ServerList entry MUST match the server in the printer path (\\SERVER\..)" -ForegroundColor DarkGray
     Write-Host "        — a short-name-vs-FQDN mismatch blocks the silent driver install." -ForegroundColor DarkGray
 } else { Write-Host "  [--] No Point-and-Print policy (package 18 not applied / not enabled)." -ForegroundColor DarkGray }
+
+# --- 6g) Office activation (volume licence / KMS, pack 09b) -----------------
+Write-Head "Office activation (volume licence / KMS)"
+$osppKey = "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform"
+if (Test-Path $osppKey) {
+    Test-Reg @{ N="Office KMS host";  P=$osppKey; K="KeyManagementServiceName"; E=$null }
+    Test-Reg @{ N="Office KMS port";  P=$osppKey; K="KeyManagementServicePort"; E=$null }
+} else { Write-Host "  [--] no Office KMS host set (package 09b not applied / not enabled)." -ForegroundColor DarkGray }
+# Language-neutral: application ID is a GUID, LicenseStatus is numeric (1 = Licensed).
+$officeLic = @(Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue `
+    -Filter "ApplicationId='0ff1ce15-a989-479d-af46-f275c6370663' AND PartialProductKey IS NOT NULL")
+if ($officeLic.Count -eq 0) {
+    Write-Host "  [--] no volume-licensed Office found (Microsoft 365 Apps uses a different" -ForegroundColor DarkGray
+    Write-Host "       licensing stack and is never KMS-activated)." -ForegroundColor DarkGray
+    $skip++
+} else {
+    foreach ($a in $officeLic) {
+        $lic = ($a.LicenseStatus -eq 1)
+        $via = if ($a.KeyManagementServiceMachine) { " via $($a.KeyManagementServiceMachine)" }
+               elseif ($a.DiscoveredKeyManagementServiceMachineName) { " via $($a.DiscoveredKeyManagementServiceMachineName) (DNS)" } else { "" }
+        Write-Host ("  {0}{1}  (LicenseStatus {2}{3})" -f (Mark $lic), $a.Name, $a.LicenseStatus, $via) `
+            -ForegroundColor $(if ($lic) { "Green" } else { "Red" })
+        if ($lic) { $ok++ } else { $fail++ }
+    }
+    Write-Host "  Note: LicenseStatus 2 = grace period (not yet activated). Office activates only" -ForegroundColor DarkGray
+    Write-Host "        once the KMS host has counted >= 5 clients (Windows needs >= 25)." -ForegroundColor DarkGray
+}
+$oLog = Join-Path $env:SystemRoot "Temp\lmn-gpo-office-activation.log"
+if (Test-Path -LiteralPath $oLog) {
+    Write-Host ("  activation-script log ({0}), last lines:" -f $oLog) -ForegroundColor DarkGray
+    Get-Content -LiteralPath $oLog -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+}
 
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {

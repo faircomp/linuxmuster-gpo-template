@@ -1,5 +1,5 @@
 id: "09-kms"
-title: "KMS activation"
+title: "KMS activation (Windows)"
 scope: global
 target: computer
 requires: kmshost
@@ -7,8 +7,11 @@ description: >
   Sets the KMS host (SoftwareProtectionPlatform) and activates Windows via
   startup script (slmgr /ato). Only active when a KMS host (kmshost) is
   specified in the wizard / in site.yaml.
+  Covers WINDOWS only — Microsoft Office reads a different key and is handled by
+  pack 09b-kms-office. Note that Windows activates only once the KMS host has
+  counted at least 25 clients (Office needs 5).
 registry:
   - { key: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform', name: KeyManagementServiceName, class: machine, type: sz, data: '@kmshost' }
-  - { key: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform', name: KeyManagementServicePort, class: machine, type: sz, data: '1688' }
+  - { key: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform', name: KeyManagementServicePort, class: machine, type: sz, data: '@kms-port' }
 startup_scripts:
   - { file: 'kms-activate.ps1' }

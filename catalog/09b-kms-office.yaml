@@ -1,0 +1,28 @@
+id: "09b-kms-office"
+title: "KMS activation for Microsoft Office (volume licence)"
+scope: global
+target: computer
+requires: kms_office
+description: >
+  Points volume-licensed Microsoft Office at a KMS host and activates it via startup
+  script. Office is NOT covered by pack 09-kms: it reads its own registry key
+  (HKLM\Software\Microsoft\OfficeSoftwareProtectionPlatform), independent of the Windows
+  one under Windows NT\CurrentVersion\SoftwareProtectionPlatform — setting one does not
+  configure the other. Microsoft documents this key for volume-licensed Office LTSC 2024,
+  Office LTSC 2021, Office 2019 and Office 2016 (MSI *and* Click-to-Run, incl. Project and
+  Visio). There is deliberately no ADMX policy used here because none exists: the official
+  Office administrative templates contain no KMS setting at all, so raw registry values are
+  the only Group Policy route.
+  Active only when a KMS host is configured (kms_office_host in site.yaml, or the Windows
+  kmshost as fallback). Volume Office ships a GVLK preinstalled, so no product key is needed.
+  NOT applicable to Microsoft 365 Apps (subscription) — since version 1910 it uses a
+  different licensing stack; the startup script filters those machines out and no-ops.
+  NOTE: both KMS keys live outside the four Policies branches and therefore TATTOO — they
+  are not withdrawn from clients by unlinking the GPO. Clearing kms_office_host removes the
+  GPO here on the server; to clear an already-provisioned client run 'ospp.vbs /remhst'.
+  Reminder: Office activates once the KMS host has counted at least 5 clients (Windows: 25).
+registry:
+  - { key: 'Software\Microsoft\OfficeSoftwareProtectionPlatform', name: KeyManagementServiceName, class: machine, type: sz, data: '@kms-office-host' }
+  - { key: 'Software\Microsoft\OfficeSoftwareProtectionPlatform', name: KeyManagementServicePort, class: machine, type: sz, data: '@kms-office-port' }
+startup_scripts:
+  - { file: 'kms-activate-office.ps1' }

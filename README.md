@@ -22,7 +22,7 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features (30 packages)](#features-30-packages)
+- [Features (31 packages)](#features-31-packages)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
 - **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Point and Print](#point-and-print-printer-drivers-for-students)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
@@ -52,7 +52,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
   (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
   `sysvolreset`.
 
-## Features (30 packages)
+## Features (31 packages)
 
 **Always active** (no extra parameter needed):
 
@@ -78,7 +78,8 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 
 | Package | Enabled by | Effect |
 |---|---|---|
-| **KMS activation** | `kmshost` | activate Windows against the KMS host (startup script) |
+| **KMS activation (Windows)** | `kmshost` | activate Windows against the KMS host (startup script) |
+| **KMS activation (Office)** | `kms_office_host` (or `kmshost`) | activate volume-licensed Office — its own registry key, own startup script |
 | **Branding per school** | wallpaper file | desktop **and** logon background per school (from NETLOGON) |
 | **Veyon** | `veyon_binddn` + password | classroom management, LDAP directory, roaming, **teachers only** (`role-teacher` + `all-teachers`) |
 | **Firefox hardening** | `firefox_enabled` | first-run off, clean new-tab (search + shortcuts, no ads) |
@@ -224,7 +225,10 @@ packs: null                   # null = whole catalog, otherwise a list of pack I
 fwsource: serverip            # firewall source for remote mgmt: serverip | subnet | <IP/CIDR>
 teachernb: nopxe              # teacher-notebook group (relaxed power/lock): nopxe | skip | <CN>
 
-kmshost: "kms.school.de"      # empty = no KMS
+kmshost: "kms.school.de"      # empty = no KMS (Windows)
+kms_port: "1688"              # Windows KMS port
+kms_office_host: ""           # empty = use kmshost; set only for a separate Office KMS
+kms_office_port: "1688"       # Office KMS port
 wallpaper_dir: ""             # empty = repo wallpapers/  (file: <school>.jpg, fallback default.jpg)
 
 firefox_enabled: true
@@ -269,9 +273,43 @@ the short guides (key in `site.yaml`, then `apply`).
 ## KMS
 
 ```yaml
-kmshost: "kms.school.de"
+kmshost: "kms.school.de"       # Windows
+kms_office_host: ""            # Office — empty = use the same host as Windows
+kms_port: "1688"               # optional
+kms_office_port: "1688"        # optional
 ```
 Sets the KMS host and activates Windows via a startup script (`slmgr /ato`).
+
+**Office needs its own entry.** Windows and Office are separate products with separate
+registry keys — the Windows setting does *not* activate Office:
+
+| | Registry key (HKLM) |
+|---|---|
+| Windows | `SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform` |
+| Office | `Software\Microsoft\OfficeSoftwareProtectionPlatform` |
+
+Since one KMS server usually activates both, `kms_office_host` defaults to `kmshost` when
+left empty; set it only if Office is served by a *different* host. The wizard asks for both
+and accepts either `host` or `host:port`.
+
+Covers volume-licensed **Office LTSC 2024 / LTSC 2021 / 2019 / 2016** (MSI *and*
+Click-to-Run, incl. Project and Visio). Volume Office ships its product key (GVLK)
+preinstalled, so nothing else is needed. **Microsoft 365 Apps** (subscription) is not
+KMS-activated at all and is skipped automatically. There is no ADMX policy for this — the
+official Office administrative templates contain no KMS setting, so the registry values are
+the only Group Policy route.
+
+Two operational notes that cause most "it doesn't activate" cases:
+- **Counts differ:** Office activates once the KMS host has counted **≥ 5** clients,
+  Windows needs **≥ 25**.
+- **The values tattoo.** Both keys live outside the four `…\Policies\…` branches, so they
+  are *not* withdrawn from a client when the GPO stops applying. Clearing `kms_office_host`
+  removes the GPO on the server (see below); to clear a client run
+  `ospp.vbs /remhst` (Office) or `slmgr.vbs /ckms` (Windows) there.
+
+> Emptying a setting now actually takes effect: a package whose precondition is gone has its
+> GPO **unlinked and deleted** on the next `apply`, instead of silently continuing to push
+> the old value.
 
 ## Branding (wallpaper & logon background)
 
@@ -447,8 +485,9 @@ GPOs only take effect once the client fetches them and the respective service re
 ## Checking on the client
 
 `scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
-have arrived **and take effect** — covering all 30 packages: `gpresult` (computer **and**
-user), registry actual values, firewall, local groups, KMS, hotspot, OneDrive, hibernation,
+have arrived **and take effect** — covering all 31 packages: `gpresult` (computer **and**
+user), registry actual values, firewall, local groups, KMS (Windows **and** Office),
+hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
 **time sync (w32tm)** and the **boot-order log**. It also produces an HTML report.
 
@@ -561,7 +600,7 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features (30 Pakete)](#features-30-pakete)
+- [Features (31 Pakete)](#features-31-pakete)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
 - **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
@@ -590,7 +629,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (30 Pakete)
+## Features (31 Pakete)
 
 **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
@@ -616,7 +655,8 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 
 | Paket | Aktiviert durch | Wirkung |
 |---|---|---|
-| **KMS-Aktivierung** | `kmshost` | Windows gegen den KMS-Host aktivieren (Startskript) |
+| **KMS-Aktivierung (Windows)** | `kmshost` | Windows gegen den KMS-Host aktivieren (Startskript) |
+| **KMS-Aktivierung (Office)** | `kms_office_host` (oder `kmshost`) | Volumen-Office aktivieren — eigener Registry-Schlüssel, eigenes Startskript |
 | **Branding pro Schule** | Wallpaper-Datei | Desktop- **und** Anmelde-Hintergrund je Schule (aus NETLOGON) |
 | **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher` + `all-teachers`) |
 | **Firefox-Grundhärtung** | `firefox_enabled` | First-Run aus, saubere New-Tab (Suche + Verknüpfungen, kein Werbekram) |
@@ -764,7 +804,10 @@ packs: null                   # null = ganzer Katalog, sonst Liste von Pack-IDs
 fwsource: serverip            # Firewall-Quelle für Remote-Mgmt: serverip | subnet | <IP/CIDR>
 teachernb: nopxe              # Lehrer-Notebook-Gruppe (lockerere Energie/Sperre): nopxe | skip | <CN>
 
-kmshost: "kms.schule.de"      # leer = kein KMS
+kmshost: "kms.schule.de"      # leer = kein KMS (Windows)
+kms_port: "1688"              # Windows-KMS-Port
+kms_office_host: ""           # leer = kmshost verwenden; nur für einen eigenen Office-KMS setzen
+kms_office_port: "1688"       # Office-KMS-Port
 wallpaper_dir: ""             # leer = repo wallpapers/  (Datei: <schule>.jpg, Fallback default.jpg)
 
 firefox_enabled: true
@@ -809,9 +852,43 @@ Kurzanleitungen (jeweils Schlüssel in `site.yaml`, dann `apply`).
 ## KMS
 
 ```yaml
-kmshost: "kms.schule.de"
+kmshost: "kms.schule.de"       # Windows
+kms_office_host: ""            # Office — leer = derselbe Host wie Windows
+kms_port: "1688"               # optional
+kms_office_port: "1688"        # optional
 ```
 Setzt den KMS-Host und aktiviert Windows per Startskript (`slmgr /ato`).
+
+**Office braucht einen eigenen Eintrag.** Windows und Office sind getrennte Produkte mit
+getrennten Registry-Schlüsseln — die Windows-Einstellung aktiviert Office *nicht*:
+
+| | Registry-Schlüssel (HKLM) |
+|---|---|
+| Windows | `SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform` |
+| Office | `Software\Microsoft\OfficeSoftwareProtectionPlatform` |
+
+Da meist ein KMS-Server beides aktiviert, fällt `kms_office_host` auf `kmshost` zurück,
+solange es leer bleibt; setze es nur, wenn Office über einen *anderen* Host läuft. Der
+Assistent fragt beides ab und akzeptiert `host` oder `host:port`.
+
+Abgedeckt ist volumenlizenziertes **Office LTSC 2024 / LTSC 2021 / 2019 / 2016** (MSI *und*
+Click-to-Run, inkl. Project und Visio). Volumen-Office bringt seinen Produktschlüssel (GVLK)
+bereits mit, es ist also nichts weiter nötig. **Microsoft 365 Apps** (Abo) wird gar nicht per
+KMS aktiviert und automatisch übersprungen. Eine ADMX-Richtlinie dafür gibt es nicht — die
+offiziellen Office-Vorlagen enthalten keine einzige KMS-Einstellung, die Registry-Werte sind
+also der einzige Gruppenrichtlinien-Weg.
+
+Zwei Betriebshinweise, die die meisten „aktiviert nicht"-Fälle erklären:
+- **Unterschiedliche Schwellen:** Office aktiviert, sobald der KMS-Host **≥ 5** Clients
+  gezählt hat, Windows braucht **≥ 25**.
+- **Die Werte tätowieren.** Beide Schlüssel liegen außerhalb der vier `…\Policies\…`-Zweige
+  und werden daher *nicht* zurückgenommen, wenn die GPO nicht mehr greift. Das Leeren von
+  `kms_office_host` entfernt die GPO auf dem Server (siehe unten); auf einem Client räumt
+  `ospp.vbs /remhst` (Office) bzw. `slmgr.vbs /ckms` (Windows) auf.
+
+> Das Leeren einer Einstellung wirkt jetzt wirklich: Ein Paket, dessen Voraussetzung
+> weggefallen ist, wird beim nächsten `apply` **entlinkt und gelöscht**, statt still den
+> alten Wert weiter auszurollen.
 
 ## Branding (Wallpaper & Anmeldebild)
 
@@ -988,8 +1065,9 @@ GPOs wirken erst, wenn der Client sie holt und der jeweilige Dienst sie liest:
 ## Prüfen am Client
 
 `scripts/lmn-gpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
-angekommen sind **und wirken** — deckt alle 30 Pakete ab: `gpresult` (Computer **und** User),
-Registry-Ist-Werte, Firewall, lokale Gruppen, KMS, Hotspot, OneDrive, Ruhezustand, Loopback,
+angekommen sind **und wirken** — deckt alle 31 Pakete ab: `gpresult` (Computer **und** User),
+Registry-Ist-Werte, Firewall, lokale Gruppen, KMS (Windows **und** Office), Hotspot,
+OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync
 (w32tm)** und das **Bootorder-Log**. Erzeugt zusätzlich einen HTML-Report.
 

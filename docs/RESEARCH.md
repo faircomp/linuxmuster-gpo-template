@@ -65,7 +65,57 @@ Sources: [sophomorix4](https://github.com/linuxmuster/sophomorix4) (`SophomorixS
 | Remote mgmt | RDP+NLA, firewall (RDP/SMB/RPC/ICMP) only from server IP; `net rpc … shutdown` (this is also how the linuxmuster WebUI does it). |
 | Admins | `global-admins` (via Domain Admins anyway) explicit + `<schule>-admins` per school → local admins + RDP users. |
 
-## 5. Data Protection / GDPR (Evidence)
+## 5. Volume Activation: Windows vs Office (verified)
+
+Windows and Office are **separate products with separate KMS client keys** — configuring one
+does not configure the other:
+
+| Product | Registry key (HKLM), both values `REG_SZ` |
+|---|---|
+| Windows | `SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform` |
+| Office | `Software\Microsoft\OfficeSoftwareProtectionPlatform` |
+
+Values: `KeyManagementServiceName` (host) and `KeyManagementServicePort` (default `1688`).
+The Office key applies to volume-licensed **Office LTSC 2024 / LTSC 2021 / 2019 / 2016**,
+MSI *and* Click-to-Run, including Project and Visio; it is exactly what `ospp.vbs /sethst`
+and `/setprt` write.
+
+- **No ADMX exists.** The official Office administrative templates (2010, 2013 and the
+  2016/2019/LTSC set up to build 5556.1000) contain **zero** occurrences of `kms` or
+  `keymanagement`. The only volume-activation policies present concern *Token* activation.
+  Raw registry values are therefore the only Group Policy route — which is what this toolkit
+  writes anyway. (`Office\16.0\Common\OfficeSoftwareProtectionPlatform` appears in no
+  Microsoft source and is **not** a valid key.)
+- **GVLK preinstalled.** All volume Office builds ship their key, so no `/inpkey` is needed.
+- **Microsoft 365 Apps is out of scope.** Since version 1910 it left the Office Software
+  Protection Platform, so `ospp.vbs` and the KMS key do not apply to it.
+- **Activation thresholds differ:** Office activates at a KMS count of **≥ 5**, Windows
+  needs **≥ 25** — a small pilot lab can therefore activate Office but not Windows.
+- **Detection is language-neutral via CIM.** On Windows 8+ (so all Windows 11 clients) Office
+  licences live in `root\CIMV2:SoftwareLicensingProduct` — the *same* class as Windows,
+  discriminated by `ApplicationId` `0ff1ce15-a989-479d-af46-f275c6370663` (Windows:
+  `55c92734-…`). `OfficeSoftwareProtectionProduct` is an Office-2010-era class.
+  The gate must be `LicenseStatus -ne 1`; a fresh GVLK install sits at **2** (OOBGrace),
+  never 0, so testing for 0 makes an activation script a permanent no-op.
+- **`ospp.vbs` is unusable from a startup script**, hence `Invoke-CimMethod Activate` (which
+  is what `/act` does internally): every ospp.vbs exit is a bare `WScript.Quit`, so it
+  returns 0 even on total failure; error paths can raise a **modal dialog** that nobody can
+  dismiss in session 0; it refuses to run unless launched by `cscript`; and its folder
+  differs between MSI, Click-to-Run and 32/64-bit installs.
+- **Both keys tattoo.** They sit outside the four true-policy branches
+  (`HKLM|HKCU\Software\Policies` and `…\Windows\CurrentVersion\Policies`), so Group Policy
+  never withdraws them from a client. Removing the GPO stops *new* assignments only;
+  clearing a provisioned client needs `slmgr.vbs /ckms` / `ospp.vbs /remhst`.
+- Setting an explicit host **disables** `_vlmcs._tcp` SRV auto-discovery — so a renamed or
+  rebuilt KMS host requires a GPO change, not just a DNS change.
+
+Sources: [Activate Office by KMS](https://learn.microsoft.com/en-us/office/volume-license-activation/activate-office-by-using-kms) ·
+[Tools to manage volume activation of Office](https://learn.microsoft.com/en-us/office/volume-license-activation/tools-to-manage-volume-activation-of-office) ·
+[Registry settings for volume activation](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-8.1-and-8/dn502532(v=ws.11)) ·
+[KMS activation planning (thresholds)](https://learn.microsoft.com/en-us/windows-server/get-started/kms-activation-planning) ·
+[SoftwareLicensingProduct class](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/sppwmi/softwarelicensingproduct)
+
+## 6. Data Protection / GDPR (Evidence)
 
 DSK resolution on Windows: **Enterprise/Education + `AllowTelemetry=0` (Security) +
 Restricted Traffic Baseline** → no telemetry outflow in lab testing. On **Pro**, `0` is treated

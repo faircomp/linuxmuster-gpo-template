@@ -1,3 +1,30 @@
+lmn-gpo (1.3.0) stable; urgency=medium
+
+  * New pack 09b-kms-office: KMS activation for volume-licensed Microsoft Office. Office is
+    NOT covered by pack 09-kms — it reads its own registry key
+    (HKLM\Software\Microsoft\OfficeSoftwareProtectionPlatform), so the Windows setting never
+    activated it. Covers Office LTSC 2024/2021, 2019 and 2016 (MSI and Click-to-Run, incl.
+    Project/Visio); Microsoft 365 Apps is subscription-licensed and is skipped automatically.
+    There is no ADMX policy for this: the official Office templates contain no KMS setting.
+  * New site.yaml keys kms_office_host (empty = use kmshost, the usual one-server case),
+    kms_office_port, and kms_port for the Windows side. The wizard asks for both hosts and
+    now accepts and validates "host" or "host:port" — previously a typed-in "host:1689" was
+    written verbatim into KeyManagementServiceName while the port stayed 1688, silently
+    breaking the KMS client.
+  * New startup script kms-activate-office.ps1: activates Office via CIM
+    (SoftwareLicensingProduct, Office ApplicationId 0ff1ce15-...), not via ospp.vbs, which
+    always exits 0 and can raise a modal dialog in session 0. Language-neutral, throttled,
+    probes TCP/1688 first, and filters on the VOLUME_KMSCLIENT channel so it can never fire
+    an online activation at Microsoft.
+  * apply: fix a real cleanup gap — a pack whose precondition was removed (e.g. emptying
+    kmshost) was only skipped, so its GPO stayed linked and kept pushing the OLD value.
+    Such GPOs are now unlinked and deleted. Note the KMS values live outside the Policies
+    branches and therefore tattoo: clearing them on an already-provisioned client needs
+    slmgr.vbs /ckms resp. ospp.vbs /remhst.
+  * lmn-gpo-check.ps1: add an Office activation section (CIM-based, read-only).
+
+ -- Kevin Stenzel <kevin@ks98.de>  Tue, 04 Aug 2026 08:40:00 +0000
+
 lmn-gpo (1.2.0) stable; urgency=medium
 
   * New pack 18-point-and-print: allow standard users (students) to install printer

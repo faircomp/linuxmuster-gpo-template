@@ -30,7 +30,10 @@ DEFAULT_ANSWERS = {
     "packs": None,            # None = all enabled packs
     "fwsource": "serverip",   # serverip | subnet | <literal cidr/ip>
     "teachernb": "nopxe",     # nopxe | skip | <group cn>
-    "kmshost": "",            # KMS host FQDN/IP ("" = KMS pack skipped)
+    "kmshost": "",            # Windows KMS host FQDN/IP ("" = KMS pack skipped)
+    "kms_port": "1688",       # Windows KMS port (default 1688)
+    "kms_office_host": "",    # Office KMS host ("" = fall back to kmshost; both empty = pack skipped)
+    "kms_office_port": "1688",  # Office KMS port (default 1688)
     "wallpaper_dir": "",      # source dir for <school>.jpg ("" = repo wallpapers/)
     "veyon_binddn": "",       # Veyon LDAP bind DN ("" = Veyon pack skipped)
     "veyon_bindpw_hex": "",   # Veyon bind password as Veyon-encrypted hex (see lmn_gpo/veyon.py)
@@ -54,6 +57,15 @@ DEFAULT_ANSWERS = {
 }
 
 
+def _gplink_map() -> dict[str, list[str]]:
+    """Map GPO GUID (upper case) -> list of container DNs that link it."""
+    out: dict[str, list[str]] = {}
+    for m in ad.search(expr="(gPLink=*)", attrs=["gPLink"]):
+        for guid in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", ad.val(m, "gPLink", "")):
+            out.setdefault(guid.upper(), []).append(str(m.dn))
+    return out
+
+
 class Applier:
     def __init__(self, env, answers=None, dry_run=False):
         self.env = env
@@ -65,6 +77,8 @@ class Applier:
         self.gp = GppGroups(self.eng)
         self.sc = ScriptsExt(self.eng)
         self.results: list[dict] = []
+        self.retired: list[str] = []
+        self._links: dict[str, list[str]] | None = None   # gPLink map, built on first retire
         self._wp_cache: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------ #
@@ -82,6 +96,21 @@ class Applier:
 
     def _kmshost(self) -> str:
         return (self.answers.get("kmshost") or "").strip()
+
+    def _kms_port(self) -> str:
+        return str(self.answers.get("kms_port") or "1688").strip() or "1688"
+
+    def _kms_office_host(self) -> str:
+        """Office KMS host — its own setting, falling back to the Windows one.
+
+        Office does NOT read the Windows KMS key, so it needs its own value; but the
+        common school case is a single KMS server activating both, hence the fallback.
+        """
+        return ((self.answers.get("kms_office_host") or "").strip()
+                or self._kmshost())
+
+    def _kms_office_port(self) -> str:
+        return str(self.answers.get("kms_office_port") or "1688").strip() or "1688"
 
     # ------------------------------------------------------------------ #
     # wallpaper: copy per-school image into NETLOGON, return its UNC path
@@ -191,6 +220,9 @@ class Applier:
             "@subnet": self.env.subnet,
             "@fwsource": self._fwsource(),
             "@netbios": self.env.netbios,
+            "@kms-office-host": self._kms_office_host(),
+            "@kms-office-port": self._kms_office_port(),
+            "@kms-port": self._kms_port(),
             "@kmshost": self._kmshost(),
             "@basedn": self.env.basedn,
             "@veyon-binddn": self.answers.get("veyon_binddn", "") or "",
@@ -325,6 +357,8 @@ class Applier:
             return True
         if req == "kmshost":
             return bool(self._kmshost())
+        if req == "kms_office":
+            return bool(self._kms_office_host())
         if req == "wallpaper":
             return bool(self._wallpaper_unc(school))
         if req == "veyon":
@@ -349,14 +383,36 @@ class Applier:
             return bool(self.answers.get("pointandprint_enabled"))
         return True
 
-    def apply_pack(self, pack, school, schools):
-        if not self._applicable(pack, school):
+    def _retire(self, name):
+        """Unlink + delete the GPO of a pack whose precondition is no longer met.
+
+        Without this, clearing a setting (e.g. emptying kmshost) only made _applicable()
+        return False — the GPO stayed linked and kept applying the OLD value forever. That
+        is especially bad for the KMS packs: their keys live outside the four Policies
+        branches, so every client they still reach gets the stale host tattooed on.
+        Applying is declarative, so a pack that no longer applies is removed here.
+        """
+        guid = self.eng.find_by_name(name)
+        if not guid:
             return
+        print(f"\n▸ {name}")
+        print("    precondition no longer met → unlinking + deleting this GPO")
+        if self._links is None:
+            self._links = _gplink_map()
+        for container in self._links.get(guid.upper(), []):
+            self.eng.unlink(container, guid)
+        self.eng.delete(guid)
+        self.retired.append(name)
+
+    def apply_pack(self, pack, school, schools):
         if pack.scope == "school":
             scope_token, container = school.name, school.devices_ou
         else:
             scope_token, container = "GLOBAL", self.env.schools_ou
         name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
+        if not self._applicable(pack, school):
+            self._retire(name)
+            return
         # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
         # Users, and set_exclusive_filter only restricts when it gets ≥1 SID. If the
         # 'only these groups' filter resolves to zero SIDs (e.g. @nopxe but no school has
@@ -399,7 +455,11 @@ class Applier:
         schools = self.selected_schools()
         print(f"Applying to {len(schools)} school(s): {', '.join(s.name for s in schools)}")
         if self._kmshost():
-            print(f"KMS host: {self._kmshost()}")
+            print(f"KMS host (Windows): {self._kmshost()}:{self._kms_port()}")
+        if self._kms_office_host():
+            src = "own setting" if (self.answers.get("kms_office_host") or "").strip() \
+                else "same as Windows"
+            print(f"KMS host (Office):  {self._kms_office_host()}:{self._kms_office_port()}  ({src})")
         for pack in packs:
             if pack.scope == "school":
                 for school in schools:
@@ -413,7 +473,12 @@ class Applier:
             reconciled = self.eng.reconcile_sysvol()
         ok, out = self.eng.aclcheck()
         print(f"\naclcheck: {'ok' if ok else 'MISMATCH — ' + (out.splitlines()[0] if out else '')}")
-        print(f"Done: {len(self.results)} GPO(s) applied.")
+        print(f"Done: {len(self.results)} GPO(s) applied."
+              + (f" {len(self.retired)} retired (precondition removed)." if self.retired else ""))
+        if self.retired:
+            print("  Note: the KMS registry values are outside the Policies branches and are")
+            print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")
+            print("  cleared locally (slmgr.vbs /ckms, ospp.vbs /remhst).")
 
         problems = []
         if not self.dry_run and not reconciled:
@@ -436,10 +501,7 @@ def remove(env, dry_run=False, only_ids=None):
     """Remove all LMN- GPOs (or a subset by pack id): unlink then delete."""
     eng = GpoEngine(env, dry_run=dry_run)
     base = f"CN=Policies,CN=System,{env.basedn}"
-    gplinks: dict[str, list[str]] = {}
-    for m in ad.search(expr="(gPLink=*)", attrs=["gPLink"]):
-        for guid in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", ad.val(m, "gPLink", "")):
-            gplinks.setdefault(guid.upper(), []).append(str(m.dn))
+    gplinks = _gplink_map()
 
     removed = 0
     for msg in ad.search(base=base, scope="one", expr="(objectClass=groupPolicyContainer)",

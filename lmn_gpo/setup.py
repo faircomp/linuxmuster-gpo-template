@@ -114,6 +114,72 @@ def _ask_wlan(answers: dict) -> None:
         print("    network once (user auth); afterwards the WLAN connects automatically via SSO.")
 
 
+def _split_hostport(value: str, default_port: str) -> tuple[str, str]:
+    """Split 'host', 'host:port' or an IP into (host, port).
+
+    Admins habitually type 'kms.school.de:1688'. Without this the whole string used to be
+    written into KeyManagementServiceName verbatim while the port stayed at 1688 — a
+    silently broken KMS client. IPv6 literals are only split when bracketed ([::1]:1688).
+    """
+    v = (value or "").strip()
+    if not v:
+        return "", default_port
+    if v.startswith("[") and "]" in v:                      # [ipv6] or [ipv6]:port
+        host, _, rest = v.partition("]")
+        port = rest.lstrip(":").strip()
+        return host.lstrip("[").strip(), (port if port.isdigit() else default_port)
+    host, sep, port = v.rpartition(":")
+    host, port = host.strip(), port.strip()
+    if sep and host and port.isdigit() and ":" not in host:  # host:port
+        return host, port
+    return v, default_port
+
+
+def _ask_hostport(prompt: str, host_default: str, port_default: str) -> tuple[str, str]:
+    """Ask for a host (optionally 'host:port') and validate the port range."""
+    host, port = _split_hostport(_ask(prompt, host_default or ""), port_default)
+    if host and not (port.isdigit() and 1 <= int(port) <= 65535):
+        print(f"    ! invalid port '{port}' — falling back to {port_default}.")
+        port = port_default
+    if host and (":" in host or any(c.isspace() for c in host)):
+        # Would be written verbatim into KeyManagementServiceName and silently not resolve.
+        print(f"    ! '{host}' is not a usable host name (a port must be numeric). "
+              "Enter the host alone and the port separately.")
+    return host, port
+
+
+def _ask_kms(answers: dict) -> None:
+    """KMS hosts. Windows and Office are separate products: Office does NOT read the
+    Windows KMS registry key, so it needs its own host value. The usual school case is one
+    KMS server for both, so the Office host defaults to the Windows one."""
+    print("\n  KMS activation (optional — leave empty to skip):")
+    host, port = _ask_hostport(
+        "    KMS host for WINDOWS activation (empty = no KMS; 'host' or 'host:port')",
+        answers.get("kmshost", "") or "", str(answers.get("kms_port") or "1688"))
+    answers["kmshost"], answers["kms_port"] = host, port
+
+    print("    Microsoft Office needs its OWN KMS entry — it reads a different registry key")
+    print("    and is NOT activated by the Windows setting above. Volume Office (LTSC 2024/")
+    print("    2021, 2019, 2016) brings its own key, so nothing else is needed. Microsoft 365")
+    print("    Apps (subscription) is not KMS-activated and is skipped automatically.")
+    prior_office = (answers.get("kms_office_host") or "").strip()
+    if host and not prior_office:
+        # Most common case: one KMS server activates Windows and Office.
+        same = _ask_yesno(f"    Use the same host ({host}) for Office as well?", True)
+        if same:
+            answers["kms_office_host"] = ""      # "" = follow kmshost
+            answers["kms_office_port"] = port
+            print(f"      Office follows the Windows KMS host ({host}:{port}).")
+            return
+    ohost, oport = _ask_hostport(
+        "    KMS host for OFFICE activation (empty = "
+        + ("same as Windows" if host else "no Office KMS") + ")",
+        prior_office, str(answers.get("kms_office_port") or "1688"))
+    answers["kms_office_host"], answers["kms_office_port"] = ohost, oport
+    if not ohost and not host:
+        print("      No KMS at all — both KMS packages stay inactive.")
+
+
 def _ask_pointandprint(answers: dict, e) -> None:
     """Point and Print: allow standard users (students) to auto-install printer drivers
     from the trusted print server(s). linuxmuster already CONNECTS the printers; this only
@@ -192,10 +258,8 @@ def run(site_path: str = DEFAULT_SITE) -> int:
                answers.get("teachernb", "nopxe"))
     answers["teachernb"] = tnb
 
-    # KMS activation
-    kms = _ask("KMS host for Windows activation (empty = no KMS)",
-               answers.get("kmshost", "") or "")
-    answers["kmshost"] = kms.strip()
+    # KMS activation (Windows and Office are separate products with separate registry keys)
+    _ask_kms(answers)
 
     # Wallpaper / branding source dir
     print("  Wallpapers: place them as wallpapers/<school>.jpg (fallback default.jpg).")
