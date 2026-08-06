@@ -3,11 +3,11 @@ title: "Wi-Fi Enterprise/PEAP (teacher laptops, teachers only via RADIUS)"
 scope: global
 target: computer
 requires: wlan_enterprise
-filter_apply: ['@nopxe']
+filter_apply: ['@teachernb']
 description: >
   Deploys the WPA2-Enterprise Wi-Fi (PEAP-MSCHAPv2, USER auth + SSO preLogon) as a
   machine profile via startup script and installs the RADIUS CA certificate
-  (certutil -addstore Root). Filtered exclusively to teacher laptops (d_nopxe).
+  (certutil -addstore Root). Filtered exclusively to teacher laptops (@teachernb, by default d_nopxe).
   "Teachers only" is enforced by the RADIUS server (Network Policy: Windows group = teachers) — a
   student login on the same laptop is rejected by RADIUS. Roaming: RADIUS checks
   against the same domain. Only active when SSID + CA certificate are configured.

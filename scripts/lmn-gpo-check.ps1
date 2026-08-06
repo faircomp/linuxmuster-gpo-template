@@ -111,7 +111,7 @@ $checks = @(
     @{ N="Lock after 30 min";        P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="InactivityTimeoutSecs"; E=1800 }
     @{ N="Lock screen removed";      P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"; K="NoLockScreen"; E=1 }
     @{ N="Standby=Never (AC)";       P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\29f6c1db-86da-48c5-9fdb-f2b67b1f44da"; K="ACSettingIndex"; E=0 }
-    @{ N="Display off 1800s (AC)";   P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"; K="ACSettingIndex"; E=1800 }
+    @{ N="Display off (0=never)";    P="HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"; K="ACSettingIndex"; E=$null }
     @{ N="Fast Startup off";         P="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"; K="HiberbootEnabled"; E=0 }
     @{ N="MS accounts blocked";      P="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="NoConnectedUser"; E=3 }
     @{ N="Wallpaper set (user)";     P="HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"; K="Wallpaper"; E=$null }
@@ -156,10 +156,16 @@ $rawProfiles = netsh wlan show profiles 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
     Write-Host "  [--] No Wi-Fi service/adapter (e.g. desktop/VM) — Wi-Fi check skipped." -ForegroundColor DarkGray
 } else {
-    $wlanProfiles = @()
-    # 'Profil.*:' matches localized netsh output (DE 'Profil', EN 'Profile') — keep.
-    foreach ($line in $rawProfiles) { if ($line -match 'Profil.*:\s*(.+?)\s*$') { $wlanProfiles += $matches[1].Trim() } }
-    $wlanProfiles = @($wlanProfiles | Sort-Object -Unique)
+    # Distinguish ALL-USER (machine) profiles from per-user ones: only an all-user profile
+    # connects BEFORE anyone logs on, which is the whole point of packages 13-wlan-*. The
+    # DE strings match localized netsh output and MUST stay. Test 'all user' FIRST — the
+    # English per-user label is a substring of the all-user one.
+    $allUser = @{}
+    foreach ($line in $rawProfiles) {
+        if ($line -match '(?:All User Profile|Alle Benutzerprofile)\s*:\s*(.+?)\s*$') { $allUser[$matches[1].Trim()] = $true }
+        elseif ($line -match '(?:User Profile|Benutzerprofil)\s*:\s*(.+?)\s*$')       { $allUser[$matches[1].Trim()] = $false }
+    }
+    $wlanProfiles = @($allUser.Keys | Sort-Object)
     if (-not $wlanProfiles) { Write-Host "  [--] No Wi-Fi profiles present (13-wlan-* may not be applied)." -ForegroundColor DarkGray }
     foreach ($p in $wlanProfiles) {
         $d = netsh wlan show profile name="$p" 2>$null
@@ -168,7 +174,16 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
         $auth  = if ($authM) { $authM.Matches[0].Value } else { "?" }
         $eap   = if ($eapM)  { " EAP=" + $eapM.Matches[0].Value } else { "" }
         $isEnt = $auth -match 'Enterprise'
-        Write-Host ("  Profile: {0,-22} [{1}]{2}" -f $p, $auth, $eap) -ForegroundColor $(if ($isEnt) { "Cyan" } else { "Green" })
+        $machine = [bool]$allUser[$p]
+        $scopeTxt = if ($machine) { "all-user -> available BEFORE login" } else { "PER-USER -> NOT available before login" }
+        Write-Host ("  {0}Profile: {1,-22} [{2}]{3}  ({4})" -f (Mark $machine), $p, $auth, $eap, $scopeTxt) `
+            -ForegroundColor $(if (-not $machine) { "Red" } elseif ($isEnt) { "Cyan" } else { "Green" })
+        if ($machine) { $ok++ } else { $fail++ }
+    }
+    if ($wlanProfiles -and ($allUser.Values -contains $false)) {
+        Write-Host "  Note: a per-user profile shadows the machine profile for that user. It is" -ForegroundColor Yellow
+        Write-Host "        usually a manual 'connect' from the Wi-Fi flyout — remove it with" -ForegroundColor Yellow
+        Write-Host "        'netsh wlan delete profile name=\"<SSID>\"' (as that user)." -ForegroundColor Yellow
     }
     Write-Head "Wi-Fi connection (current)"
     $iface = netsh wlan show interfaces 2>$null

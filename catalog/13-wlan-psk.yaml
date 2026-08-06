@@ -3,13 +3,27 @@ title: "Wi-Fi PSK (student laptops, before login)"
 scope: global
 target: computer
 requires: wlan_psk
-filter_deny: ['@nopxe']
+filter_deny: ['@teachernb']
+# The PSK is embedded in the startup script, which lives in world-readable sysvol, and a
+# deny-Apply withholds only Apply -- not Read. Denying READ to the student role keeps the
+# passphrase out of their reach while the COMPUTER account still reads and applies the GPO
+# at boot (computers are not members of role-student), so pre-logon Wi-Fi is unaffected.
+filter_deny_read: ['@role-student']
 description: >
   Deploys the PSK Wi-Fi networks (all sites, from wlan_psk_networks) as machine profiles
   via startup script (netsh wlan add profile user=all) → connect BEFORE login.
-  Applies to all managed devices EXCEPT teacher laptops (deny d_nopxe); those get
-  Enterprise (13-wlan-enterprise). Only active when PSK networks are configured.
-  SECURITY: the PSK is stored in the profile XML → readable in sysvol; consider
-  filtering the GPO to Domain Computers.
+  Applies to all managed devices EXCEPT teacher laptops (deny @teachernb, by default the
+  d_nopxe device group); those get Enterprise (13-wlan-enterprise). Only active when PSK
+  networks are configured.
+  SECURITY — READ THIS: the passphrase sits in cleartext in the profile XML, base64-embedded
+  in the startup script under Machine/Scripts/Startup. filter_deny_read on role-student
+  denies students read on the GPO OBJECT in AD, but it does NOT protect the sysvol FILE:
+  'samba-tool ntacl sysvolreset' writes a fixed ACL template (Authenticated Users get read)
+  and does not derive per-GPO ACEs, which was verified on a live DC. A student who knows the
+  path can therefore still read the passphrase from
+  \\<domain>\sysvol\...\Policies\{GUID}\Machine\Scripts\Startup\*.ps1.
+  Treat the student PSK as a secret that the students can obtain. If that is not acceptable,
+  pre-stage the Wi-Fi profile in the LINBO image instead of deploying it by GPO, or move the
+  student network to WPA2-Enterprise like the teacher one (no shared secret on the client).
 wlan:
   mode: psk

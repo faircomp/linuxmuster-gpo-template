@@ -21,7 +21,7 @@ _GROUP_CLSID = "{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"
 
 
 def render(members: list[dict], *, changed: str, group_uid: str) -> str:
-    """members: [{'name': 'EVSVBZ\\\\global-admins', 'sid': 'S-1-5-...'}]"""
+    """members: [{'name': 'EXAMPLE\\\\global-admins', 'sid': 'S-1-5-...'}]"""
     lines = []
     for m in members:
         lines.append(

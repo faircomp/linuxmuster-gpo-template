@@ -36,11 +36,22 @@ def load_site(path: str) -> dict:
 
 
 def save_site(path: str, answers: dict) -> None:
+    """Write the answers file. Mode 0600 — it holds plaintext Wi-Fi PSKs and the Veyon
+    bind password, so it must not be readable by other local accounts on the server."""
     d = os.path.dirname(path)
     if d:
-        os.makedirs(d, exist_ok=True)
-    with open(path, "w") as fh:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
         yaml.safe_dump(answers, fh, allow_unicode=True, sort_keys=False)
+    try:
+        os.chmod(path, 0o600)      # also tighten a pre-existing, laxer file
+    except OSError:
+        pass
 
 
 def _ask(prompt: str, default: str) -> str:
@@ -260,6 +271,18 @@ def run(site_path: str = DEFAULT_SITE) -> int:
 
     # KMS activation (Windows and Office are separate products with separate registry keys)
     _ask_kms(answers)
+
+    # Display-off timeout (0 = never; the screen still LOCKS via pack 04-sperren)
+    print("\n  Screen: the display never switches off by default, so a machine driving a")
+    print("    beamer or panel does not go dark. (It still LOCKS after 30 min — the screen")
+    print("    then shows the lock screen. Teacher notebooks are excluded from this pack.)")
+    d = _ask("    Switch the display off after ... seconds (0 = never)",
+             str(answers.get("display_off_seconds", 0)))
+    try:
+        answers["display_off_seconds"] = max(0, int(d))
+    except ValueError:
+        print("    (not a number — keeping 0 = never)")
+        answers["display_off_seconds"] = 0
 
     # Wallpaper / branding source dir
     print("  Wallpapers: place them as wallpapers/<school>.jpg (fallback default.jpg).")

@@ -1,11 +1,16 @@
 id: "03-energie"
-title: "Power: no standby, display off after 30 min"
+title: "Power: no standby, display stays on"
 scope: global
 target: computer
 description: >
-  No hibernation/standby (AC+DC=Never), display off after 30 min, no
-  hybrid standby. This keeps the machines reachable over the network. Teacher
-  notebooks (@teachernb) are excluded via Deny-Apply (Windows default power plan).
+  No hibernation/standby (AC+DC=Never), no hybrid standby, and by default the display
+  never switches off either (display_off_seconds: 0) — so a machine driving a beamer or
+  an interactive panel does not go dark mid-lesson. Set display_off_seconds in site.yaml
+  to a number of seconds to re-enable the timeout. This keeps the machines reachable over
+  the network. Teacher notebooks (@teachernb) are excluded via Deny-Apply (Windows default
+  power plan).
+  NOTE: the screen still LOCKS after 30 min (pack 04-sperren, InactivityTimeoutSecs) — the
+  display then shows the lock screen instead of going dark. Those are two separate things.
 filter_deny: ['@teachernb']
 registry:
   # Standby timeout = Never (SUB_SLEEP STANDBYIDLE 29f6c1db...)
@@ -20,6 +25,6 @@ registry:
   # Hybrid standby off (94ac6d29...)
   - { key: 'Software\Policies\Microsoft\Power\PowerSettings\94ac6d29-73ce-41a6-809f-6363ba21b47e', name: ACSettingIndex, class: machine, type: dword, data: 0 }
   - { key: 'Software\Policies\Microsoft\Power\PowerSettings\94ac6d29-73ce-41a6-809f-6363ba21b47e', name: DCSettingIndex, class: machine, type: dword, data: 0 }
-  # Display off after 1800 s (SUB_VIDEO VIDEOIDLE 3c0bc021...)
-  - { key: 'Software\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e', name: ACSettingIndex, class: machine, type: dword, data: 1800 }
-  - { key: 'Software\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e', name: DCSettingIndex, class: machine, type: dword, data: 1800 }
+  # Display off timeout (SUB_VIDEO VIDEOIDLE 3c0bc021...); 0 = never, default
+  - { key: 'Software\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e', name: ACSettingIndex, class: machine, type: dword, data: '@display-off' }
+  - { key: 'Software\Policies\Microsoft\Power\PowerSettings\3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e', name: DCSettingIndex, class: machine, type: dword, data: '@display-off' }

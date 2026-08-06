@@ -1,3 +1,46 @@
+lmn-gpo (1.5.0) stable; urgency=medium
+
+  * SECURITY/DATA-LOSS FIX (regression in 1.3.0/1.4.0): `apply` refused nothing when the
+    answers file was missing, mistyped or empty. load_site() returns {} for a non-existent
+    path, so every optional package read as disabled and _retire() unlinked and DELETED its
+    GPO -- up to 29 GPOs on a three-school site, without backup and with exit code 0.
+    `apply` now aborts with exit 2 unless the answers file exists and is non-empty; the
+    deliberate "no optional features" run needs the new --defaults flag.
+  * _retire: take a `samba-tool gpo backup` into /var/backups/lmn-gpo/<timestamp>-<name>
+    before deleting, and never retire on a precondition that depends on a FILE rather than
+    an operator answer. `requires: wallpaper` is now reported and skipped instead of
+    deleting the branding GPO -- the source checkout and the .deb use different wallpaper
+    directories, so the documented upgrade path silently destroyed it.
+  * Exclusions no longer fail open silently: when filter_deny or filter_deny_read resolves
+    to no group (missing d_nopxe, typo in teachernb), apply prints a loud warning naming the
+    pack and token and exits non-zero. Previously nothing was written and nothing was said,
+    so the GPO reached exactly the devices it was meant to spare.
+  * Global packs are linked domain-wide at OU=SCHOOLS, so their exclusion groups are now
+    resolved against ALL detected schools, not only the ones selected for the run. Before,
+    `apply --school a` left school b's teacher notebooks unexcluded while still applying.
+  * Wi-Fi: both packages now follow `teachernb` instead of hard-wiring @nopxe, so a custom
+    teacher-notebook group is honoured for Wi-Fi as it already was for power/lock/proxy.
+    13-wlan-psk additionally carries filter_deny_read: ['@role-student'].
+    NOTE: that denies students read on the GPO object only. sysvolreset writes a fixed ACL
+    template, so the startup script FILE containing the passphrase stays readable by
+    Authenticated Users. Documented in the pack and the README; the PSK must be treated as
+    obtainable by students. Pre-staging the profile in the LINBO image avoids this.
+  * setup: write site.yaml as 0600 in a 0700 directory (it holds plaintext Wi-Fi PSKs and
+    the Veyon bind password); previously 0644.
+  * apply: escape RFC 4515 specials in the custom teachernb group lookup, so a CN containing
+    '*' or parentheses cannot silently match the wrong group or nothing at all.
+  * Power: the display no longer switches off on its own. The timeout is now the site.yaml
+    key display_off_seconds and defaults to 0 = never, so a machine driving a beamer or an
+    interactive panel does not go dark mid-lesson. Set it to a number of seconds to restore
+    a timeout. The screen still LOCKS after 30 min (pack 04-sperren) — the display then
+    shows the lock screen instead of going dark; those are two separate settings.
+  * gpp: use a generic NetBIOS name in a docstring example instead of a real customer one.
+  * lmn-gpo-check.ps1: distinguish all-user from per-user Wi-Fi profiles. Only an all-user
+    profile connects before login; a per-user one (a manual connect from the Wi-Fi flyout)
+    is now reported as a failure instead of OK.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Thu, 06 Aug 2026 12:00:00 +0000
+
 lmn-gpo (1.4.0) stable; urgency=medium
 
   * Proxy: exclude teacher notebooks (teachernb, by default the d_nopxe device group) from

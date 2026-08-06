@@ -5,6 +5,7 @@ environment + the operator's answers. Multischule-aware and fully idempotent
 """
 from __future__ import annotations
 
+import datetime
 import os
 import re
 import shutil
@@ -18,6 +19,12 @@ from .secedit import SecEdit
 
 GPO_PREFIX = "LMN-"
 LOOPBACK_MODE = {"merge": 2, "replace": 1}
+RETIRE_BACKUP_DIR = "/var/backups/lmn-gpo"
+# Preconditions that depend on a FILE rather than on an operator answer. A missing file is
+# usually an accident (wallpaper dir moved, share not mounted, source checkout replaced by
+# the .deb, which uses a different wallpaper path) — deleting the GPO over that would throw
+# away work. These are reported and skipped instead of retired.
+NON_RETIRABLE_REQUIRES = {"wallpaper"}
 from .paths import WALLPAPER_DIR  # noqa: E402
 WALLPAPER_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
 
@@ -51,6 +58,7 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
     "bootorder_pxe_first": False,      # opt-in: UEFI boot order network/PXE first (startup script)
+    "display_off_seconds": 0,          # display-off timeout in seconds; 0 = never switch off
     "ntp_mode": "nt5ds",               # time-sync mode: nt5ds (domain/Samba way) | ntp (explicit server)
     "pointandprint_enabled": False,    # opt-in: allow non-admin Point-and-Print driver install
     "printservers_extra": [],          # extra/external print server FQDNs to also trust
@@ -78,6 +86,7 @@ class Applier:
         self.sc = ScriptsExt(self.eng)
         self.results: list[dict] = []
         self.retired: list[str] = []
+        self.warnings: list[str] = []   # non-fatal problems that must still fail the run
         self._links: dict[str, list[str]] | None = None   # gPLink map, built on first retire
         self._wp_cache: dict[str, str | None] = {}
 
@@ -96,6 +105,15 @@ class Applier:
 
     def _kmshost(self) -> str:
         return (self.answers.get("kmshost") or "").strip()
+
+    def _display_off(self) -> str:
+        """Display-off timeout in seconds; 0 = never. Anything unparsable falls back to 0
+        (never) rather than to a timeout — a dark beamer is the more visible failure."""
+        try:
+            v = int(self.answers.get("display_off_seconds", 0))
+        except (TypeError, ValueError):
+            v = 0
+        return str(max(0, v))
 
     def _kms_port(self) -> str:
         return str(self.answers.get("kms_port") or "1688").strip() or "1688"
@@ -215,6 +233,7 @@ class Applier:
             "@proxy-exceptions": self._proxy_exceptions(),
             "@serverfqdn": self.env.serverfqdn,
             "@printserver-list": self._printserver_list(),
+            "@display-off": self._display_off(),
             "@ntp-type": "NTP" if str(self.answers.get("ntp_mode", "nt5ds")).lower() == "ntp" else "NT5DS",
             "@serverip": self.env.serverip,
             "@subnet": self.env.subnet,
@@ -240,7 +259,11 @@ class Applier:
         return s
 
     def _find_group_sid(self, cn, base):
-        msg = ad.find_one(f"(&(objectClass=group)(cn={cn}))", base=base, scope="sub",
+        # Escape RFC 4515 specials (backslash first, and '*' so an operator-supplied CN
+        # cannot turn into a wildcard match) — same treatment as GpoEngine.find_by_name.
+        safe = (str(cn).replace("\\", "\\5c").replace("*", "\\2a")
+                .replace("(", "\\28").replace(")", "\\29").replace("\x00", "\\00"))
+        msg = ad.find_one(f"(&(objectClass=group)(cn={safe}))", base=base, scope="sub",
                           attrs=["objectSid"])
         return ad.sid_of(msg) if msg else None
 
@@ -383,6 +406,20 @@ class Applier:
             return bool(self.answers.get("pointandprint_enabled"))
         return True
 
+    def _backup_before_delete(self, name, guid) -> str | None:
+        """samba-tool gpo backup into /var/backups/lmn-gpo/<timestamp>/ before deleting."""
+        if self.dry_run:
+            return None
+        try:
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            dest = os.path.join(RETIRE_BACKUP_DIR, f"{stamp}-{name}")
+            os.makedirs(dest, exist_ok=True)
+            self.eng.backup(guid, dest)
+            return dest
+        except Exception as exc:            # a failed backup must not block the removal
+            print(f"    ⚠ backup failed ({exc}) — continuing")
+            return None
+
     def _retire(self, name):
         """Unlink + delete the GPO of a pack whose precondition is no longer met.
 
@@ -397,6 +434,9 @@ class Applier:
             return
         print(f"\n▸ {name}")
         print("    precondition no longer met → unlinking + deleting this GPO")
+        dest = self._backup_before_delete(name, guid)
+        if dest:
+            print(f"    backup: {dest}")
         if self._links is None:
             self._links = _gplink_map()
         for container in self._links.get(guid.upper(), []):
@@ -411,6 +451,15 @@ class Applier:
             scope_token, container = "GLOBAL", self.env.schools_ou
         name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
         if not self._applicable(pack, school):
+            if (pack.requires or "").strip() in NON_RETIRABLE_REQUIRES:
+                if self.eng.find_by_name(name):
+                    print(f"\n▸ {name}")
+                    print(f"    ⚠ '{pack.requires}' not found on disk — GPO left untouched "
+                          f"(not deleted). Fix the source path, or remove it deliberately "
+                          f"with 'lmn-gpo remove --pack {pack.id}'.")
+                    self.warnings.append(
+                        f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
+                return
             self._retire(name)
             return
         # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
@@ -443,12 +492,25 @@ class Applier:
         if pack.wlan:
             self._apply_wlan(pack, guid)
         self.eng.link(container, guid)
-        for token in pack.filter_deny:
-            for sid in self._group_sids(token, school, schools):
-                self.eng.deny_apply(guid, sid)
-        for token in pack.filter_deny_read:
-            for sid in self._group_sids(token, school, schools):
-                self.eng.deny_read(guid, sid)
+        # Exclusions must never fail silently: an unresolvable group means the GPO reaches
+        # exactly the machines/users it was meant to spare, with nothing in the output to
+        # show for it. (filter_apply already fails closed above; a deny cannot fail closed
+        # without disabling the pack for everyone, so it is reported loudly instead and
+        # makes the run exit non-zero.)
+        def _deny(tokens, action, what):
+            for token in tokens:
+                sids = self._group_sids(token, school, schools)
+                if not sids:
+                    print(f"    ⚠ exclusion {token} matched no group — this GPO is NOT "
+                          f"excluded from those devices/users!")
+                    self.warnings.append(
+                        f"{name}: {what} {token} resolved to no group — nothing excluded")
+                    continue
+                for sid in sids:
+                    action(guid, sid)
+
+        _deny(pack.filter_deny, self.eng.deny_apply, "deny-apply")
+        _deny(pack.filter_deny_read, self.eng.deny_read, "deny-read")
         if filter_apply_sids:
             self.eng.set_exclusive_filter(guid, filter_apply_sids)
         self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
@@ -468,7 +530,11 @@ class Applier:
                 for school in schools:
                     self.apply_pack(pack, school, schools)
             else:
-                self.apply_pack(pack, None, schools)
+                # A global pack is linked at OU=SCHOOLS, i.e. it reaches EVERY school —
+                # so its exclusion groups must be resolved against every school too, not
+                # just the ones selected for this run. Otherwise `apply --school a` would
+                # leave school b's teacher notebooks unexcluded while still applying to them.
+                self.apply_pack(pack, None, list(self.env.schools))
 
         reconciled = True
         if not self.dry_run:
@@ -483,7 +549,7 @@ class Applier:
             print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")
             print("  cleared locally (slmgr.vbs /ckms, ospp.vbs /remhst).")
 
-        problems = []
+        problems = list(self.warnings)
         if not self.dry_run and not reconciled:
             problems.append(
                 "sysvolreset was skipped (Domain Admins has a gidNumber). The self-written "

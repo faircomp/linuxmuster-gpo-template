@@ -63,7 +63,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 | **Disable OneDrive** | OneDrive autostart & file sync off |
 | **First-run / OOBE / consumer** | "finish setup", Spotlight, Cortana, consumer features, Edge/first-run assistants off |
 | **Windows Update split** | **off for LINBO machines**, **on for non-LINBO devices** (`d_nopxe`) |
-| **Power** | no standby, display off after 30 min — *relaxed for teacher notebooks* |
+| **Power** | no standby, **display never switches off** (`display_off_seconds`, 0 = never) — *relaxed for teacher notebooks* |
 | **Screen lock** | lock after 30 min idle — *relaxed for teacher notebooks* |
 | **Hibernation off** | hibernate disabled — *except `d_nopxe`* |
 | **Wake-on-LAN + Fast Startup off** | WoL armed (startup script), `HiberbootEnabled=0` |
@@ -253,6 +253,7 @@ wlan_enterprise_servernames: "radius.school.de"
 wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = force UEFI boot order to network/PXE first (opt-in!)
+display_off_seconds: 0        # switch the display off after N s; 0 = never (screen still LOCKS, see 04)
 ntp_mode: nt5ds               # time sync: nt5ds (domain / Samba way) | ntp (explicit server = @serverfqdn)
 
 pointandprint_enabled: false  # true = allow students to install printer drivers from the print server(s) (opt-in)
@@ -352,6 +353,20 @@ so it would stay configured off-site and cut the notebook off from the internet.
 > `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
 
 ## Wi-Fi: multiple networks & roaming
+
+> **How the two packages split.** `13-wlan-psk` deploys the PSK networks as **all-user
+> (machine) profiles** via a startup script, so LINBO/PXE machines associate **before anyone
+> logs in**. `13-wlan-enterprise` is user-authenticated (PEAP + SSO `preLogon`), so teacher
+> laptops connect **at** login, not before. Both exclusions follow `teachernb` (by default the
+> `d_nopxe` device group).
+>
+> **The student PSK is not a secret from your students.** It sits in cleartext in the profile
+> XML inside the startup script in sysvol. `filter_deny_read: ['@role-student']` denies
+> students read on the GPO *object*, but `samba-tool ntacl sysvolreset` writes a fixed ACL
+> template in which Authenticated Users keep read on the *file* — verified on a live DC. If
+> that is unacceptable, pre-stage the profile in the LINBO image or move the student network
+> to WPA2-Enterprise.
+
 
 Multiple student Wi-Fis (e.g. one per site) are simply **multiple entries** in
 `wlan_psk_networks`:
@@ -649,7 +664,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 | **OneDrive deaktivieren** | OneDrive-Autostart & Datei-Sync aus |
 | **First-Run / OOBE / Consumer** | „Fertig einrichten", Spotlight, Cortana, Consumer-Features, Edge-/Erstlauf-Assistenten aus |
 | **Windows-Update-Split** | **aus für LINBO-Rechner**, **an für Nicht-LINBO-Geräte** (`d_nopxe`) |
-| **Energie** | kein Standby, Display aus nach 30 Min — *lockerer für Lehrer-Notebooks* |
+| **Energie** | kein Standby, **Display geht nie aus** (`display_off_seconds`, 0 = nie) — *lockerer für Lehrer-Notebooks* |
 | **Bildschirmsperre** | Sperre nach 30 Min Inaktivität — *lockerer für Lehrer-Notebooks* |
 | **Ruhezustand aus** | Hibernate deaktiviert — *außer `d_nopxe`* |
 | **Wake-on-LAN + Fast Startup aus** | WoL scharf (Startskript), `HiberbootEnabled=0` |
@@ -841,6 +856,7 @@ wlan_enterprise_servernames: "radius.schule.de"
 wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = UEFI-Bootreihenfolge auf Netzwerk/PXE zuerst (opt-in!)
+display_off_seconds: 0        # Display nach N s abschalten; 0 = nie (Sperre bleibt, siehe 04)
 ntp_mode: nt5ds               # Zeitsync: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server = @serverfqdn)
 
 pointandprint_enabled: false  # true = Schüler dürfen Druckertreiber von den Druckservern installieren (opt-in)
@@ -940,6 +956,20 @@ ist — und weil der Proxy im echten WinINET-Schlüssel landet (nicht unter `…
 > `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
 
 ## WLAN: mehrere Netze & Roaming
+
+> **Aufteilung der zwei Pakete.** `13-wlan-psk` verteilt die PSK-Netze als **All-User-Profile
+> (Maschinenprofile)** per Startskript — LINBO/PXE-Rechner verbinden sich also **vor dem
+> Login**. `13-wlan-enterprise` authentifiziert den Benutzer (PEAP + SSO `preLogon`), Lehrer-
+> Notebooks verbinden sich daher **beim** Login, nicht davor. Beide Ausschlüsse folgen
+> `teachernb` (standardmäßig die Gerätegruppe `d_nopxe`).
+>
+> **Das Schüler-PSK ist vor deinen Schülern kein Geheimnis.** Es steht im Klartext im Profil-
+> XML innerhalb des Startskripts in sysvol. `filter_deny_read: ['@role-student']` entzieht
+> Schülern den Lesezugriff auf das GPO-*Objekt*, aber `samba-tool ntacl sysvolreset` schreibt
+> eine feste ACL-Vorlage, in der Authenticated Users Lesezugriff auf die *Datei* behalten —
+> auf einem echten DC nachgemessen. Wenn das nicht akzeptabel ist: Profil ins LINBO-Image
+> vorbereiten oder das Schülernetz auf WPA2-Enterprise umstellen.
+
 
 Mehrere Schüler-WLANs (z. B. je Standort ein eigenes) sind einfach **mehrere Einträge** in
 `wlan_psk_networks`:

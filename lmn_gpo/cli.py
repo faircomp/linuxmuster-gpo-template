@@ -201,7 +201,19 @@ def cmd_apply(args) -> int:
         print(f"{BAD} {exc}", file=sys.stderr)
         return 2
     packs = catalog.load_packs()
-    answers = setupmod.load_site(args.config or setupmod.default_site())
+    # A missing or empty answers file would make EVERY optional feature read as "off",
+    # and since 1.3.0 apply removes the GPOs of packs whose precondition is gone — so a
+    # mistyped --config or a site.yaml deleted from a repo folder would silently delete
+    # real GPOs. Refuse to guess; --defaults is the explicit "I mean no optional features".
+    cfg = args.config or setupmod.default_site()
+    answers = setupmod.load_site(cfg)
+    if not answers and not args.defaults:
+        why = "does not exist" if not os.path.exists(cfg) else "is empty"
+        print(f"{BAD} answers file {why}: {cfg}")
+        print("    Every optional package would count as disabled, and apply would REMOVE")
+        print("    their GPOs. Run 'lmn-gpo setup', point --config at the right file, or")
+        print("    pass --defaults if you really mean 'no optional features'.")
+        return 2
     if args.school:
         answers["schools"] = args.school
     if args.pack:
@@ -289,6 +301,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--pack", action="append", help="only this/these pack ID(s) (repeatable)")
     sp.add_argument("--dry-run", action="store_true", help="show only, change nothing")
     sp.add_argument("--yes", action="store_true", help="apply without confirmation")
+    sp.add_argument("--defaults", action="store_true",
+                    help="run without an answers file (every optional package counts as "
+                         "disabled — this REMOVES their GPOs)")
     sp.set_defaults(func=cmd_apply)
 
     sp = sub.add_parser("remove", help="remove LMN GPOs")
