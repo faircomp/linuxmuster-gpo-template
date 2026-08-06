@@ -506,6 +506,23 @@ GPOs only take effect once the client fetches them and the respective service re
 4. **Boot order:** reboot twice, then check `…\Temp\lmn-gpo-bootorder.log`.
 5. **Time:** `gpupdate /force` → `w32tm /config /update` → `w32tm /resync` (or reboot).
 
+## Checking the prerequisites (automatic)
+
+`lmn-gpo doctor` resolves every security-filter group from your real `site.yaml` and fails
+(exit 1) when an **exclusion** matches nothing — because that is the silent case: the GPO then
+applies to exactly the devices it was meant to spare.
+
+```
+Security-filter prerequisites (from site.yaml):
+  config: /etc/linuxmuster/lmn-gpo/site.yaml
+  teacher-notebook group (teachernb): 'd_lehrer-nb'
+  ✗ 12-proxy-base   GLOBAL   exclude   @teachernb  → applies to them anyway!
+```
+
+The same block is printed by `lmn-gpo apply` **before the first change**, so a broken
+`teachernb` or a school without a noPXE group shows up before anything is written rather than
+afterwards. `lmn-gpo env` additionally flags any school that has no noPXE group at all.
+
 ## Checking on the client
 
 `scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
@@ -1109,6 +1126,23 @@ GPOs wirken erst, wenn der Client sie holt und der jeweilige Dienst sie liest:
 3. **WLAN (PSK/Enterprise):** **Neustart** (Maschinen-Profile werden beim Boot importiert).
 4. **Bootreihenfolge:** 2× neu starten, dann `…\Temp\lmn-gpo-bootorder.log` prüfen.
 5. **Zeit:** `gpupdate /force` → `w32tm /config /update` → `w32tm /resync` (oder Neustart).
+
+## Voraussetzungen prüfen (automatisch)
+
+`lmn-gpo doctor` löst jede Security-Filter-Gruppe aus deiner echten `site.yaml` auf und
+scheitert (Exit 1), wenn ein **Ausschluss** ins Leere greift — das ist der stille Fall: die
+GPO gilt dann genau für die Geräte, die sie aussparen sollte.
+
+```
+Security-filter prerequisites (from site.yaml):
+  config: /etc/linuxmuster/lmn-gpo/site.yaml
+  teacher-notebook group (teachernb): 'd_lehrer-nb'
+  ✗ 12-proxy-base   GLOBAL   exclude   @teachernb  → applies to them anyway!
+```
+
+Denselben Block gibt `lmn-gpo apply` **vor der ersten Änderung** aus — ein kaputtes
+`teachernb` oder eine Schule ohne noPXE-Gruppe fällt also auf, bevor etwas geschrieben wird.
+`lmn-gpo env` markiert zusätzlich jede Schule, die gar keine noPXE-Gruppe hat.
 
 ## Prüfen am Client
 

@@ -420,6 +420,48 @@ class Applier:
             print(f"    ⚠ backup failed ({exc}) — continuing")
             return None
 
+    def preflight(self, packs, schools=None):
+        """Resolve every security-filter token BEFORE anything is written.
+
+        An exclusion that resolves to no group is the dangerous case: the GPO then reaches
+        exactly the devices or users it was meant to spare, and the per-pack output only
+        says so once the change has already been made. Returns a list of
+        (pack_id, scope_label, kind, token) for every token that matches no group.
+        """
+        packs = self.selected_packs(packs)
+        schools = list(schools if schools is not None else self.selected_schools())
+        rows = []
+        for pack in packs:
+            targets = [(s, s.name) for s in schools] if pack.scope == "school" \
+                else [(None, "GLOBAL")]
+            # a global pack is linked domain-wide, so it must resolve against every school
+            pool = schools if pack.scope == "school" else list(self.env.schools)
+            for school, label in targets:
+                if not self._applicable(pack, school):
+                    continue
+                for kind, tokens in (("exclude", pack.filter_deny),
+                                     ("exclude-read", pack.filter_deny_read),
+                                     ("only", pack.filter_apply)):
+                    for token in tokens:
+                        if not self._group_sids(token, school, pool):
+                            rows.append((pack.id, label, kind, token))
+        return rows
+
+    def print_preflight(self, packs, schools=None) -> bool:
+        """Print the prerequisite check. True when everything resolves."""
+        rows = self.preflight(packs, schools)
+        if not rows:
+            print("Prerequisite check: all security-filter groups resolve. ✓")
+            return True
+        print("\n⚠ Prerequisite check — these filters match NO group:")
+        for pid, label, kind, token in rows:
+            print(f"    {pid:26} {label:16} {kind:13} {token}")
+        print("    'exclude'/'exclude-read': the GPO WILL apply to those devices/users.")
+        print("    'only': the pack is skipped entirely (fail-closed).")
+        print("    Fix: create the group, or set 'teachernb' in site.yaml to the group you "
+              "actually use.")
+        return False
+
     def _retire(self, name):
         """Unlink + delete the GPO of a pack whose precondition is no longer met.
 
@@ -519,6 +561,7 @@ class Applier:
         packs = self.selected_packs(packs)
         schools = self.selected_schools()
         print(f"Applying to {len(schools)} school(s): {', '.join(s.name for s in schools)}")
+        self.print_preflight(packs, schools)
         if self._kmshost():
             print(f"KMS host (Windows): {self._kmshost()}:{self._kms_port()}")
         if self._kms_office_host():

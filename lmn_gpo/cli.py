@@ -133,6 +133,33 @@ def cmd_doctor(args) -> int:
         print(f"      rooms: {len(s.rooms)}"
               + (": " + ", ".join(r['name'] for r in s.rooms[:8]) if s.rooms else ""))
 
+    # Security-filter prerequisites, resolved from the real site.yaml. This is the check
+    # that used to be manual: an exclusion group that does not exist means the GPO reaches
+    # exactly the devices it was meant to spare.
+    print("\nSecurity-filter prerequisites (from site.yaml):")
+    try:
+        from . import apply as applymod
+        from . import catalog
+        from . import setup as setupmod
+        cfg = setupmod.default_site()
+        answers = setupmod.load_site(cfg)
+        print(f"  config: {cfg}{'' if answers else '  (missing/empty — defaults assumed)'}")
+        print(f"  teacher-notebook group (teachernb): "
+              f"{answers.get('teachernb', 'nopxe')!r}")
+        ap = applymod.Applier(e, answers, dry_run=True)
+        rows = ap.preflight(catalog.load_packs())
+        if not rows:
+            print(f"  {OK} every security-filter group resolves")
+        else:
+            for pid, label, kind, token in rows:
+                bad = kind != "only"      # a failed 'only' filter is fail-closed (safe)
+                print(f"  {BAD if bad else WARN} {pid:26} {label:16} {kind:13} {token}"
+                      + ("  → applies to them anyway!" if bad else "  → pack skipped"))
+                if bad:
+                    ok = False
+    except Exception as exc:
+        print(f"  {WARN} could not evaluate: {exc}")
+
     # Existing GPOs
     print("\nExisting GPOs:")
     for name, guid, ver in _iter_gpos(e.basedn):
@@ -166,6 +193,9 @@ def cmd_env(args) -> int:
             if k != "rooms":
                 print(f"  {k:14} {v}")
         print(f"  rooms          {[r['name'] for r in s.rooms]}")
+        if not (s.nopxe and s.nopxe.sid):
+            print(f"  {WARN} no noPXE group — device exclusions (@nopxe/@teachernb) "
+                  "cannot be targeted in this school")
     return 0
 
 
