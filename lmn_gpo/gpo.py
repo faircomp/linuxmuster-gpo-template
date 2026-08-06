@@ -15,6 +15,8 @@ from . import ad
 APPLY_GROUP_POLICY = "edacfd8f-ffb3-11d1-b41d-00a0c968f939"
 # Read ACE the GPO object hands to a trustee together with Apply.
 GPO_READ_ACE = "(A;CI;LCRPLORC;;;{sid})"
+# Deny counterpart: withholds the same rights, so the trustee cannot even read the GPO.
+GPO_DENY_READ_ACE = "(D;CI;LCRPLORC;;;{sid})"
 AUTH_USERS = "S-1-5-11"
 
 
@@ -185,6 +187,36 @@ class GpoEngine:
         self._run(["samba-tool", "dsacl", "set", "--objectdn", self.gpo_dn(guid),
                    "--action", "deny", "--sddl", sddl])
         self._log(f"    Filter: Apply denied for {sid} on {guid}")
+
+    def _has_deny_read_ace(self, guid: str, sid: str) -> bool:
+        """True if a plain deny ACE withholding Read already exists for this SID."""
+        sddl = ad.descriptor_sddl(self.gpo_dn(guid)) or ""
+        target = ad.sddl_trustee(sid).upper()
+        for ace in re.findall(r"\(([^)]*)\)", sddl):
+            f = ace.split(";")
+            # plain deny ("D", not object-deny "OD") on the same right set, same trustee
+            if len(f) >= 6 and f[0].upper() == "D" and f[5].upper() == target \
+               and "RP" in f[2].upper():
+                return True
+        return False
+
+    def deny_read(self, guid: str, sid: str) -> None:
+        """Deny a DEVICE group Read on the GPO, so those machines never retrieve it.
+
+        For USER settings that only reach a user through loopback processing, denying
+        'Apply Group Policy' does not exclude a device: since MS16-072 the user's GPO
+        list is retrieved in the COMPUTER's security context, while Apply Group Policy
+        is still evaluated against the USER. A deny-Apply ACE carrying a device-group
+        SID is therefore never matched and silently does nothing. Withholding Read is
+        the lever that works — the machine cannot read the GPO, so its user settings
+        are not applied there. Idempotent.
+        """
+        if not self.dry_run and self._has_deny_read_ace(guid, sid):
+            self._log(f"    Filter: Read for {sid} already denied")
+            return
+        self._run(["samba-tool", "dsacl", "set", "--objectdn", self.gpo_dn(guid),
+                   "--action", "deny", "--sddl", GPO_DENY_READ_ACE.format(sid=sid)])
+        self._log(f"    Filter: Read denied for {sid} on {guid}")
 
     def set_exclusive_filter(self, guid: str, sids: list) -> None:
         """Filter the GPO so ONLY the given group SIDs apply it — for user-role

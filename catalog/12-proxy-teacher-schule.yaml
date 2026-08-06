@@ -4,6 +4,11 @@ scope: school
 target: user
 requires: proxy_school
 filter_apply: ['@role-teacher']
+# Teacher notebooks must not get a school proxy at all. filter_deny would be a
+# no-op here: this is a USER setting delivered via loopback, and Apply Group Policy
+# is evaluated against the user, never against the device group. Denying READ keeps
+# the machine from retrieving the GPO in the first place (MS16-072 semantics).
+filter_deny_read: ['@teachernb']
 description: >
   Sets the per-user WinINET proxy for TEACHERS: <school-proxy-host>:<teacher-port>.
   Linked to the Devices OU of the school (address follows the school), exclusively filtered

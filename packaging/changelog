@@ -1,3 +1,23 @@
+lmn-gpo (1.4.0) stable; urgency=medium
+
+  * Proxy: exclude teacher notebooks (teachernb, by default the d_nopxe device group) from
+    all five 12-proxy-* packages. They roam out of the school network, where the school proxy
+    is unreachable; because the proxy is written to the real WinINET key rather than a
+    Policies branch it tattoos, so an excluded notebook would otherwise stay pointed at an
+    unreachable proxy and lose internet access off-site.
+  * New catalog field filter_deny_read plus GpoEngine.deny_read. For the user-scope role
+    proxy packages a plain deny-apply would be a silent no-op: those settings only reach a
+    user through loopback processing, where Apply Group Policy is evaluated against the USER
+    while (since MS16-072) the GPO list is retrieved in the COMPUTER's context. A device
+    group can therefore only be excluded by denying it Read, so the machine never retrieves
+    the GPO. The computer-scope packages (12-proxy-base, 12-proxy-zone-schule) use the
+    ordinary filter_deny.
+  * Note: removing the policy does not clear an already-provisioned client, because the
+    WinINET proxy values tattoo. Reset affected profiles once, e.g. by deleting ProxyEnable
+    under HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Thu, 06 Aug 2026 09:00:00 +0000
+
 lmn-gpo (1.3.0) stable; urgency=medium
 
   * New pack 09b-kms-office: KMS activation for volume-licensed Microsoft Office. Office is

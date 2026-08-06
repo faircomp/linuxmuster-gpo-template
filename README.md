@@ -342,6 +342,15 @@ Edge, Chrome and Firefox are set to the Windows system proxy; the proxy host is 
 the Intranet zone for automatic SSO. The [student lockdown](#student-lockdown) prevents
 students from removing the proxy.
 
+**Teacher notebooks (`teachernb`, by default the `d_nopxe` device group) are excluded from
+all proxy packages.** They leave the school network, where the school proxy is unreachable —
+and because the proxy lands in the real WinINET key (not under `…\Policies\…`) it *tattoos*,
+so it would stay configured off-site and cut the notebook off from the internet.
+
+> If those notebooks already carry a proxy from an earlier rollout, removing the policy does
+> **not** clear it. Reset it once per affected profile, e.g.
+> `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
+
 ## Wi-Fi: multiple networks & roaming
 
 Multiple student Wi-Fis (e.g. one per site) are simply **multiple entries** in
@@ -920,6 +929,15 @@ proxy_port_by_role: { teacher: 3128, student: 3129, staff: 3130 }
 Chrome und Firefox werden auf den Windows-System-Proxy gestellt; der Proxy-Host landet als
 Intranet-Zone für automatisches SSO. Der [Schüler-Lockdown](#schüler-lockdown) verhindert,
 dass Schüler den Proxy entfernen.
+
+**Lehrer-Notebooks (`teachernb`, standardmäßig die Gerätegruppe `d_nopxe`) sind von allen
+Proxy-Paketen ausgenommen.** Sie verlassen das Schulnetz, wo der Schul-Proxy nicht erreichbar
+ist — und weil der Proxy im echten WinINET-Schlüssel landet (nicht unter `…\Policies\…`),
+*tätowiert* er: er bliebe auswärts gesetzt und schnitte das Notebook vom Internet ab.
+
+> Tragen diese Notebooks aus einem früheren Rollout schon einen Proxy, räumt das Entfernen der
+> Richtlinie ihn **nicht** weg. Einmalig pro betroffenem Profil zurücksetzen, z. B.
+> `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
 
 ## WLAN: mehrere Netze & Roaming
 

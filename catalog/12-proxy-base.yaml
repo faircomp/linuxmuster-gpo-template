@@ -3,12 +3,15 @@ title: "Proxy base: per-user + all browsers on system proxy"
 scope: global
 target: computer
 requires: proxy
+filter_deny: ['@teachernb']
 loopback: merge
 description: >
   Foundation for the role-based proxy: enforces a per-USER proxy (not per-machine),
   sets Edge, Chrome and Firefox to the Windows system proxy (WinINET) → so that
   the per-role proxy assignment set in HKCU takes effect in all browsers. Loopback=Merge, so
   that the (role-filtered) user proxy GPOs apply after the machine/school.
+  Teacher notebooks (@teachernb) are excluded: they roam out of the school
+  network, where a school proxy is unreachable.
 registry:
   # Force WinINET per-USER (per-machine would ignore HKCU)
   - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxySettingsPerUser, type: dword, data: 1 }

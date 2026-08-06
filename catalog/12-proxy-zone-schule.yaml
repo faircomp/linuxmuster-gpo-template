@@ -3,9 +3,11 @@ title: "Proxy SSO: proxy host in 'Local Intranet' zone (per school)"
 scope: school
 target: computer
 requires: proxy_school
+filter_deny: ['@teachernb']
 description: >
   Adds the school proxy host to the 'Local Intranet' zone (ZoneMapKey=1) →
   Windows/Edge/Chrome authenticate to the proxy automatically via Kerberos/NTLM, without
   a password prompt (SSO). Machine setting, per school (host of the respective school).
+  Teacher notebooks (@teachernb) are excluded, matching the other proxy packs.
 registry:
   - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey', name: '@proxy-host', type: sz, data: '1' }

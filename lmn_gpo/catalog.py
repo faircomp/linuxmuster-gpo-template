@@ -31,6 +31,10 @@ class Pack:
     wlan: dict = field(default_factory=dict)            # {mode: psk|enterprise} -> generated startup script
     filter_deny: list = field(default_factory=list)     # deny-apply these groups
     filter_apply: list = field(default_factory=list)    # EXCLUSIVE: only these groups apply
+    # Device groups that must not receive this GPO AT ALL (deny Read). Needed instead of
+    # filter_deny for user settings delivered via loopback: Apply is evaluated against the
+    # user, so a device-group deny-Apply never matches (see GpoEngine.deny_read).
+    filter_deny_read: list = field(default_factory=list)
 
     @property
     def has_user(self) -> bool:

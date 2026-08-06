@@ -446,6 +446,9 @@ class Applier:
         for token in pack.filter_deny:
             for sid in self._group_sids(token, school, schools):
                 self.eng.deny_apply(guid, sid)
+        for token in pack.filter_deny_read:
+            for sid in self._group_sids(token, school, schools):
+                self.eng.deny_read(guid, sid)
         if filter_apply_sids:
             self.eng.set_exclusive_filter(guid, filter_apply_sids)
         self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
