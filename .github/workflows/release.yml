@@ -51,15 +51,35 @@ jobs:
           # parser check below would not see it -- yet it runs unattended on every client.
           mkdir -p /tmp/gen-ps
           python3 - <<'PY'
-          import sys, base64; sys.path.insert(0, '.')
+          import sys, re; sys.path.insert(0, '.')
           from lmn_gpo import wlan
-          open('/tmp/gen-ps/wlan-psk.ps1', 'w').write(
-              wlan.build_psk_script([{'ssid': "A's Netz", 'psk': 'passphrase123'},
-                                     {'ssid': 'Zweites Netz', 'psk': 'passphrase456'}]))
-          # a syntactically valid but meaningless DER blob is enough for a parse check
-          open('/tmp/gen-ps/wlan-ent.ps1', 'w').write(
-              wlan.build_enterprise_script('Lehrer', 'radius.example.org', b'\x30\x03\x02\x01\x00'))
-          print('generated 2 scripts')
+          # ONE network is its own fixture on purpose: 1.9.0 shipped a generator that only
+          # worked with two or more, and a two-network fixture kept CI green while every
+          # single-network site got no Wi-Fi at all.
+          cases = {
+              'wlan-psk-one': wlan.build_psk_script([{'ssid': 'Einziges Netz', 'psk': 'passphrase123'}]),
+              'wlan-psk-two': wlan.build_psk_script([{'ssid': "A's Netz", 'psk': 'passphrase123'},
+                                                     {'ssid': 'Zweites Netz', 'psk': 'passphrase456'}]),
+              # umlaut SSID: must not put a non-ASCII byte into the .ps1
+              'wlan-psk-uml': wlan.build_psk_script([{'ssid': 'Schueler-Netz-äöü', 'psk': 'passphrase789'}]),
+              # a syntactically valid but meaningless DER blob is enough for a parse check
+              'wlan-ent': wlan.build_enterprise_script('Lehrer', 'radius.example.org', b'\x30\x03\x02\x01\x00'),
+          }
+          bad = False
+          for name, text in cases.items():
+              nonascii = sorted({c for c in text if ord(c) > 127})
+              if nonascii:
+                  print(f"::error::{name}: non-ASCII in generated PowerShell: {nonascii}")
+                  bad = True
+              # the 1.9.0 bug in one assertion: a bare @( @(..) ) collapses for a single row
+              if re.search(r'\$PROFILES\s*=\s*@\(', text):
+                  print(f"::error::{name}: $PROFILES built with @( ... ) - collapses when there "
+                        f"is exactly one profile; use a typed List")
+                  bad = True
+              open(f'/tmp/gen-ps/{name}.ps1', 'w').write(text)
+          if bad:
+              sys.exit(1)
+          print(f'generated {len(cases)} scripts')
           PY
 
       - name: PowerShell syntax check (real parser)
