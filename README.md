@@ -72,7 +72,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 | **School admins** | `<school>-admins` as local admins + RDP **per school** |
 | **Block mobile hotspot** | Windows hotspot / ICS blocked on **all** machines (toggle greyed out) — no exception |
 | **Student lockdown** | students (`role-student`) cannot change sensitive settings — above all **cannot remove the proxy** (+ Connections tab/PAC & Registry Editor locked); **teachers/admins unrestricted** (loopback + filter) |
-| **Time synchronisation (W32Time)** | clients sync from the domain server (NT5DS, "the Samba way"); **also corrects large offsets** (dead CMOS battery); switchable to explicit NTP via `ntp_mode` |
+| **Time synchronisation (W32Time)** | clients sync from the server via explicit **NTP** (`ntp_mode`, default); **also corrects large offsets** (dead CMOS battery); `nt5ds` available where MS-SNTP signing works |
 
 **Optional** (enabled via `site.yaml` / the setup assistant):
 
@@ -719,7 +719,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
 | **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
 | **Schüler-Lockdown** | Schüler (`role-student`) können sensible Einstellungen nicht ändern — v. a. den **Proxy nicht rausnehmen** (+ Verbindungen-Tab/PAC & Registry-Editor gesperrt); **Lehrer/Admins uneingeschränkt** (Loopback + Filter) |
-| **Zeitsynchronisation (W32Time)** | Clients synchen vom Domänen-Server (NT5DS, „Samba-Weg"); **korrigiert auch große Versätze** (leere CMOS-Batterie); umschaltbar auf expliziten NTP via `ntp_mode` |
+| **Zeitsynchronisation (W32Time)** | Clients synchen per explizitem **NTP** vom Server (`ntp_mode`, Standard); **korrigiert auch große Versätze** (leere CMOS-Batterie); `nt5ds` möglich, wo MS-SNTP-Signierung funktioniert |
 
 **Optional** (per `site.yaml` / Setup-Assistent aktiviert):
 

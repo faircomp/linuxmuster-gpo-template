@@ -110,6 +110,17 @@ class Applier:
     def _kmshost(self) -> str:
         return (self.answers.get("kmshost") or "").strip()
 
+    def _ntp_type(self) -> str:
+        """NT5DS only when explicitly asked for. Anything unrecognised falls back to NTP,
+        never to NT5DS: NT5DS needs MS-SNTP replies signed via Samba's ntp_signd, and when
+        that chain is broken the client silently never syncs at all (see docs/RESEARCH.md).
+        A typo must not select the mode that fails invisibly."""
+        mode = str(self.answers.get("ntp_mode", "ntp")).strip().lower()
+        if mode not in ("ntp", "nt5ds"):
+            print(f"    \u26a0 ntp_mode {mode!r} is not 'ntp' or 'nt5ds' - using 'ntp'.")
+            return "NTP"
+        return "NT5DS" if mode == "nt5ds" else "NTP"
+
     def _display_off(self) -> str:
         """Display-off timeout in seconds; 0 = never. Anything unparsable falls back to 0
         (never) rather than to a timeout — a dark beamer is the more visible failure."""
@@ -238,7 +249,7 @@ class Applier:
             "@serverfqdn": self.env.serverfqdn,
             "@printserver-list": self._printserver_list(),
             "@display-off": self._display_off(),
-            "@ntp-type": "NTP" if str(self.answers.get("ntp_mode", "nt5ds")).lower() == "ntp" else "NT5DS",
+            "@ntp-type": self._ntp_type(),
             "@serverip": self.env.serverip,
             "@subnet": self.env.subnet,
             "@fwsource": self._fwsource(),

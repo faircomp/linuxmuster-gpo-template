@@ -324,6 +324,18 @@ if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient
         }
     }
 } else { Write-Host "  [--] No W32Time policy (package 17 not applied)." -ForegroundColor DarkGray }
+# The POLICY branch is not what the running service uses. W32Time mirrors policy into its own
+# Parameters key; when that mirroring did not happen, the policy can look perfect while the
+# service still runs on its old settings. Compare the two explicitly.
+$polType = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient" -Name Type -ErrorAction SilentlyContinue).Type
+$runType = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters" -Name Type -ErrorAction SilentlyContinue).Type
+# Shown, not asserted: the policy branch and the service's own Parameters key are related but
+# not the same setting, so a difference here is not by itself a fault. What actually decides
+# is the measured offset and the reported source further down.
+if ($polType -or $runType) {
+    Write-Host ("       (policy Type={0}; service Parameters Type={1})" -f `
+        $(if ($polType) { $polType } else { '-' }), $(if ($runType) { $runType } else { '-' })) -ForegroundColor DarkGray
+}
 # Runtime status (read-only): does the machine actually sync from the server?
 $src = ((& w32tm /query /source 2>&1) -join ' ').Trim()
 if (-not $src) { Write-Host "  [--] W32Time service not responding." -ForegroundColor DarkGray }
@@ -363,6 +375,17 @@ if (-not $dc) {
         $avg = ($offs | Measure-Object -Average).Average
         $abs = [math]::Abs($avg)
         # Kerberos rejects tickets beyond 5 min skew by default, so that is the hard wall.
+        # The decisive pattern, and the reason ntp_mode defaults to "ntp": stripchart uses
+        # PLAIN NTP, the domain mode (NT5DS) additionally requires the reply to be SIGNED via
+        # the DC's ntp_signd socket. Measurable offset + no time source = signing is broken.
+        if ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
+            Write-Host "  DIAGNOSIS: plain NTP against the server WORKS, yet the service has no" -ForegroundColor Yellow
+            Write-Host "       time source. That is the signature of a failing MS-SNTP signature." -ForegroundColor Yellow
+            if ("$runType" -eq 'NT5DS' -or "$polType" -eq 'NT5DS') {
+                Write-Host "       This client is in NT5DS (domain) mode, which REQUIRES the signed reply." -ForegroundColor Yellow
+                Write-Host "       Fix on the server: set 'ntp_mode: ntp' in site.yaml and re-apply pack 17." -ForegroundColor Yellow
+            }
+        }
         if ($abs -lt 2) {
             Write-Host ("  {0}Clock offset vs {1}: {2:N3} s" -f (Mark $true), $dc, $avg) -ForegroundColor Green; $ok++
         } elseif ($abs -lt 300) {

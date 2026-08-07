@@ -160,19 +160,23 @@ def enterprise_profile_xml(ssid: str, servernames: str, tp: str) -> str:
 # two-stage pattern as scripts/bootorder-pxe-first.ps1, which already works on these clients.
 
 
-def _ps_single_quote(s: str) -> str:
-    """Quote a value for a PowerShell single-quoted string (doubling embedded quotes)."""
-    return "'" + str(s).replace("'", "''") + "'"
-
-
 def _profiles_array(entries: list) -> str:
-    """PowerShell array of ordered [name, base64-xml] pairs. An array (not a hashtable)
-    because the connection preference follows the configured order."""
-    rows = ",\n".join(
-        "    @(%s, '%s')" % (_ps_single_quote(name),
-                             base64.b64encode(xml.encode("utf-8")).decode("ascii"))
-        for name, xml in entries)
-    return "$PROFILES = @(\n" + rows + "\n)\n" if rows else "$PROFILES = @()\n"
+    """Ordered list of (name, xml) pairs for the generated script.
+
+    A typed List, NOT `$PROFILES = @( @(a,b) )`: with exactly ONE row PowerShell's array
+    subexpression unrolls the inner array, so $PROFILES would become a flat 2-element string
+    array and $PROFILES[0][0] would yield the first CHARACTER of the SSID. The Enterprise
+    pack always has exactly one profile, so that shape breaks it every time.
+
+    Both fields travel base64-encoded so the generated .ps1 stays pure ASCII even for an
+    SSID with umlauts -- Windows PowerShell reads a BOM-less .ps1 in the system codepage,
+    where a stray non-ASCII byte can terminate a string and break the whole script.
+    """
+    b64 = lambda s: base64.b64encode(s.encode("utf-8")).decode("ascii")  # noqa: E731
+    out = ["$PROFILES = New-Object System.Collections.Generic.List[object]\n"]
+    for name, xml in entries:
+        out.append("$PROFILES.Add(@('%s', '%s'))\n" % (b64(name), b64(xml)))
+    return "".join(out)
 
 
 _WORKER = r'''
@@ -183,7 +187,10 @@ $taskName = 'LMN-GPO-WlanProfiles'
 $stateKey = 'HKLM:\SOFTWARE\lmn-gpo\wlan'
 function Log($m) { try { ('{0}  {1}' -f (Get-Date -Format 's'), $m) | Out-File -LiteralPath $log -Append -Encoding utf8 } catch {} }
 
+function B64Str($s) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s)) }
+
 function Invoke-Reconcile {
+    param([int]$Waits = 30)   # 0 = do not wait (installer fast path, keeps boot quick)
     if (-not $PROFILES.Count) { return }
 
     # 1. WlanSvc must run - every netsh wlan call is a silent no-op while it is stopped.
@@ -191,8 +198,8 @@ function Invoke-Reconcile {
     if (-not $svc) { Log 'WlanSvc not installed (machine has no WLAN feature) -> nothing to do.'; return }
     if ($svc.StartType -ne 'Automatic') { Set-Service -Name WlanSvc -StartupType Automatic; Log 'WlanSvc StartType -> Automatic' }
     if ($svc.Status -ne 'Running') { Start-Service -Name WlanSvc; Log ('WlanSvc was ' + $svc.Status + ', start requested') }
-    for ($i = 0; $i -lt 30 -and (Get-Service WlanSvc).Status -ne 'Running'; $i++) { Start-Sleep -Seconds 2 }
-    if ((Get-Service WlanSvc).Status -ne 'Running') { Log 'ABORT: WlanSvc did not reach Running.'; return }
+    for ($i = 0; $i -lt $Waits -and (Get-Service WlanSvc).Status -ne 'Running'; $i++) { Start-Sleep -Seconds 2 }
+    if ((Get-Service WlanSvc).Status -ne 'Running') { Log 'WlanSvc not running (yet) -> retry at the next repetition.'; return }
 
     # 2. Re-enable a wireless adapter that was administratively disabled - a disabled
     #    adapter is not enumerable, and then there is nowhere to store a profile.
@@ -203,7 +210,7 @@ function Invoke-Reconcile {
 
     # 3. Wait for at least one wireless interface. 'Name' is the label in both EN and DE.
     $ifaces = @()
-    for ($i = 0; $i -lt 30; $i++) {
+    for ($i = 0; $i -le $Waits; $i++) {
         $ifaces = @(netsh wlan show interfaces 2>$null |
                     Select-String -Pattern '^\s*Name\s*:\s*(.+?)\s*$' |
                     ForEach-Object { $_.Matches[0].Groups[1].Value })
@@ -218,7 +225,7 @@ function Invoke-Reconcile {
         #    -- never skip an existing profile, or a PSK rotation would never arrive.
         $added = 0; $failed = 0
         for ($p = 0; $p -lt $PROFILES.Count; $p++) {
-            $name = $PROFILES[$p][0]
+            $name = B64Str $PROFILES[$p][0]
             $f = Join-Path $dir ('.stage-' + [Guid]::NewGuid().ToString('N') + '.xml')
             try {
                 [IO.File]::WriteAllBytes($f, [Convert]::FromBase64String($PROFILES[$p][1]))
@@ -235,7 +242,7 @@ function Invoke-Reconcile {
         # 5. netsh inserts each new profile at the TOP, so import order comes out reversed.
         #    Set the preference explicitly: first configured network = priority 1.
         for ($p = 0; $p -lt $PROFILES.Count; $p++) {
-            & netsh.exe wlan set profileorder name="$($PROFILES[$p][0])" interface="$iface" priority=$($p + 1) 2>&1 | Out-Null
+            & netsh.exe wlan set profileorder name="$(B64Str $PROFILES[$p][0])" interface="$iface" priority=$($p + 1) 2>&1 | Out-Null
         }
         # A present profile still never associates while auto-config is off.
         & netsh.exe wlan set autoconfig enabled=yes interface="$iface" 2>&1 | Out-Null
@@ -246,11 +253,11 @@ function Invoke-Reconcile {
     try {
         if (-not (Test-Path -LiteralPath $stateKey)) { New-Item -Path $stateKey -Force | Out-Null }
         Set-ItemProperty -LiteralPath $stateKey -Name LastRunUtc -Value ((Get-Date).ToUniversalTime().ToString('o')) -Force
-        Set-ItemProperty -LiteralPath $stateKey -Name Managed -Value ([string[]]($PROFILES | ForEach-Object { $_[0] })) -Type MultiString -Force
+        Set-ItemProperty -LiteralPath $stateKey -Name Managed -Value ([string[]]($PROFILES | ForEach-Object { B64Str $_[0] })) -Type MultiString -Force
     } catch {}
 }
 
-if ($Worker) { Invoke-Reconcile; return }
+if ($Worker) { Invoke-Reconcile -Waits 30; return }
 
 # --------------------------------------------------------------------------- #
 # INSTALLER (the GPO startup script). Keep it quick - it runs inside the GPO
@@ -267,42 +274,37 @@ if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
     Copy-Item -LiteralPath $PSCommandPath -Destination $localScript -Force
 } else { Log 'WARN: $PSCommandPath empty - worker cannot be placed locally.' }
 
-$ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$taskXml = Join-Path $dir 'wlan-task.xml'
-$xml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Author>lmn-gpo</Author></RegistrationInfo>
-  <Triggers>
-    <BootTrigger>
-      <Enabled>true</Enabled><Delay>PT30S</Delay>
-      <Repetition><Interval>PT15M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
-    </BootTrigger>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
-  </Triggers>
-  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
-    <Hidden>true</Hidden><Enabled>true</Enabled>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>$ps</Command>
-      <Arguments>-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$localScript" -Worker</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"@
-[IO.File]::WriteAllText($taskXml, $xml, [Text.Encoding]::Unicode)
-(& schtasks.exe /Create /TN $taskName /XML "$taskXml" /F 2>&1) | ForEach-Object { Log ('schtasks /Create: ' + $_) }
+$ps  = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$arg = '-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Worker' -f $localScript
 
-# Fast path: try once inline as well, so a normal boot with a working adapter is done now.
-Invoke-Reconcile
+# Built from cmdlets rather than hand-written XML: the Task Scheduler schema fixes the order
+# of a trigger's child elements, and getting it wrong makes schtasks reject the whole task.
+try {
+    $act = New-ScheduledTaskAction -Execute $ps -Argument $arg
+    $trg = @()
+    $tb = New-ScheduledTaskTrigger -AtStartup
+    $tb.Delay = 'PT30S'
+    $trg += $tb
+    # A repeating time trigger, NOT a repetition on the boot trigger: the task is registered
+    # BY the startup script, i.e. after boot already happened, so a boot trigger would not
+    # fire until the next restart and the 15-minute cycle would never begin.
+    $trg += New-ScheduledTaskTrigger -Once -At (Get-Date).Date `
+                -RepetitionInterval (New-TimeSpan -Minutes 15)
+    $trg += New-ScheduledTaskTrigger -AtLogOn
+    $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+               -StartWhenAvailable -MultipleInstances IgnoreNew -Hidden `
+               -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+    $prn = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -RunLevel Highest
+    Register-ScheduledTask -TaskName $taskName -Action $act -Trigger $trg -Settings $set `
+        -Principal $prn -Force | Out-Null
+    Log ('task registered: ' + $taskName)
+} catch {
+    Log ('task registration FAILED: ' + $_.Exception.Message)
+}
+
+# Fast path, WITHOUT waiting: on a machine that has no wireless adapter (every desktop) the
+# patient version would stall the boot for a minute. The task does the waiting instead.
+Invoke-Reconcile -Waits 0
 Log '--- installer end ---'
 '''
 

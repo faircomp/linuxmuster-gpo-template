@@ -1,3 +1,39 @@
+lmn-gpo (1.9.1) stable; urgency=medium
+
+  * FIX (1.9.0 regression, release-blocking): with exactly ONE Wi-Fi network no profile was
+    ever installed. The generated script emitted `$PROFILES = @( @(name, xml) )`, and
+    PowerShell's array subexpression unrolls a single inner array, so $PROFILES became a flat
+    two-element string array and $PROFILES[0][0] yielded the first CHARACTER of the SSID.
+    13-wlan-enterprise ALWAYS has exactly one profile, so it was broken every time, as was
+    any school with a single PSK network. Reproduced in PowerShell during review. The list is
+    now a typed System.Collections.Generic.List[object] built with .Add(), which has no
+    count-dependent behaviour.
+  * FIX: the SSID was interpolated verbatim into the generated .ps1, so an SSID with an
+    umlaut reintroduced exactly the codepage parse failure fixed in 1.6.1. Both the profile
+    name and the XML now travel base64-encoded and are decoded at runtime; the script stays
+    pure ASCII whatever the SSID contains.
+  * FIX: the installer no longer blocks the boot. It called the full reconcile inline, which
+    waits up to 30x2 s for WlanSvc and again for an interface -- a minute of synchronous
+    startup-script time on every desktop that has no wireless adapter at all. The inline pass
+    now runs with no waiting; the scheduled task does the patient work.
+  * FIX: the 15-minute reconciliation never actually started. The repetition hung off the
+    BootTrigger, but the task is registered BY the startup script, i.e. after boot already
+    happened, so it would not fire until the next restart -- where re-registration reset it
+    again. There is now a separate repeating time trigger. The task is also built with
+    New-ScheduledTaskTrigger/Register-ScheduledTask instead of hand-written XML, which
+    removes the Task Scheduler schema's element-order pitfalls entirely.
+  * apply: ntp_mode is validated. An unrecognised or empty value used to fall through to
+    NT5DS -- the mode 1.8.0 declared broken and silent -- and the inline fallback still said
+    "nt5ds" after the default changed. Anything that is not "ntp" or "nt5ds" now warns and
+    uses "ntp".
+  * lmn-gpo-check.ps1: the W32Time policy-vs-service Type comparison is reported, not
+    asserted. The policy branch and the service's Parameters key are related but not the same
+    setting, so comparing them produced a false failure on correctly configured clients.
+  * README: the feature tables still advertised NT5DS as the time-sync default, contradicting
+    the detailed section since 1.8.0.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 14:00:00 +0000
+
 lmn-gpo (1.9.0) stable; urgency=medium
 
   * Wi-Fi profiles are now delivered by a self-healing scheduled task instead of a one-shot
