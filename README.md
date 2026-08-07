@@ -355,8 +355,14 @@ so it would stay configured off-site and cut the notebook off from the internet.
 ## Wi-Fi: multiple networks & roaming
 
 > **How the two packages split.** `13-wlan-psk` deploys the PSK networks as **all-user
-> (machine) profiles** via a startup script, so LINBO/PXE machines associate **before anyone
-> logs in**. `13-wlan-enterprise` is user-authenticated (PEAP + SSO `preLogon`), so teacher
+> (machine) profiles**, so LINBO/PXE machines associate **before anyone logs in**. Delivery
+> is a **self-healing scheduled task** (`LMN-GPO-WlanProfiles`, boot + every 15 min + logon),
+> not a one-shot at boot: `netsh` needs a wireless *interface*, the profile store lives per
+> interface inside `WlanSvc`, and `WlanSvc` is trigger-started -- so a plain boot-time import
+> silently does nothing when the adapter is not up yet. The task also starts `WlanSvc`,
+> re-enables a disabled adapter and sets the connection order. Log:
+> `%SystemRoot%\Temp\lmn-gpo-wlan.log`.
+> The order of `wlan_psk_networks` is the roaming preference (first = priority 1). `13-wlan-enterprise` is user-authenticated (PEAP + SSO `preLogon`), so teacher
 > laptops connect **at** login, not before. Both exclusions follow `teachernb` (by default the
 > `d_nopxe` device group).
 >
@@ -998,8 +1004,15 @@ ist — und weil der Proxy im echten WinINET-Schlüssel landet (nicht unter `…
 ## WLAN: mehrere Netze & Roaming
 
 > **Aufteilung der zwei Pakete.** `13-wlan-psk` verteilt die PSK-Netze als **All-User-Profile
-> (Maschinenprofile)** per Startskript — LINBO/PXE-Rechner verbinden sich also **vor dem
-> Login**. `13-wlan-enterprise` authentifiziert den Benutzer (PEAP + SSO `preLogon`), Lehrer-
+> (Maschinenprofile)**, LINBO/PXE-Rechner verbinden sich also **vor dem Login**. Ausgeliefert
+> wird per **selbstheilender geplanter Aufgabe** (`LMN-GPO-WlanProfiles`, Boot + alle 15 Min +
+> Anmeldung), nicht als Einmalschuss beim Start: `netsh` braucht ein WLAN-*Interface*, der
+> Profilspeicher liegt pro Interface in `WlanSvc`, und `WlanSvc` ist trigger-gestartet — ein
+> reiner Boot-Import tut also stillschweigend nichts, wenn der Adapter noch nicht da ist. Die
+> Aufgabe startet zusätzlich `WlanSvc`, aktiviert einen deaktivierten Adapter und setzt die
+> Verbindungsreihenfolge (erstes Netz aus `wlan_psk_networks` = Priorität 1). Log:
+> `%SystemRoot%\Temp\lmn-gpo-wlan.log`.
+> `13-wlan-enterprise` authentifiziert den Benutzer (PEAP + SSO `preLogon`), Lehrer-
 > Notebooks verbinden sich daher **beim** Login, nicht davor. Beide Ausschlüsse folgen
 > `teachernb` (standardmäßig die Gerätegruppe `d_nopxe`).
 >

@@ -169,9 +169,49 @@ Write-Head "Windows activation"
 
 # --- 6) Wi-Fi (profiles / current connection / RADIUS CA) -------------------
 Write-Head "Wi-Fi profiles"
+# Explain a missing profile instead of lumping every cause into "no adapter". The four
+# states below are genuinely different and need different action.
+function Show-WlanDiagnosis {
+    $svc = Get-Service -Name WlanSvc -ErrorAction SilentlyContinue
+    $nics = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+              $_.PhysicalMediaType -eq 'Native 802.11' -or $_.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11' })
+    if (-not $svc) {
+        Write-Host "  [--] WlanSvc is not installed - this machine has no WLAN feature (desktop/VM)." -ForegroundColor DarkGray
+    } elseif (-not $nics) {
+        Write-Host "  [--] No wireless adapter present. Profiles cannot be stored: the WLAN" -ForegroundColor DarkGray
+        Write-Host "       profile store lives per interface inside WlanSvc." -ForegroundColor DarkGray
+    } else {
+        foreach ($n in $nics) {
+            $bad = $n.Status -eq 'Disabled'
+            Write-Host ("  {0}adapter {1} - {2}" -f (Mark (-not $bad)), $n.Name, $n.Status) -ForegroundColor $(if ($bad) { "Red" } else { "Green" })
+            if ($bad) { Write-Host "       A disabled adapter is not enumerable, so no profile can be stored on it." -ForegroundColor Red }
+        }
+        if ($svc.Status -ne 'Running') {
+            Write-Host ("  [!!] WlanSvc is {0} - every 'netsh wlan' call is a silent no-op." -f $svc.Status) -ForegroundColor Red
+            $script:fail++
+        }
+    }
+    # The self-healing task is what actually installs the profiles (pack 13-wlan-*).
+    $t = Get-ScheduledTask -TaskName 'LMN-GPO-WlanProfiles' -ErrorAction SilentlyContinue
+    if ($t) {
+        $info = $t | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+        Write-Host ("  [OK] task LMN-GPO-WlanProfiles present ({0}); last run {1}, result 0x{2:X}" -f `
+            $t.State, $info.LastRunTime, $info.LastTaskResult) -ForegroundColor Green
+    } else {
+        Write-Host "  [--] task LMN-GPO-WlanProfiles not registered - the 13-wlan-* GPO has not" -ForegroundColor DarkGray
+        Write-Host "       run its startup script yet (they run at BOOT; a gpupdate is not enough)." -ForegroundColor DarkGray
+    }
+    $wlog = Join-Path $env:SystemRoot "Temp\lmn-gpo-wlan.log"
+    if (Test-Path -LiteralPath $wlog) {
+        Write-Host ("  log ({0}), last lines:" -f $wlog) -ForegroundColor DarkGray
+        Get-Content -LiteralPath $wlog -Tail 4 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    }
+}
+
 $rawProfiles = netsh wlan show profiles 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
-    Write-Host "  [--] No Wi-Fi service/adapter (e.g. desktop/VM) - Wi-Fi check skipped." -ForegroundColor DarkGray
+    Write-Host "  [--] 'netsh wlan show profiles' returned nothing. Why:" -ForegroundColor Yellow
+    Show-WlanDiagnosis
 } else {
     # Distinguish ALL-USER (machine) profiles from per-user ones: only an all-user profile
     # connects BEFORE anyone logs on, which is the whole point of packages 13-wlan-*. The
@@ -200,13 +240,8 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
             Write-Host "    -> the 13-wlan-psk GPO did not reach this computer at all: not linked," -ForegroundColor Yellow
             Write-Host "       not configured (wlan_psk_networks empty), or gpupdate not run yet." -ForegroundColor Yellow
         } else {
-            Write-Host "    -> the GPO applied, but the startup script has not run yet." -ForegroundColor Yellow
-            Write-Host "       Machine startup scripts run at BOOT - a gpupdate is not enough. Reboot." -ForegroundColor Yellow
-            $svc = Get-Service -Name WlanSvc -ErrorAction SilentlyContinue
-            if ($svc -and $svc.Status -ne 'Running') {
-                Write-Host ("       Also: the WLAN AutoConfig service is {0} - netsh cannot import a" -f $svc.Status) -ForegroundColor Red
-                Write-Host "       profile while it is stopped." -ForegroundColor Red
-            }
+            Write-Host "    -> the GPO applied; checking the delivery chain:" -ForegroundColor Yellow
+            Show-WlanDiagnosis
         }
     }
     foreach ($p in $wlanProfiles) {

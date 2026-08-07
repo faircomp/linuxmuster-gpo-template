@@ -45,6 +45,23 @@ jobs:
           PY
           echo "sanity ok"
 
+      - name: Generate the dynamic PowerShell (Wi-Fi) for syntax checking
+        run: |
+          # lmn_gpo/wlan.py BUILDS a .ps1 at apply time; it never exists in scripts/, so the
+          # parser check below would not see it -- yet it runs unattended on every client.
+          mkdir -p /tmp/gen-ps
+          python3 - <<'PY'
+          import sys, base64; sys.path.insert(0, '.')
+          from lmn_gpo import wlan
+          open('/tmp/gen-ps/wlan-psk.ps1', 'w').write(
+              wlan.build_psk_script([{'ssid': "A's Netz", 'psk': 'passphrase123'},
+                                     {'ssid': 'Zweites Netz', 'psk': 'passphrase456'}]))
+          # a syntactically valid but meaningless DER blob is enough for a parse check
+          open('/tmp/gen-ps/wlan-ent.ps1', 'w').write(
+              wlan.build_enterprise_script('Lehrer', 'radius.example.org', b'\x30\x03\x02\x01\x00'))
+          print('generated 2 scripts')
+          PY
+
       - name: PowerShell syntax check (real parser)
         shell: pwsh
         run: |
@@ -52,7 +69,9 @@ jobs:
           # catch things like \" -- which is NOT an escape in PowerShell: the backslash
           # stays literal and the quote ENDS the string, so the rest is parsed as code.
           $failed = $false
-          foreach ($f in Get-ChildItem -Path scripts -Filter *.ps1) {
+          $files = @(Get-ChildItem -Path scripts -Filter *.ps1) +
+                   @(Get-ChildItem -Path /tmp/gen-ps -Filter *.ps1 -ErrorAction SilentlyContinue)
+          foreach ($f in $files) {
               $errors = $null
               [void][System.Management.Automation.Language.Parser]::ParseFile(
                   $f.FullName, [ref]$null, [ref]$errors)

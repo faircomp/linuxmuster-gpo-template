@@ -1,3 +1,42 @@
+lmn-gpo (1.9.0) stable; urgency=medium
+
+  * Wi-Fi profiles are now delivered by a self-healing scheduled task instead of a one-shot
+    boot import. Observed in the field: a LINBO notebook had the 13-wlan-psk GPO applied and
+    a wireless interface present, yet no profile at all. Cause chain, documented by
+    Microsoft: netsh wlan add profile wraps WlanSetProfile, which REQUIRES a wireless
+    interface GUID; the profile store lives per interface inside WlanSvc; WlanEnumInterfaces
+    only sees interfaces that are present AND enabled; and WlanSvc is trigger-started. A GPO
+    startup script therefore routinely runs before the NIC has arrived, netsh without
+    interface= adds the profile to "all wireless interfaces" (the empty set), and the old
+    script hid it completely behind SilentlyContinue plus | Out-Null without ever checking
+    $LASTEXITCODE.
+    The startup script now installs LMN-GPO-WlanProfiles (boot + every 15 min + logon), the
+    same two-stage pattern already used by the boot-order pack. The worker starts WlanSvc and
+    sets it to Automatic, re-enables an administratively disabled adapter, waits for an
+    interface, imports every profile per interface with interface= set, checks the exit code
+    and logs failures to %SystemRoot%\Temp\lmn-gpo-wlan.log.
+    Note the honest limit: profiles cannot exist while no adapter is present or enabled,
+    because the store is per interface. The guarantee is "present within ~15 minutes of an
+    adapter being available".
+  * Wi-Fi: profiles are re-imported on every reconcile rather than skipped when present, so
+    a rotated passphrase actually reaches provisioned clients. A per-user profile of the same
+    name (which makes WlanSetProfile fail with ERROR_ALREADY_EXISTS even with overwrite) is
+    now deleted and the import retried. Connection priority is set explicitly, because netsh
+    inserts each new profile at the TOP and the import order otherwise comes out reversed.
+    The local copy under ProgramData is ACLed to SYSTEM+Administrators by SID, not by the
+    localized group name.
+  * scripts_ext: delete .ps1 files a GPO no longer references. A renamed script used to
+    linger in sysvol forever -- unreferenced but world-readable, which for the Wi-Fi pack
+    meant an old passphrase stayed exposed. Found live: lmgpo-wlan-psk.ps1 from before the
+    1.1.0 rename was still sitting next to the current script.
+  * lmn-gpo-check.ps1: replace "No Wi-Fi service/adapter" with a real diagnosis covering the
+    four distinct states (no WLAN feature, no adapter, adapter disabled, WlanSvc stopped),
+    plus the state of the LMN-GPO-WlanProfiles task and the tail of its log.
+  * The release workflow now also generates the DYNAMIC Wi-Fi scripts from lmn_gpo/wlan.py
+    and parses them, so the PowerShell that only exists at apply time is syntax-checked too.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 13:00:00 +0000
+
 lmn-gpo (1.8.0) stable; urgency=medium
 
   * Time sync now defaults to plain NTP (ntp_mode: ntp) instead of NT5DS. Field-verified

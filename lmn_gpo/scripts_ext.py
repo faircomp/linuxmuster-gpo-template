@@ -61,11 +61,21 @@ class ScriptsExt:
         if os.path.exists(ini_path):
             def _n(s):
                 return s.replace("\r\n", "\n")
+            def _no_stale():
+                """True when no unreferenced .ps1 is left over in the script dirs."""
+                for rel, _name, scr in sections:
+                    d = os.path.join(gpo_dir, rel)
+                    keep = {s["file"] for s in scr}
+                    if any(f.lower().endswith(".ps1") and f not in keep
+                           for f in os.listdir(d)):
+                        return False
+                return True
+
             try:
                 unchanged = _n(open(ini_path, encoding="utf-16").read()) == _n(ini) and all(
                     os.path.exists(p := os.path.join(gpo_dir, rel, s["file"]))
                     and _n(open(p, encoding="utf-8").read()) == _n(s["content"])
-                    for rel, _name, scr in sections for s in scr)
+                    for rel, _name, scr in sections for s in scr) and _no_stale()
             except Exception:
                 unchanged = False
             if unchanged:
@@ -80,6 +90,18 @@ class ScriptsExt:
                 with open(os.path.join(d, s["file"]), "w",
                           encoding="utf-8", newline="\r\n") as fh:
                     fh.write(s["content"])
+            # Drop .ps1 files this GPO no longer references. Without this a renamed script
+            # lingers in sysvol forever - unreferenced but still world-readable, which for
+            # the Wi-Fi pack means an old passphrase stays exposed. The whole directory
+            # belongs to a GPO this toolkit created, so nothing foreign can be here.
+            keep = {s["file"] for s in scr}
+            for stale in os.listdir(d):
+                if stale.lower().endswith(".ps1") and stale not in keep:
+                    try:
+                        os.unlink(os.path.join(d, stale))
+                        self.engine._log(f"    removed stale script: {rel}/{stale}")
+                    except OSError:
+                        pass
         # psscripts.ini is UTF-16LE with BOM (as Windows writes it).
         with open(ini_path, "w", encoding="utf-16") as fh:
             fh.write(ini)
