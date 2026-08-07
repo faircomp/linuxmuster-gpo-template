@@ -21,10 +21,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sanity check (Python compiles, catalog parses)
+      - name: Sanity check (Python compiles, catalog parses, PowerShell is ASCII)
         run: |
           python3 -m py_compile lmn_gpo/*.py
           python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in sorted(glob.glob('catalog/*.yaml'))]"
+          # Windows PowerShell 5.1 reads a .ps1 without BOM in the system codepage. A UTF-8
+          # em-dash then decodes to a curly quote, which ENDS the string early and breaks the
+          # whole script on the client. Keep every shipped .ps1 pure ASCII.
+          python3 - <<'PY'
+          import glob, re, sys
+          bad = {}
+          for f in sorted(glob.glob('scripts/*.ps1')):
+              s = open(f, encoding='utf-8').read()
+              chars = sorted({c for c in s if ord(c) > 127})
+              if chars:
+                  bad[f] = chars
+          if bad:
+              for f, chars in bad.items():
+                  print(f"::error file={f}::non-ASCII in a shipped PowerShell script: "
+                        + ", ".join(f"{c!r} U+{ord(c):04X}" for c in chars))
+              sys.exit(1)
+          print("powershell: pure ASCII ok")
+          PY
           echo "sanity ok"
 
       - name: Build .deb

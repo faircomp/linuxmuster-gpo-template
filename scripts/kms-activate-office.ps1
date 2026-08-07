@@ -1,4 +1,4 @@
-# kms-activate-office.ps1 — Activate volume-licensed Microsoft Office against the KMS host
+# kms-activate-office.ps1 - Activate volume-licensed Microsoft Office against the KMS host
 # set via GPO (pack 09b-kms-office). Computer startup script (lmn-gpo).
 #
 # WHY CIM AND NOT ospp.vbs: ospp.vbs exits 0 on every path (each exit is a bare
@@ -13,8 +13,8 @@
 # Log: %SystemRoot%\Temp\lmn-gpo-office-activation.log
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Office application ID in SoftwareLicensingProduct — covers Office 2013 through LTSC 2024,
-# including volume-licensed Project and Visio. (Windows is 55c92734-…, a separate product.)
+# Office application ID in SoftwareLicensingProduct - covers Office 2013 through LTSC 2024,
+# including volume-licensed Project and Visio. (Windows is 55c92734-..., a separate product.)
 $OfficeAppId   = '0ff1ce15-a989-479d-af46-f275c6370663'
 $MinRetryHours = 4
 $OsppKey       = 'HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform'
@@ -31,7 +31,7 @@ $products = @(Get-CimInstance -ClassName SoftwareLicensingProduct -OperationTime
     Where-Object { $_.Description -like '*VOLUME_KMSCLIENT*' })
 if ($products.Count -eq 0) { return }   # no volume-licensed Office on this machine
 
-# LicenseStatus 1 = Licensed. A freshly installed GVLK Office sits at 2 (OOBGrace), NOT 0 —
+# LicenseStatus 1 = Licensed. A freshly installed GVLK Office sits at 2 (OOBGrace), NOT 0 -
 # so the gate must be "-ne 1"; testing for 0 would make this script a permanent no-op.
 $pending = @($products | Where-Object { $_.LicenseStatus -ne 1 })
 if ($pending.Count -eq 0) { return }    # already activated -> real no-op, no network access
@@ -50,7 +50,7 @@ $kmsPort = (Get-ItemProperty -LiteralPath $OsppKey -Name KeyManagementServicePor
 if (-not $kmsHost) { $kmsHost = $pending[0].DiscoveredKeyManagementServiceMachineName }
 if (-not $kmsPort) { $kmsPort = 1688 }
 
-# At boot the network is frequently not up yet — that is the usual cause of 0xC004F074
+# At boot the network is frequently not up yet - that is the usual cause of 0xC004F074
 # ("no KMS could be contacted"). Probe first and leave quietly instead of logging a scary
 # failure; the client retries on its own every two hours.
 if ($kmsHost) {
@@ -59,7 +59,7 @@ if ($kmsHost) {
     try { $reachable = $tcp.ConnectAsync($kmsHost, [int]$kmsPort).Wait(3000) -and $tcp.Connected }
     catch { $reachable = $false }
     finally { $tcp.Dispose() }
-    if (-not $reachable) { Log ("KMS host {0}:{1} not reachable yet — skipped." -f $kmsHost, $kmsPort); return }
+    if (-not $reachable) { Log ("KMS host {0}:{1} not reachable yet - skipped." -f $kmsHost, $kmsPort); return }
 }
 
 try { if (-not (Test-Path -LiteralPath $StateKey)) { New-Item -Path $StateKey -Force | Out-Null } } catch {}

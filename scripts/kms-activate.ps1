@@ -1,4 +1,4 @@
-# kms-activate.ps1 — Activate Windows against the KMS host set via GPO.
+# kms-activate.ps1 - Activate Windows against the KMS host set via GPO.
 # Computer startup script (linuxmuster-gpo-template). Idempotent & quiet: only
 # activates when no valid Windows license is active yet. The check is
 # CIM-based (language-neutral), NOT via the display text of slmgr /dli.

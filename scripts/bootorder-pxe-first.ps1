@@ -1,4 +1,4 @@
-# bootorder-pxe-first.ps1 — UEFI boot order: network/PXE first (-> LINBO), Windows Boot
+# bootorder-pxe-first.ps1 - UEFI boot order: network/PXE first (-> LINBO), Windows Boot
 # Manager last. Otherwise Windows pushes its boot manager back to the top after every start.
 #
 # WHY TWO-STAGE (scheduled task):
@@ -7,7 +7,7 @@
 # also for {bootmgr}). So no bcdedit access to the UEFI NVRAM is possible. Solution:
 #  - INSTALLER mode (default, called by the GPO): copies this script locally and registers a
 #    scheduled task that runs it as SYSTEM with HIGHEST privileges (full token, incl.
-#    SeSystemEnvironmentPrivilege) at system start — and starts it once immediately.
+#    SeSystemEnvironmentPrivilege) at system start - and starts it once immediately.
 #  - WORKER mode (-Worker, called by the task): does the actual bcdedit reorder.
 # Everything is logged to %SystemRoot%\Temp\lmn-gpo-bootorder.log.
 param([switch]$Worker)
@@ -50,13 +50,13 @@ public static string Enable(string priv) {
     $fwEnum = (& $bcd /enum "{fwbootmgr}" 2>&1 | Out-String)
     Log ("bcdedit /enum {fwbootmgr} (raw):`n" + $fwEnum.Trim())
     if ($fwEnum -notmatch 'fwbootmgr') {
-        # NOTE: the German 'erforderliches Recht' MUST stay — it matches localized bcdedit output.
-        if ($fwEnum -match 'erforderliches Recht|required privilege|privilege is not held') { Log 'ABORT: still a privilege error — even the task context lacks the privilege (very unusual).' }
-        else { Log 'ABORT: {fwbootmgr} not readable (maybe Legacy/BIOS) — check the raw output above.' }
+        # NOTE: the German 'erforderliches Recht' MUST stay - it matches localized bcdedit output.
+        if ($fwEnum -match 'erforderliches Recht|required privilege|privilege is not held') { Log 'ABORT: still a privilege error - even the task context lacks the privilege (very unusual).' }
+        else { Log 'ABORT: {fwbootmgr} not readable (maybe Legacy/BIOS) - check the raw output above.' }
         return
     }
 
-    # Network/PXE pattern (case-insensitive). 'Netzwerk' MUST stay — it matches localized entries.
+    # Network/PXE pattern (case-insensitive). 'Netzwerk' MUST stay - it matches localized entries.
     $netPattern = '(?i)\bIPV?4\b|\bIPV?6\b|\bIP4\b|\bIP6\b|PXE|Network|Netzwerk|\bLAN\b|Ethernet'
     $curId = $null; $net = New-Object System.Collections.Generic.List[object]; $bootmgrId = $null
     foreach ($line in (& $bcd /enum firmware 2>$null)) {
@@ -104,7 +104,7 @@ try {
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         Copy-Item -LiteralPath $PSCommandPath -Destination $localScript -Force
         Log ('script copied locally -> ' + $localScript)
-    } else { Log 'WARN: $PSCommandPath empty — worker script cannot be placed locally.' }
+    } else { Log 'WARN: $PSCommandPath empty - worker script cannot be placed locally.' }
 } catch { Log ('copy error: ' + $_.Exception.Message) }
 
 try {

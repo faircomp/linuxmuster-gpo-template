@@ -60,7 +60,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "WARNING: not started as Administrator — computer GPOs, firewall" -ForegroundColor Yellow
+    Write-Host "WARNING: not started as Administrator - computer GPOs, firewall" -ForegroundColor Yellow
     Write-Host "         and group checks may be incomplete.`n" -ForegroundColor Yellow
 }
 
@@ -123,7 +123,7 @@ $checks = @(
     @{ N="Firefox first-run off";    P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
     @{ N="KMS host (Windows)";       P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }
 )
-Write-Host "  (Note: some apply filtered — e.g. hibernation NOT on noPXE, loopback/hotspot per pack.)" -ForegroundColor DarkGray
+Write-Host "  (Note: some apply filtered - e.g. hibernation NOT on noPXE, loopback/hotspot per pack.)" -ForegroundColor DarkGray
 foreach ($c in $checks) { Test-Reg $c }
 
 # --- 3) Firewall rules (LMN-*) ----------------------------------------------
@@ -134,11 +134,11 @@ else { Write-Host "  [--] no LMN firewall rules found (package 06 may not be app
 
 # --- 4) Local groups: admins + RDP users ------------------------------------
 Write-Head "Local groups (domain admins / RDP)"
-# The group names below are the localized Windows group names — keep both DE and EN.
+# The group names below are the localized Windows group names - keep both DE and EN.
 foreach ($grp in @("Administratoren","Administrators","Remotedesktopbenutzer","Remote Desktop Users")) {
     $m = net localgroup "$grp" 2>$null
     if ($LASTEXITCODE -eq 0) {
-        # -notmatch filters localized 'net localgroup' header/footer lines (DE + EN) — keep as is.
+        # -notmatch filters localized 'net localgroup' header/footer lines (DE + EN) - keep as is.
         $names = $m | Where-Object { $_ -and $_ -notmatch "Alias|Kommentar|Comment|Mitglied|Members|---|erfolgreich|command completed" }
         Write-Host ("  {0}:" -f $grp) -ForegroundColor Cyan
         $names | ForEach-Object { if ($_.Trim()) { Write-Host "     $_" } }
@@ -147,18 +147,18 @@ foreach ($grp in @("Administratoren","Administrators","Remotedesktopbenutzer","R
 
 # --- 5) Windows activation (KMS) --------------------------------------------
 Write-Head "Windows activation"
-# 'Lizenz|aktivier' match localized slmgr output — keep.
+# 'Lizenz|aktivier' match localized slmgr output - keep.
 (cscript //nologo "$env:windir\System32\slmgr.vbs" /dli 2>$null | Select-String -Pattern "Lizenz|License|aktivier|activat") | ForEach-Object { Write-Host "  $_" }
 
 # --- 6) Wi-Fi (profiles / current connection / RADIUS CA) -------------------
 Write-Head "Wi-Fi profiles"
 $rawProfiles = netsh wlan show profiles 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
-    Write-Host "  [--] No Wi-Fi service/adapter (e.g. desktop/VM) — Wi-Fi check skipped." -ForegroundColor DarkGray
+    Write-Host "  [--] No Wi-Fi service/adapter (e.g. desktop/VM) - Wi-Fi check skipped." -ForegroundColor DarkGray
 } else {
     # Distinguish ALL-USER (machine) profiles from per-user ones: only an all-user profile
     # connects BEFORE anyone logs on, which is the whole point of packages 13-wlan-*. The
-    # DE strings match localized netsh output and MUST stay. Test 'all user' FIRST — the
+    # DE strings match localized netsh output and MUST stay. Test 'all user' FIRST - the
     # English per-user label is a substring of the all-user one.
     $allUser = @{}
     foreach ($line in $rawProfiles) {
@@ -182,12 +182,12 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
     }
     if ($wlanProfiles -and ($allUser.Values -contains $false)) {
         Write-Host "  Note: a per-user profile shadows the machine profile for that user. It is" -ForegroundColor Yellow
-        Write-Host "        usually a manual 'connect' from the Wi-Fi flyout — remove it with" -ForegroundColor Yellow
+        Write-Host "        usually a manual 'connect' from the Wi-Fi flyout - remove it with" -ForegroundColor Yellow
         Write-Host "        'netsh wlan delete profile name=\"<SSID>\"' (as that user)." -ForegroundColor Yellow
     }
     Write-Head "Wi-Fi connection (current)"
     $iface = netsh wlan show interfaces 2>$null
-    # 'Authentifiz' matches localized netsh output — keep.
+    # 'Authentifiz' matches localized netsh output - keep.
     $shown = ($iface | Select-String -Pattern 'SSID|State|Status|Authentifiz|Authentication|Signal')
     if ($shown) { $shown | ForEach-Object { Write-Host "     $($_.Line.Trim())" } }
     else { Write-Host "     (not connected)" -ForegroundColor DarkGray }
@@ -200,7 +200,7 @@ if ($WlanCaSubject) {
 }
 
 # --- 6b) User policies (HKCU): student lockdown & role proxy ----------------
-Write-Head "User policies (HKCU) — apply to students only (role-student)"
+Write-Head "User policies (HKCU) - apply to students only (role-student)"
 Write-Host "  Run as the logged-in STUDENT (not elevated), otherwise you see your own view." -ForegroundColor DarkGray
 $uchecks = @(
     @{ N="Proxy not changeable";      P="HKCU:\SOFTWARE\Policies\Microsoft\Internet Explorer\Control Panel"; K="Proxy"; E=1 }
@@ -240,12 +240,12 @@ if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient
 # Runtime status (read-only): does the machine actually sync from the server?
 $src = ((& w32tm /query /source 2>&1) -join ' ').Trim()
 if (-not $src) { Write-Host "  [--] W32Time service not responding." -ForegroundColor DarkGray }
-# 'Freilaufend|Lokale CMOS' match localized w32tm output — keep.
+# 'Freilaufend|Lokale CMOS' match localized w32tm output - keep.
 elseif ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
     Write-Host ("  {0}Time source: {1}  (NOT synchronised with the server!)" -f (Mark $false), $src) -ForegroundColor Red; $fail++
 } else { Write-Host ("  {0}Time source: {1}" -f (Mark $true), $src) -ForegroundColor Green; $ok++ }
 $st = & w32tm /query /status 2>&1
-# 'Quelle|Abweichung|Letzte erfolgreiche' match localized w32tm output — keep.
+# 'Quelle|Abweichung|Letzte erfolgreiche' match localized w32tm output - keep.
 ($st | Select-String -Pattern 'Stratum|Source|Quelle|Offset|Abweichung|Last Successful|Letzte erfolgreiche|Poll') | ForEach-Object { Write-Host "     $($_.Line.Trim())" }
 
 # --- 6f) Point and Print (printer-driver install from the print server, pack 18) ---
@@ -259,9 +259,9 @@ if (Test-Path $pnpKey) {
     Test-Reg @{ N="Students may install driver";   P=$pnpKey; K="RestrictDriverInstallationToAdministrators"; E=0 }
     $srv = (Get-ItemProperty $pnpKey -Name ServerList -ErrorAction SilentlyContinue).ServerList
     if ($srv) { Write-Host ("  [OK] Trusted print servers: {0}" -f $srv) -ForegroundColor Green; $ok++ }
-    else      { Write-Host "  [!!] ServerList empty — no trusted print server!" -ForegroundColor Red; $fail++ }
+    else      { Write-Host "  [!!] ServerList empty - no trusted print server!" -ForegroundColor Red; $fail++ }
     Write-Host "  Note: a ServerList entry MUST match the server in the printer path (\\SERVER\..)" -ForegroundColor DarkGray
-    Write-Host "        — a short-name-vs-FQDN mismatch blocks the silent driver install." -ForegroundColor DarkGray
+    Write-Host "        - a short-name-vs-FQDN mismatch blocks the silent driver install." -ForegroundColor DarkGray
 } else { Write-Host "  [--] No Point-and-Print policy (package 18 not applied / not enabled)." -ForegroundColor DarkGray }
 
 # --- 6g) Office activation (volume licence / KMS, pack 09b) -----------------
@@ -308,5 +308,5 @@ $changed = @()
 if (-not $NoReport) { $changed += "HTML report $ReportPath written" }
 if ($Refresh)       { $changed += "gpupdate /force run (requested)" }
 if ($changed) { Write-Host ("No system/GPO settings changed. Output: " + ($changed -join "; ") + ".") -ForegroundColor DarkGray }
-else          { Write-Host "Read-only — nothing changed, no file written." -ForegroundColor DarkGray }
+else          { Write-Host "Read-only - nothing changed, no file written." -ForegroundColor DarkGray }
 exit $(if ($fail) { 1 } else { 0 })

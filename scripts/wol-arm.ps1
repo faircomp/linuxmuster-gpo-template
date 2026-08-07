@@ -1,9 +1,9 @@
-# wol-arm.ps1 — Arm Wake-on-LAN (school fleet).
+# wol-arm.ps1 - Arm Wake-on-LAN (school fleet).
 # Computer startup script (linuxmuster-gpo-template). Idempotent & robust: errors
 # from individual adapters/cmdlets are ignored.
 #
 # Note: Fast Startup is disabled via registry policy (HiberbootEnabled=0, package
-# 05-wol) for ALL devices — that is enough for a real S5 and therefore for WoL.
+# 05-wol) for ALL devices - that is enough for a real S5 and therefore for WoL.
 # Hibernate is deliberately NOT disabled here, but separately in package
 # 05b-ruhezustand-aus (which excludes noPXE devices/notebooks via a deny filter,
 # so they keep their hibernate state).

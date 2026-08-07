@@ -1,3 +1,19 @@
+lmn-gpo (1.6.1) stable; urgency=medium
+
+  * FIX: the shipped PowerShell scripts did not parse on Windows PowerShell 5.1. Without a
+    byte-order mark, powershell.exe reads a .ps1 in the system codepage, so a UTF-8 em-dash
+    (E2 80 94) decoded to a curly closing quote under CP1252 and ENDED the enclosing string
+    early -- producing a cascade of "missing )" / "string is missing the terminator" parse
+    errors and aborting the script. lmn-gpo-check.ps1 was unusable, and
+    bootorder-pxe-first.ps1 carried the same characters inside strings, so the boot-order
+    startup script was affected on clients too.
+    All scripts/*.ps1 (and the generator in lmn_gpo/wlan.py) are now pure ASCII, which makes
+    them independent of the client's codepage entirely.
+  * The release workflow now fails if any shipped .ps1 contains a non-ASCII character, so
+    this cannot regress.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 08:00:00 +0000
+
 lmn-gpo (1.6.0) stable; urgency=medium
 
   * New automatic prerequisite check. Applier.preflight() resolves every security-filter
