@@ -225,7 +225,7 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
     if ($wlanProfiles -and ($allUser.Values -contains $false)) {
         Write-Host "  Note: a per-user profile shadows the machine profile for that user. It is" -ForegroundColor Yellow
         Write-Host "        usually a manual 'connect' from the Wi-Fi flyout - remove it with" -ForegroundColor Yellow
-        Write-Host "        'netsh wlan delete profile name=\"<SSID>\"' (as that user)." -ForegroundColor Yellow
+        Write-Host "        netsh wlan delete profile name=SSID   (run as that user)" -ForegroundColor Yellow
     }
     Write-Head "Wi-Fi connection (current)"
     $iface = netsh wlan show interfaces 2>$null

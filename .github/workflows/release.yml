@@ -45,6 +45,28 @@ jobs:
           PY
           echo "sanity ok"
 
+      - name: PowerShell syntax check (real parser)
+        shell: pwsh
+        run: |
+          # Parse every shipped script with PowerShell's own parser. Static greps cannot
+          # catch things like \" -- which is NOT an escape in PowerShell: the backslash
+          # stays literal and the quote ENDS the string, so the rest is parsed as code.
+          $failed = $false
+          foreach ($f in Get-ChildItem -Path scripts -Filter *.ps1) {
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $f.FullName, [ref]$null, [ref]$errors)
+              if ($errors -and $errors.Count) {
+                  $failed = $true
+                  foreach ($e in $errors) {
+                      Write-Host "::error file=scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+                  }
+              } else {
+                  Write-Host "ok: $($f.Name)"
+              }
+          }
+          if ($failed) { exit 1 }
+
       - name: Build .deb
         run: |
           sh packaging/build-deb.sh

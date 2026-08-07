@@ -1,3 +1,16 @@
+lmn-gpo (1.7.1) stable; urgency=medium
+
+  * FIX: lmn-gpo-check.ps1 aborted with "The operator '<' is reserved for future use" at the
+    per-user Wi-Fi profile hint. The line used \" to embed a quote, but \" is not an escape
+    in PowerShell -- the backslash stays literal and the quote ENDS the string, so <SSID> was
+    then parsed as code. The hint no longer embeds quotes at all.
+  * The release workflow now parses every shipped .ps1 with PowerShell's own parser
+    (System.Management.Automation.Language.Parser) and fails with file and line on any syntax
+    error. The previous static checks could not catch this class of bug: the line had an even
+    number of quotes and was pure ASCII, so both existing guards passed.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 10:00:00 +0000
+
 lmn-gpo (1.7.0) stable; urgency=medium
 
   * lmn-gpo-check.ps1: the time check now MEASURES instead of only reading configuration.
