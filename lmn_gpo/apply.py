@@ -59,7 +59,11 @@ DEFAULT_ANSWERS = {
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
     "bootorder_pxe_first": False,      # opt-in: UEFI boot order network/PXE first (startup script)
     "display_off_seconds": 0,          # display-off timeout in seconds; 0 = never switch off
-    "ntp_mode": "nt5ds",               # time-sync mode: nt5ds (domain/Samba way) | ntp (explicit server)
+    # Time sync: "ntp" (explicit NTP against the server) is the default because the
+    # "domain way" (nt5ds) needs MS-SNTP replies signed via Samba's ntp_signd socket, and
+    # that chain is broken on a stock linuxmuster/Ubuntu 24.04 DC (see docs/RESEARCH.md).
+    # A client then rejects every reply and sits at "Local CMOS Clock" forever.
+    "ntp_mode": "ntp",                 # ntp (explicit server, works out of the box) | nt5ds (signed, needs a working ntp_signd)
     "pointandprint_enabled": False,    # opt-in: allow non-admin Point-and-Print driver install
     "printservers_extra": [],          # extra/external print server FQDNs to also trust
 }

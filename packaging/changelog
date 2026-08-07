@@ -1,3 +1,22 @@
+lmn-gpo (1.8.0) stable; urgency=medium
+
+  * Time sync now defaults to plain NTP (ntp_mode: ntp) instead of NT5DS. Field-verified
+    failure: with NT5DS a domain member REJECTS any reply that is not signed with its
+    computer session key, a Samba DC can only sign via ntpd's ntpsigndsocket, and that chain
+    is broken on a stock Ubuntu 24.04 DC. The client then silently keeps "Local CMOS Clock"
+    and drifts past the 5-minute Kerberos limit while the GPO itself reports as applied.
+    Seen on a production site: correct GPO, healthy secure channel, w32tm /stripchart against
+    the DC returning valid offsets -- and the clock still 307 s off.
+    Two independent server-side causes, both documented in docs/RESEARCH.md: ntpd applies
+    only the MOST SPECIFIC matching restrict entry and REPLACES its flags, so a bare
+    "restrict <school-subnet>" strips mssntp for exactly the client subnets even with
+    "restrict -4 default ... mssntp" present; and Ubuntu 24.04 ships ntpsec 1.2.2, whose
+    MS-SNTP handling is reported broken (fixed upstream in 1.2.3).
+    ntp_mode: nt5ds remains available for sites with a working signing chain. Trade-off,
+    stated in the README: with plain NTP the time is not authenticated.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 11:00:00 +0000
+
 lmn-gpo (1.7.1) stable; urgency=medium
 
   * FIX: lmn-gpo-check.ps1 aborted with "The operator '<' is reserved for future use" at the

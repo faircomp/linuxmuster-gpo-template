@@ -115,7 +115,49 @@ Sources: [Activate Office by KMS](https://learn.microsoft.com/en-us/office/volum
 [KMS activation planning (thresholds)](https://learn.microsoft.com/en-us/windows-server/get-started/kms-activation-planning) ·
 [SoftwareLicensingProduct class](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/sppwmi/softwarelicensingproduct)
 
-## 6. Data Protection / GDPR (Evidence)
+## 6. Time Sync: why plain NTP, not NT5DS (field-verified)
+
+`NT5DS` is Microsoft's domain-hierarchy mode, and a domain member **rejects any reply that is
+not signed with its computer session key**. A Samba DC can only produce that signature by
+handing the request to Samba over `ntpd`'s `ntpsigndsocket`. When that chain fails the client
+does not error — it silently keeps `Local CMOS Clock` and drifts past the 5-minute Kerberos
+limit. Observed on a production linuxmuster 7.3 site: the GPO applied correctly, the secure
+channel was healthy (`nltest /sc_query` → `NERR_Success`), `w32tm /stripchart` against the DC
+returned valid offsets — and the client was still 307 s off with no time source.
+
+Two independent server-side causes, both verified:
+
+1. **`restrict` shadowing.** `ntpd` applies the flags of the *most specific* matching entry
+   and **replaces** the flag set — it does not inherit. `ntp_restrict.c` `restrictions()`
+   does a plain `flags = match->flags;` with no OR across entries. A bare
+   `restrict 10.10.40.0/24` therefore strips `mssntp` for exactly that subnet even though
+   `restrict -4 default … mssntp` is present. linuxmuster's generated `ntp.conf` contains one
+   such bare line per school subnet.
+2. **ntpsec 1.2.2 drops the request outright.** Ubuntu 24.04 ships
+   `ntpsec 1.2.2+dfsg1-4build2` (confirmed on a live box). A Windows MS-SNTP request is
+   NTP(48) + key-id(4, the machine-account RID) + 16 zero bytes, i.e. a 20-byte MAC. In the
+   1.2.2 `ntp_proto.c` that parses at `case 20:` and sets `keyid_present`; the auth block
+   then calls `authlookup(keyid, true)`, finds no such key in `ntp.keys`, increments
+   `sys_badauth` and **returns** — so `fast_xmit()` and its
+   `if (flags & RES_MSSNTP) send_via_ntp_signd(...)` branch are never reached. Fixed
+   upstream in 1.2.3 by clearing `keyid_present` for a 16-byte all-zero authenticator inside
+   an MS-SNTP restrict range; the Debian/Ubuntu 1.2.2 patch series does not backport it.
+
+Because of (2) fixing (1) alone will most likely NOT help on Ubuntu 24.04, so the toolkit
+defaults to `ntp_mode: ntp`:
+`Type=NTP` + `NtpServer=<serverfqdn>,0x9`, which needs no signing and works out of the box.
+**Trade-off:** the time is then unauthenticated — an attacker on the LAN could spoof NTP
+replies. `nt5ds` remains available for sites with a working signing chain.
+
+Note: the log line `MS-SNTP signd operations currently block ntpd…` appears at config-parse
+time whenever `mssntp` occurs anywhere in `ntp.conf`. It does **not** prove the flag reaches
+any client, so it cannot be used to rule cause (1) out.
+
+Sources: [W32Time: how the service works](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/how-the-windows-time-service-works) ·
+[Samba wiki: time synchronisation](https://wiki.samba.org/index.php/Time_Synchronisation) ·
+[ntpsec access control](https://docs.ntpsec.org/latest/access.html) · `ntpd/ntp_restrict.c`
+
+## 7. Data Protection / GDPR (Evidence)
 
 DSK resolution on Windows: **Enterprise/Education + `AllowTelemetry=0` (Security) +
 Restricted Traffic Baseline** → no telemetry outflow in lab testing. On **Pro**, `0` is treated

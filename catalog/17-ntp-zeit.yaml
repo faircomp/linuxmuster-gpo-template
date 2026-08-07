@@ -3,11 +3,16 @@ title: "Time synchronization (W32Time) from the domain server"
 scope: global
 target: computer
 description: >
-  Enforces Windows time synchronization via GPO (W32Time). Default "Samba way" NT5DS:
-  the clients synchronize over the domain from the DC (= the linuxmuster server), signed
-  via its mssntp/ntpsigndsocket. The NtpServer value (server.<realm>,0x9) is also
-  set, but is ignored under NT5DS — it only takes effect when switched to explicit NTP
-  via site.yaml 'ntp_mode: ntp'.
+  Enforces Windows time synchronization via GPO (W32Time). DEFAULT is explicit NTP
+  (ntp_mode: ntp): the clients use NtpServer (server.<realm>,0x9) directly, which works on a
+  stock linuxmuster server without further setup.
+  The alternative 'ntp_mode: nt5ds' is the "domain way": the client takes the time from the
+  domain hierarchy and REQUIRES the reply to be signed with its computer account, which the
+  DC can only do through Samba's ntp_signd socket. That chain is fragile on Ubuntu 24.04 and
+  fails silently -- the client rejects every unsigned reply and stays on "Local CMOS Clock"
+  forever while drifting past the Kerberos limit. Verified in the field. Only choose nt5ds
+  once 'w32tm /query /source' on a client really shows the server. Trade-off: with plain NTP
+  the time is not authenticated, so someone on the LAN could spoof NTP replies.
   CORE FIX for "not all clocks are correct": MaxPos/NegPhaseCorrection = 0xFFFFFFFF
   (always correct) — otherwise W32Time refuses to correct large offsets (typical
   with dead BIOS/CMOS batteries, where the clock jumps far back).

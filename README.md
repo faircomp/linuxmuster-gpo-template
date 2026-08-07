@@ -254,7 +254,7 @@ wlan_enterprise_ca_cert: "/path/to/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = force UEFI boot order to network/PXE first (opt-in!)
 display_off_seconds: 0        # switch the display off after N s; 0 = never (screen still LOCKS, see 04)
-ntp_mode: nt5ds               # time sync: nt5ds (domain / Samba way) | ntp (explicit server = @serverfqdn)
+ntp_mode: ntp                 # time sync: ntp (explicit server, default) | nt5ds (signed, needs working ntp_signd)
 
 pointandprint_enabled: false  # true = allow students to install printer drivers from the print server(s) (opt-in)
 printservers_extra: []        # extra/external print-server FQDNs to also trust (the local server is auto-detected)
@@ -464,14 +464,37 @@ privileges, at system start) which, with a full token, does the actual `bcdedit`
 
 ## Time synchronisation
 
-Fixes "not all clocks are correct" (always active). Default **NT5DS** ("the Samba way"):
-clients sync via the domain from the DC (signed via its `mssntp`/`ntpsigndsocket`).
-**Core fix:** `MaxPos/NegPhaseCorrection = 0xFFFFFFFF` → W32Time also corrects **large
-offsets** (typical for dead BIOS/CMOS batteries). Clients only (linked at `OU=SCHOOLS`); the
-DC stays untouched. Switchable:
 ```yaml
-ntp_mode: nt5ds     # or: ntp  (then Type=NTP + NtpServer=<serverfqdn>,0x9)
+ntp_mode: ntp     # default: explicit NTP against the server. Alternative: nt5ds
 ```
+
+**Why plain NTP is the default.** `nt5ds` is Microsoft's "domain way": the client takes the
+time from the domain hierarchy and *requires* the reply to be signed with its computer
+account. A Samba DC can only sign through `ntpd`'s `ntpsigndsocket`, and that chain breaks
+easily on a stock Ubuntu 24.04 server. When it does, the client rejects every reply and stays
+on `Local CMOS Clock` **forever** while drifting past the 5-minute Kerberos limit -- with no
+error anywhere, because the GPO itself is applied correctly. Observed in the field.
+
+Two known causes, both server-side:
+- `ntpd` applies only the **most specific** matching `restrict` line and *replaces* its
+  flags. A bare `restrict 10.10.40.0/24` therefore strips `mssntp` for exactly that subnet,
+  even though `restrict -4 default ... mssntp` is present.
+- Ubuntu 24.04 ships **ntpsec 1.2.2**, whose MS-SNTP handling is reported broken (fixed
+  upstream in 1.2.3).
+
+Diagnose it on a client with `w32tm /query /source`. If it says `Local CMOS Clock` while
+`w32tm /stripchart /computer:<server> /samples:3` returns values, plain NTP works and only
+the signing is failing -- which is exactly what `ntp_mode: ntp` sidesteps.
+
+Switch to `nt5ds` only once a client really shows the server as its source. **Trade-off:**
+with plain NTP the time is not authenticated, so someone on the LAN could spoof NTP replies.
+
+
+
+Fixes "not all clocks are correct" (always active). **Core fix:**
+`MaxPos/NegPhaseCorrection = 0xFFFFFFFF` → W32Time also corrects **large offsets** (typical
+for dead BIOS/CMOS batteries); without it a client that drifted far simply never catches up.
+Clients only (linked at `OU=SCHOOLS`); the DC stays untouched.
 Check on the client: `w32tm /query /source` and `w32tm /query /status`.
 
 ## Point and Print (printer drivers for students)
@@ -874,7 +897,7 @@ wlan_enterprise_ca_cert: "/pfad/zur/radius-ca.pem"
 
 bootorder_pxe_first: false    # true = UEFI-Bootreihenfolge auf Netzwerk/PXE zuerst (opt-in!)
 display_off_seconds: 0        # Display nach N s abschalten; 0 = nie (Sperre bleibt, siehe 04)
-ntp_mode: nt5ds               # Zeitsync: nt5ds (Domäne/Samba-Weg) | ntp (expliziter Server = @serverfqdn)
+ntp_mode: ntp                 # Zeitsync: ntp (expliziter Server, Standard) | nt5ds (signiert, braucht ntp_signd)
 
 pointandprint_enabled: false  # true = Schüler dürfen Druckertreiber von den Druckservern installieren (opt-in)
 printservers_extra: []        # zusätzliche/externe Druckserver-FQDNs (der lokale Server wird automatisch erkannt)
@@ -1084,14 +1107,38 @@ macht (Netzwerk/PXE nach vorne, Windows Boot Manager ans Ende). Robuste Muster-E
 
 ## Zeitsynchronisation
 
-Behebt „nicht alle Uhrzeiten stimmen" (immer aktiv). Default **NT5DS** („Samba-Weg"): die
-Clients synchen über die Domäne vom DC (signiert über dessen `mssntp`/`ntpsigndsocket`).
-**Kern-Fix:** `MaxPos/NegPhaseCorrection = 0xFFFFFFFF` → W32Time korrigiert **auch große
-Versätze** (typisch bei leeren BIOS/CMOS-Batterien). Nur für Clients (an `OU=SCHOOLS`); der DC
-bleibt unberührt. Umschaltbar:
 ```yaml
-ntp_mode: nt5ds     # oder: ntp  (dann Type=NTP + NtpServer=<serverfqdn>,0x9)
+ntp_mode: ntp     # Standard: expliziter NTP gegen den Server. Alternative: nt5ds
 ```
+
+**Warum normales NTP der Standard ist.** `nt5ds` ist Microsofts „Domänen-Weg": Der Client holt
+die Zeit aus der Domänenhierarchie und *verlangt*, dass die Antwort mit seinem Computerkonto
+signiert ist. Ein Samba-DC kann das nur über den `ntpsigndsocket` von `ntpd`, und diese Kette
+bricht auf einem Ubuntu-24.04-Server leicht. Passiert das, verwirft der Client jede Antwort und
+bleibt **dauerhaft** auf `Local CMOS Clock`, während die Uhr über die 5-Minuten-Kerberos-Grenze
+wegläuft — ohne Fehlermeldung, denn die GPO selbst ist korrekt angekommen. Im Feld beobachtet.
+
+Zwei bekannte Ursachen, beide serverseitig:
+- `ntpd` wendet nur die **spezifischste** passende `restrict`-Zeile an und *ersetzt* deren
+  Flags. Ein nacktes `restrict 10.10.40.0/24` nimmt damit genau diesem Subnetz das `mssntp`,
+  obwohl `restrict -4 default ... mssntp` in der Datei steht.
+- Ubuntu 24.04 liefert **ntpsec 1.2.2** aus, dessen MS-SNTP-Behandlung als defekt gemeldet ist
+  (upstream erst ab 1.2.3 behoben).
+
+Diagnose am Client mit `w32tm /query /source`. Steht dort `Local CMOS Clock`, während
+`w32tm /stripchart /computer:<server> /samples:3` Werte liefert, funktioniert normales NTP und
+nur die Signierung scheitert — genau das umgeht `ntp_mode: ntp`.
+
+Auf `nt5ds` erst umstellen, wenn ein Client den Server wirklich als Quelle anzeigt.
+**Abwägung:** Bei normalem NTP ist die Zeit nicht authentifiziert, jemand im LAN könnte also
+NTP-Antworten fälschen.
+
+
+
+Behebt „nicht alle Uhrzeiten stimmen" (immer aktiv). **Kern-Fix:**
+`MaxPos/NegPhaseCorrection = 0xFFFFFFFF` → W32Time korrigiert **auch große Versätze** (typisch
+bei leeren BIOS/CMOS-Batterien); ohne das holt ein weit abgedrifteter Client nie wieder auf.
+Nur für Clients (an `OU=SCHOOLS`); der DC bleibt unberührt.
 Am Client prüfen: `w32tm /query /source` und `w32tm /query /status`.
 
 ## Point and Print (Druckertreiber für Schüler)
