@@ -87,6 +87,23 @@ if ($applied) { $applied | Sort-Object -Unique | ForEach-Object { Write-Host "  
 else { Write-Host "  [!!] No LMN GPO found as 'applied' (computer scope)." -ForegroundColor Red }
 if ($denied) { $denied | Sort-Object -Unique | ForEach-Object { Write-Host "  [--] filtered:  $_ (e.g. via deny-apply, which can be correct)" -ForegroundColor DarkGray } }
 
+# This COMPUTER's security groups. Device packs are filtered on them, so this is what
+# explains why a pack did or did not apply here. 'Sicherheitsgruppen' matches localized
+# gpresult output - keep. Blank line ends the list.
+$computerGroups = @(); $inGrp = $false
+foreach ($line in $gp) {
+    if ($line -match 'security groups|Sicherheitsgruppen') { $inGrp = $true; continue }
+    if (-not $inGrp) { continue }
+    $t = $line.Trim()
+    if ($t -match '^-{3,}$') { continue }
+    if (-not $t) { if ($computerGroups.Count) { $inGrp = $false }; continue }
+    $computerGroups += $t
+}
+$devGroups = @($computerGroups | Where-Object { $_ -match 'nopxe|d_' })
+if ($devGroups) {
+    Write-Host ("  device groups: " + ($devGroups -join ', ')) -ForegroundColor DarkGray
+}
+
 # --- 1b) Applied LMN GPOs (user scope) --------------------------------------
 Write-Head "Applied LMN-* GPOs (user scope)"
 Write-Host "  Note: running as the logged-in STUDENT/teacher shows THEIR user GPOs (lockdown/proxy/Firefox)." -ForegroundColor DarkGray
@@ -167,6 +184,31 @@ if ($LASTEXITCODE -ne 0 -or -not $rawProfiles) {
     }
     $wlanProfiles = @($allUser.Keys | Sort-Object)
     if (-not $wlanProfiles) { Write-Host "  [--] No Wi-Fi profiles present (13-wlan-* may not be applied)." -ForegroundColor DarkGray }
+    # Why is there no machine profile? Walk the causes in the order they actually occur,
+    # so a missing PSK is explained instead of just reported.
+    $psk = @($wlanProfiles | Where-Object { $allUser[$_] -and (netsh wlan show profile name="$_" 2>$null | Select-String 'Personal') })
+    if (-not $psk) {
+        Write-Host "  Why is no PSK (Personal) machine profile present?" -ForegroundColor Yellow
+        $nopxe = @($computerGroups | Where-Object { $_ -match 'nopxe' })
+        if ($nopxe) {
+            Write-Host ("    -> BY DESIGN: this computer is in " + ($nopxe -join ', ')) -ForegroundColor Cyan
+            Write-Host "       Pack 13-wlan-psk denies @teachernb (default: the d_*nopxe group), so a" -ForegroundColor Cyan
+            Write-Host "       teacher notebook gets the Enterprise profile (13-wlan-enterprise) instead." -ForegroundColor Cyan
+        } elseif ($denied | Where-Object { $_ -match '13-wlan-psk' }) {
+            Write-Host "    -> the 13-wlan-psk GPO was FILTERED OUT for this computer (see above)." -ForegroundColor Yellow
+        } elseif (-not ($applied | Where-Object { $_ -match '13-wlan-psk' })) {
+            Write-Host "    -> the 13-wlan-psk GPO did not reach this computer at all: not linked," -ForegroundColor Yellow
+            Write-Host "       not configured (wlan_psk_networks empty), or gpupdate not run yet." -ForegroundColor Yellow
+        } else {
+            Write-Host "    -> the GPO applied, but the startup script has not run yet." -ForegroundColor Yellow
+            Write-Host "       Machine startup scripts run at BOOT - a gpupdate is not enough. Reboot." -ForegroundColor Yellow
+            $svc = Get-Service -Name WlanSvc -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -ne 'Running') {
+                Write-Host ("       Also: the WLAN AutoConfig service is {0} - netsh cannot import a" -f $svc.Status) -ForegroundColor Red
+                Write-Host "       profile while it is stopped." -ForegroundColor Red
+            }
+        }
+    }
     foreach ($p in $wlanProfiles) {
         $d = netsh wlan show profile name="$p" 2>$null
         $authM = ($d | Select-String -Pattern 'WPA3-Enterprise|WPA2-Enterprise|WPA3-Personal|WPA2-Personal|WPA-Personal|Open' | Select-Object -First 1)
@@ -235,7 +277,17 @@ if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient
     Test-Reg @{ N="W32Time NTP client active"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Enabled"; E=1 }
     Test-Reg @{ N="Time mode (Type)";          P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="Type"; E=$null }
     Test-Reg @{ N="NtpServer (if Type=NTP)";   P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient"; K="NtpServer"; E=$null }
-    Test-Reg @{ N="MaxPhaseCorrection (always)"; P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxPosPhaseCorrection"; E=$null }
+    Test-Reg @{ N="MaxPosPhaseCorrection";      P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxPosPhaseCorrection"; E=$null }
+    Test-Reg @{ N="MaxNegPhaseCorrection";      P="HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config"; K="MaxNegPhaseCorrection"; E=$null }
+    # 0xFFFFFFFF = correct any offset. Without it W32Time refuses large corrections, which
+    # is exactly the dead-CMOS-battery case the pack exists for.
+    foreach ($n in @("MaxPosPhaseCorrection","MaxNegPhaseCorrection")) {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config" -Name $n -ErrorAction SilentlyContinue).$n
+        if ($null -ne $v -and $v -ne 4294967295) {
+            Write-Host ("  [!!] {0} = {1} - large offsets will NOT be corrected (expected 4294967295)" -f $n, $v) -ForegroundColor Red
+            $fail++
+        }
+    }
 } else { Write-Host "  [--] No W32Time policy (package 17 not applied)." -ForegroundColor DarkGray }
 # Runtime status (read-only): does the machine actually sync from the server?
 $src = ((& w32tm /query /source 2>&1) -join ' ').Trim()
@@ -247,6 +299,44 @@ elseif ($src -match 'Free-running|Freilaufend|Local CMOS|Lokale CMOS') {
 $st = & w32tm /query /status 2>&1
 # 'Quelle|Abweichung|Letzte erfolgreiche' match localized w32tm output - keep.
 ($st | Select-String -Pattern 'Stratum|Source|Quelle|Offset|Abweichung|Last Successful|Letzte erfolgreiche|Poll') | ForEach-Object { Write-Host "     $($_.Line.Trim())" }
+
+# --- the actual test: MEASURE the offset against the domain controller ------
+# Reading the configuration only proves what was intended. w32tm /stripchart returns the
+# real difference; /dataonly keeps the output language-neutral (values like "+00.0012345s").
+$dc = ($env:LOGONSERVER -replace '^\\\\', '').Trim()
+if (-not $dc) {
+    $ntp = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient" -Name NtpServer -ErrorAction SilentlyContinue).NtpServer
+    if ($ntp) { $dc = ($ntp -split '[ ,]')[0] }
+}
+if (-not $dc) {
+    Write-Host "  [--] No domain controller known (LOGONSERVER empty) - offset not measured." -ForegroundColor DarkGray
+} else {
+    Write-Host ("  Measuring clock offset against {0} ..." -f $dc) -ForegroundColor DarkGray
+    $chart = & w32tm /stripchart /computer:$dc /samples:3 /dataonly 2>&1
+    $offs = @()
+    foreach ($l in $chart) {
+        if ("$l" -match '([+-]?\d+[.,]\d+)\s*s') {
+            $num = $matches[1] -replace ',', '.'
+            try { $offs += [double]::Parse($num, [Globalization.CultureInfo]::InvariantCulture) } catch {}
+        }
+    }
+    if (-not $offs.Count) {
+        Write-Host ("  [!!] Could not measure the offset against {0}." -f $dc) -ForegroundColor Red
+        ($chart | Select-Object -First 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkGray }
+        $fail++
+    } else {
+        $avg = ($offs | Measure-Object -Average).Average
+        $abs = [math]::Abs($avg)
+        # Kerberos rejects tickets beyond 5 min skew by default, so that is the hard wall.
+        if ($abs -lt 2) {
+            Write-Host ("  {0}Clock offset vs {1}: {2:N3} s" -f (Mark $true), $dc, $avg) -ForegroundColor Green; $ok++
+        } elseif ($abs -lt 300) {
+            Write-Host ("  [!!] Clock offset vs {0}: {1:N3} s - drifting (Kerberos fails beyond 300 s)" -f $dc, $avg) -ForegroundColor Yellow; $fail++
+        } else {
+            Write-Host ("  [!!] Clock offset vs {0}: {1:N3} s - BEYOND the Kerberos limit; logons will fail" -f $dc, $avg) -ForegroundColor Red; $fail++
+        }
+    }
+}
 
 # --- 6f) Point and Print (printer-driver install from the print server, pack 18) ---
 Write-Head "Point and Print (printer-driver install from the print server)"

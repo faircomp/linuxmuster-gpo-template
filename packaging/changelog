@@ -1,3 +1,23 @@
+lmn-gpo (1.7.0) stable; urgency=medium
+
+  * lmn-gpo-check.ps1: the time check now MEASURES instead of only reading configuration.
+    w32tm /stripchart against the logon DC gives the real clock offset (language-neutral via
+    /dataonly); under 2 s passes, beyond that it fails, and past 300 s it says plainly that
+    Kerberos logons will break. MaxNegPhaseCorrection is checked as well, and both phase
+    correction values are now asserted to be 0xFFFFFFFF -- if they are not, large offsets
+    are silently never corrected, which is the dead-CMOS-battery case pack 17 exists for.
+  * lmn-gpo-check.ps1: explain a MISSING Wi-Fi PSK profile instead of only reporting it.
+    The script now reads the computer's own security groups from gpresult and walks the
+    causes in order: membership in a d_*nopxe group (excluded BY DESIGN -- the machine is a
+    teacher notebook and should carry the Enterprise profile), GPO filtered out, GPO never
+    reached the machine, or the GPO applied but the startup script has not run yet, since
+    machine startup scripts run at boot and a gpupdate is not enough. It also reports a
+    stopped WLAN AutoConfig service, which silently prevents any profile import.
+  * lmn-gpo-check.ps1: list the computer's device-group memberships under the applied GPOs,
+    so it is visible which device filters can match at all.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 07 Aug 2026 09:00:00 +0000
+
 lmn-gpo (1.6.1) stable; urgency=medium
 
   * FIX: the shipped PowerShell scripts did not parse on Windows PowerShell 5.1. Without a
