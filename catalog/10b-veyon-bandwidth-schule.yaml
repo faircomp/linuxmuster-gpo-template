@@ -1,0 +1,36 @@
+id: "10b-veyon-bandwidth-schule"
+title: "Veyon bandwidth: slower thumbnail refresh + stronger compression"
+scope: school
+target: computer
+requires: veyon
+description: >
+  Reduces the network load of Veyon classroom monitoring. Applies on top of
+  10-veyon-schule and needs no extra setting - it is active whenever Veyon is.
+  IMPORTANT, so nobody looks for a setting that does not exist: Veyon has NO
+  "lower the resolution" option. The Master receives every student's FULL framebuffer
+  and only scales it down locally afterwards (VncConnection::setScaledSize ->
+  QImage::scaled), and the thumbnail size lives in a per-user JSON file, not the
+  registry. Smaller tiles therefore save nothing on the wire. The two levers that
+  really work are how OFTEN a frame is fetched and how HARD it is compressed - which
+  is what this pack sets.
+  Both keys are read by the Veyon MASTER, i.e. the teacher's PC, and are then pushed
+  to the clients: the interval travels as a MonitoringMode feature message and the
+  student's Veyon Server discards early update requests itself, so the traffic is
+  never generated rather than merely thrown away on arrival.
+  Requires Veyon >= 4.8 on BOTH sides - against a client that reports older, the
+  master silently falls back to lossless.
+  Quality enum runs the counter-intuitive way: 0=Highest (LOSSLESS, most traffic),
+  1=High, 2=Medium, 3=Low, 4=Lowest. Defaults: monitoring 2, remote access 0.
+  Tunable in site.yaml via veyon_monitoring_interval_ms / veyon_monitoring_quality /
+  veyon_remote_quality.
+registry:
+  # Thumbnail grid: refresh period in ms (Veyon default 1000). Roughly a linear lever -
+  # 2000 halves the continuous monitoring load.
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: ComputerMonitoringUpdateInterval, class: machine, type: dword, data: '@veyon-monitoring-interval' }
+  # Thumbnail grid compression. At ~150 px tiles the artefacts are invisible - text in a
+  # thumbnail is unreadable at any quality anyway.
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: ComputerMonitoringImageQuality, class: machine, type: dword, data: '@veyon-monitoring-quality' }
+  # Full remote view/control. The Veyon default here is 0 = genuinely LOSSLESS, which makes
+  # a single remote session the biggest stream in the room. Kept deliberately better than
+  # the thumbnails: this is where a teacher reads what a student actually wrote.
+  - { key: 'Software\Veyon Solutions\Veyon\Master', name: RemoteAccessImageQuality, class: machine, type: dword, data: '@veyon-remote-quality' }

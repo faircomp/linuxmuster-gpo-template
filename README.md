@@ -22,7 +22,7 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features (31 packages)](#features-31-packages)
+- [Features (32 packages)](#features-32-packages)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
 - **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Point and Print](#point-and-print-printer-drivers-for-students)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
@@ -52,7 +52,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
   (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
   `sysvolreset`.
 
-## Features (31 packages)
+## Features (32 packages)
 
 **Always active** (no extra parameter needed):
 
@@ -81,7 +81,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 | **KMS activation (Windows)** | `kmshost` | activate Windows against the KMS host (startup script) |
 | **KMS activation (Office)** | `kms_office_host` (or `kmshost`) | activate volume-licensed Office — its own registry key, own startup script |
 | **Branding per school** | wallpaper file | desktop **and** logon background per school (from NETLOGON) |
-| **Veyon** | `veyon_binddn` + password | classroom management, LDAP directory, roaming, **teachers only** (`role-teacher` + `all-teachers`) |
+| **Veyon** | `veyon_binddn` + password | classroom management, LDAP directory, roaming, **teachers only** (`role-teacher` + `all-teachers`); bandwidth-tuned monitoring |
 | **Firefox hardening** | `firefox_enabled` | first-run off, clean new-tab (search + shortcuts, no ads) |
 | **Firefox homepage** | `firefox_homepage` | global default **or per school**, optionally locked |
 | **Role-based proxy** | `proxy_enabled` + host | **address follows the device** (school), **port follows the user** (teacher/student/staff), roaming-proof; all browsers on the system proxy; proxy host as Intranet zone (SSO) |
@@ -428,6 +428,30 @@ veyon_bindpw_hex: "<hex>"
 - **After rollout:** on the client `gpupdate /force` **and restart the Veyon service**
   (reboot) — Veyon reads its config only at service start.
 
+### Veyon bandwidth
+
+Active automatically with Veyon (pack `10b-veyon-bandwidth-schule`), tunable in `site.yaml`:
+
+```yaml
+veyon_monitoring_interval_ms: 2000   # thumbnail refresh (Veyon default 1000)
+veyon_monitoring_quality: 3          # thumbnails   0=Highest(lossless) .. 4=Lowest
+veyon_remote_quality: 2              # remote view  (Veyon default 0 = lossless!)
+```
+
+**Veyon has no "lower the resolution" setting, and cannot usefully have one.** The Master
+receives every student's *full* framebuffer and only scales it down locally afterwards; the
+thumbnail size is a per-user JSON setting, not a registry value. Smaller tiles save nothing on
+the wire. The two levers that work are how *often* a frame is fetched and how *hard* it is
+compressed - which is what this pack sets. Roughly 3-5x less traffic in a busy room.
+
+Both keys are read by the Veyon **Master**, i.e. the teacher's PC, so that machine must be in
+the school's `OU=Devices` - which it is when teachers use the ordinary classroom computers.
+The interval is then pushed to the clients, whose Veyon Server discards early update requests
+itself, so the traffic is never generated in the first place.
+
+Needs **Veyon >= 4.8 on both sides**: against a client reporting older, the master silently
+falls back to lossless. Check with `veyon-cli config get Core/ApplicationVersion`.
+
 ## Student lockdown
 
 Two packages make sure that **only students** (`role-student`) cannot change certain Windows
@@ -555,7 +579,7 @@ afterwards. `lmn-gpo env` additionally flags any school that has no noPXE group 
 ## Checking on the client
 
 `scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
-have arrived **and take effect** — covering all 31 packages: `gpresult` (computer **and**
+have arrived **and take effect** — covering all 32 packages: `gpresult` (computer **and**
 user), registry actual values, firewall, local groups, KMS (Windows **and** Office),
 hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
@@ -670,7 +694,7 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features (31 Pakete)](#features-31-pakete)
+- [Features (32 Pakete)](#features-32-pakete)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
 - **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
@@ -699,7 +723,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (31 Pakete)
+## Features (32 Pakete)
 
 **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
@@ -728,7 +752,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 | **KMS-Aktivierung (Windows)** | `kmshost` | Windows gegen den KMS-Host aktivieren (Startskript) |
 | **KMS-Aktivierung (Office)** | `kms_office_host` (oder `kmshost`) | Volumen-Office aktivieren — eigener Registry-Schlüssel, eigenes Startskript |
 | **Branding pro Schule** | Wallpaper-Datei | Desktop- **und** Anmelde-Hintergrund je Schule (aus NETLOGON) |
-| **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher` + `all-teachers`) |
+| **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher` + `all-teachers`); bandbreitenoptimiertes Monitoring |
 | **Firefox-Grundhärtung** | `firefox_enabled` | First-Run aus, saubere New-Tab (Suche + Verknüpfungen, kein Werbekram) |
 | **Firefox-Startseite** | `firefox_homepage` | global-Default **oder pro Schule**, optional fest gesperrt |
 | **Rollen-Proxy** | `proxy_enabled` + Host | **Adresse folgt dem Gerät** (Schule), **Port folgt dem Nutzer** (Lehrer/Schüler/Staff), roaming-fest; alle Browser auf System-Proxy; Proxy-Host als Intranet-Zone (SSO) |
@@ -1078,6 +1102,31 @@ veyon_bindpw_hex: "<Hex>"
 - **Nach dem Ausrollen:** am Client `gpupdate /force` **und den Veyon-Dienst neu starten**
   (Reboot) — Veyon liest die Config nur beim Dienststart.
 
+### Veyon-Bandbreite
+
+Automatisch mit Veyon aktiv (Paket `10b-veyon-bandwidth-schule`), in `site.yaml` anpassbar:
+
+```yaml
+veyon_monitoring_interval_ms: 2000   # Kachel-Aktualisierung (Veyon-Default 1000)
+veyon_monitoring_quality: 3          # Kacheln       0=Highest(verlustfrei) .. 4=Lowest
+veyon_remote_quality: 2              # Fernzugriff   (Veyon-Default 0 = verlustfrei!)
+```
+
+**Veyon kennt keine „Auflösung heruntersetzen"-Einstellung und kann sinnvollerweise keine
+haben.** Der Master empfängt von jedem Schüler-PC das *vollständige* Bild und verkleinert es
+erst danach lokal; die Kachelgröße ist eine Benutzer-JSON-Einstellung, kein Registry-Wert.
+Kleinere Kacheln sparen also nichts auf der Leitung. Die beiden wirksamen Hebel sind, *wie oft*
+ein Bild geholt und *wie stark* es komprimiert wird — genau das setzt dieses Paket. Grob 3-5×
+weniger Last in einem belebten Raum.
+
+Beide Schlüssel liest der Veyon-**Master**, also der Lehrer-PC — dieser Rechner muss in der
+`OU=Devices` der Schule stehen, was zutrifft, wenn Lehrer die normalen Klassenraum-Rechner
+nutzen. Das Intervall wird anschließend an die Clients weitergereicht, deren Veyon-Server zu
+frühe Anfragen selbst verwirft; die Daten entstehen also gar nicht erst.
+
+Braucht **Veyon >= 4.8 auf beiden Seiten**: Meldet sich ein Client als älter, fällt der Master
+stillschweigend auf verlustfrei zurück. Prüfen mit `veyon-cli config get Core/ApplicationVersion`.
+
 ## Schüler-Lockdown
 
 Zwei Pakete sorgen dafür, dass **nur Schüler** (`role-student`) bestimmte Windows-Einstellungen
@@ -1207,7 +1256,7 @@ Denselben Block gibt `lmn-gpo apply` **vor der ersten Änderung** aus — ein ka
 ## Prüfen am Client
 
 `scripts/lmn-gpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
-angekommen sind **und wirken** — deckt alle 31 Pakete ab: `gpresult` (Computer **und** User),
+angekommen sind **und wirken** — deckt alle 32 Pakete ab: `gpresult` (Computer **und** User),
 Registry-Ist-Werte, Firewall, lokale Gruppen, KMS (Windows **und** Office), Hotspot,
 OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync

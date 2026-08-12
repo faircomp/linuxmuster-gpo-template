@@ -1,3 +1,28 @@
+lmn-gpo (1.10.0) stable; urgency=medium
+
+  * New pack 10b-veyon-bandwidth-schule: cut the network load of Veyon classroom monitoring.
+    Active automatically wherever Veyon is (requires: veyon), so no extra switch.
+    Sets Master\ComputerMonitoringUpdateInterval to 2000 ms (Veyon default 1000),
+    Master\ComputerMonitoringImageQuality to 3 = Low (default 2 = Medium) and
+    Master\RemoteAccessImageQuality to 2 = Medium (default 0, which is genuinely LOSSLESS
+    and makes a single remote-view session the biggest stream in the room). Roughly 3-5x
+    less traffic in a busy classroom. All three are tunable in site.yaml via
+    veyon_monitoring_interval_ms / veyon_monitoring_quality / veyon_remote_quality, with the
+    enum clamped to 0-4 and the interval floored at 100 ms, because Veyon silently ignores an
+    out-of-range value and falls back to its own default -- which would look like the pack
+    doing nothing.
+    Documented prominently, because it is the natural expectation and it is wrong: Veyon has
+    NO "lower the resolution" setting. The Master receives every student's FULL framebuffer
+    and only scales it down locally afterwards, and the thumbnail size is a per-user JSON
+    value rather than a registry one, so smaller tiles save nothing on the wire. Frame rate
+    and compression are the only real levers.
+    Both keys are read by the Veyon MASTER, i.e. the teacher's PC, which therefore has to sit
+    in the school's OU=Devices -- true when teachers use the ordinary classroom computers.
+    Needs Veyon >= 4.8 on both sides; against an older client the master silently falls back
+    to lossless.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Wed, 12 Aug 2026 09:00:00 +0000
+
 lmn-gpo (1.9.1) stable; urgency=medium
 
   * FIX (1.9.0 regression, release-blocking): with exactly ONE Wi-Fi network no profile was

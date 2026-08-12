@@ -42,6 +42,10 @@ DEFAULT_ANSWERS = {
     "kms_office_host": "",    # Office KMS host ("" = fall back to kmshost; both empty = pack skipped)
     "kms_office_port": "1688",  # Office KMS port (default 1688)
     "wallpaper_dir": "",      # source dir for <school>.jpg ("" = repo wallpapers/)
+    # Veyon bandwidth (pack 10b). Quality enum is inverted: 0=Highest(lossless) .. 4=Lowest.
+    "veyon_monitoring_interval_ms": 2000,  # thumbnail refresh in ms (Veyon default 1000)
+    "veyon_monitoring_quality": 3,         # thumbnails: 3 = Low (Veyon default 2 = Medium)
+    "veyon_remote_quality": 2,             # remote view: 2 = Medium (Veyon default 0 = lossless)
     "veyon_binddn": "",       # Veyon LDAP bind DN ("" = Veyon pack skipped)
     "veyon_bindpw_hex": "",   # Veyon bind password as Veyon-encrypted hex (see lmn_gpo/veyon.py)
     "firefox_enabled": False,          # gate the Firefox packs
@@ -92,6 +96,7 @@ class Applier:
         self.retired: list[str] = []
         self.warnings: list[str] = []   # non-fatal problems that must still fail the run
         self._links: dict[str, list[str]] | None = None   # gPLink map, built on first retire
+        self._warned: set[str] = set()   # de-duplicate per-field validation warnings
         self._wp_cache: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------ #
@@ -120,6 +125,31 @@ class Applier:
             print(f"    \u26a0 ntp_mode {mode!r} is not 'ntp' or 'nt5ds' - using 'ntp'.")
             return "NTP"
         return "NT5DS" if mode == "nt5ds" else "NTP"
+
+    def _veyon_quality(self, key: str, default: int) -> str:
+        """Veyon image-quality enum, 0=Highest(lossless) .. 4=Lowest. Out-of-range values
+        are clamped rather than written through: Veyon silently ignores a bad enum and
+        falls back to its own default, which would look like the pack doing nothing."""
+        try:
+            v = int(self.answers.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        if not 0 <= v <= 4:
+            # _resolve_str runs per registry field, so warn once per run, not nine times.
+            if key not in self._warned:
+                self._warned.add(key)
+                print(f"    ⚠ {key}={v} is outside 0-4 (0=Highest .. 4=Lowest) - using {default}.")
+            v = default
+        return str(v)
+
+    def _veyon_interval(self) -> str:
+        """Thumbnail refresh in ms. Floor of 100 ms so a typo cannot turn the monitoring
+        grid into a denial of service against the classroom switch."""
+        try:
+            v = int(self.answers.get("veyon_monitoring_interval_ms", 2000))
+        except (TypeError, ValueError):
+            v = 2000
+        return str(max(100, v))
 
     def _display_off(self) -> str:
         """Display-off timeout in seconds; 0 = never. Anything unparsable falls back to 0
@@ -259,6 +289,9 @@ class Applier:
             "@kms-port": self._kms_port(),
             "@kmshost": self._kmshost(),
             "@basedn": self.env.basedn,
+            "@veyon-monitoring-interval": self._veyon_interval(),
+            "@veyon-monitoring-quality": self._veyon_quality("veyon_monitoring_quality", 3),
+            "@veyon-remote-quality": self._veyon_quality("veyon_remote_quality", 2),
             "@veyon-binddn": self.answers.get("veyon_binddn", "") or "",
             "@veyon-bindpw": self.answers.get("veyon_bindpw_hex", "") or "",
             # Veyon stores/compares group DNs base-relative (LdapClient::stripBaseDn),
