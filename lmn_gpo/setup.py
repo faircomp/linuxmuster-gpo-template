@@ -83,7 +83,8 @@ def _ask_wlan(answers: dict) -> None:
     print("      all profiles and connect automatically to whichever WLAN is currently in")
     print("      range (roaming). Does not apply to teacher notebooks (d_nopxe).")
     print("    - Teacher WLAN: WPA2-Enterprise/PEAP via RADIUS — teachers only.")
-    have_wlan = bool(answers.get("wlan_psk_networks") or answers.get("wlan_enterprise_ssid"))
+    have_wlan = bool(answers.get("wlan_psk_networks") or answers.get("wlan_enterprise_networks")
+                     or answers.get("wlan_enterprise_ssid"))
     if not _ask_yesno("Set up WLAN now?", have_wlan):
         # WLAN not wanted -> existing site.yaml entries remain unchanged.
         return
@@ -109,31 +110,57 @@ def _ask_wlan(answers: dict) -> None:
         print(f"       + '{ssid}' added ({len(nets)} WLAN(s) total)")
     answers["wlan_psk_networks"] = nets
 
-    # --- Teacher WLAN (Enterprise/PEAP) ---
-    print("  Teacher WLAN (WPA2-Enterprise via RADIUS, teachers only):")
-    es = _ask("    SSID (empty = no teacher WLAN)",
-              answers.get("wlan_enterprise_ssid", "") or "").strip()
-    answers["wlan_enterprise_ssid"] = es
-    if es:
-        answers["wlan_enterprise_servernames"] = _ask(
-            "    Name(s) in the RADIUS server certificate, separated by ';' (empty = do not check server name)",
-            answers.get("wlan_enterprise_servernames", "") or "").strip()
-        print("    RADIUS CA certificate. On linuxmuster export it with:")
-        print("        lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem")
-        print("    It is installed into the clients' LOCAL COMPUTER trusted-root store and")
-        print("    pinned by thumbprint in the profile - a wrong file makes the login fail")
-        print("    silently, with no prompt on the client.")
-        ca = _ask("    Path to the RADIUS CA certificate on THIS server (.pem/.cer)",
-                  answers.get("wlan_enterprise_ca_cert", "") or "").strip()
-        answers["wlan_enterprise_ca_cert"] = ca
-        if ca:
-            try:
-                from . import wlan as _wlanmod
-                print(f"      OK: {_wlanmod.describe_cert(ca)}")
-            except Exception as exc:
-                print(f"      ! {exc}")
-        print("    Note: The very first teacher login on a notebook requires cable/another")
-        print("    network once (user auth); afterwards the WLAN connects automatically via SSO.")
+    # --- Teacher WLANs (Enterprise/PEAP), any number ---
+    print("  Teacher WLAN(s) (WPA2-Enterprise via RADIUS, teachers only):")
+    print("    Enter one per site. Teachers roam with their notebook, so EVERY teacher")
+    print("    notebook receives ALL of these profiles and all their CAs - it connects to")
+    print("    whichever network is in range. Each network pins its OWN RADIUS CA, so sites")
+    print("    with separate RADIUS servers work; sites sharing one just reuse the file.")
+    ents = list(answers.get("wlan_enterprise_networks") or [])
+    if not ents and (answers.get("wlan_enterprise_ssid") or "").strip():
+        ents = [{"ssid": answers["wlan_enterprise_ssid"],
+                 "servernames": answers.get("wlan_enterprise_servernames", "") or "",
+                 "ca_cert": answers.get("wlan_enterprise_ca_cert", "") or ""}]
+        print("    (carried over your previous single teacher WLAN)")
+    if ents:
+        print("  Already saved teacher WLANs:")
+        for i, n in enumerate(ents, 1):
+            print(f"    {i}. {n.get('ssid', '?')}  CA: {n.get('ca_cert', '-')}")
+        if _ask_yesno("Discard these and re-enter?", False):
+            ents = []
+    print("    On linuxmuster export the RADIUS CA with:")
+    print("        lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem")
+    print("    It goes into the clients' LOCAL COMPUTER trusted-root store and is pinned by")
+    print("    thumbprint - a wrong file makes the login fail silently, with no prompt.")
+    print("  Enter teacher WLANs - an empty SSID ends the input:")
+    while True:
+        ssid = _ask(f"    {len(ents) + 1}. SSID (empty = done)", "").strip()
+        if not ssid:
+            break
+        sn = _ask(f"       Name(s) in the RADIUS server certificate for '{ssid}', "
+                  "';'-separated (empty = do not check)", "").strip()
+        ca = _ask(f"       Path to the RADIUS CA for '{ssid}' on THIS server", "").strip()
+        if not ca:
+            print("       ! without a CA the client cannot validate the server - entry discarded.")
+            continue
+        try:
+            from . import wlan as _wlanmod
+            print(f"       OK: {_wlanmod.describe_cert(ca)}")
+        except Exception as exc:
+            print(f"       ! {exc}")
+            if not _ask_yesno("       Keep this entry anyway?", False):
+                continue
+        ents.append({"ssid": ssid, "servernames": sn, "ca_cert": ca})
+        print(f"       + '{ssid}' added ({len(ents)} teacher WLAN(s) total)")
+    answers["wlan_enterprise_networks"] = ents
+    # the single-key form is superseded; clear it so there is exactly one source of truth
+    if ents:
+        answers["wlan_enterprise_ssid"] = ""
+        answers["wlan_enterprise_servernames"] = ""
+        answers["wlan_enterprise_ca_cert"] = ""
+    if ents:
+        print("    Note: the FIRST teacher login on a notebook needs cable/another network")
+        print("    once - Enterprise authenticates the USER, and before login there is none.")
 
 
 def _split_hostport(value: str, default_port: str) -> tuple[str, str]:

@@ -58,6 +58,11 @@ DEFAULT_ANSWERS = {
     "proxy_port_by_role": {"teacher": 3128, "student": 3129, "staff": 3130},
     "proxy_exceptions": "",            # ProxyOverride ("" = sensible default at apply time)
     "wlan_psk_networks": [],           # [{ssid, psk}] student PSK WLANs (all sites)
+    # Teacher enterprise WLANs. A LIST, because teachers roam between sites with their
+    # notebook: every teacher SSID and every RADIUS CA must be present on every teacher
+    # notebook. [{ssid, servernames, ca_cert}] - order is the connection preference.
+    "wlan_enterprise_networks": [],
+    # Single-network form, still honoured and folded into the list above.
     "wlan_enterprise_ssid": "",        # teacher enterprise SSID (WPA2/PEAP, user-auth)
     "wlan_enterprise_servernames": "", # RADIUS server cert name(s), ';'-separated (optional)
     "wlan_enterprise_ca_cert": "",     # path to the RADIUS CA cert (PEM or DER)
@@ -154,6 +159,26 @@ class Applier:
         except (TypeError, ValueError):
             v = 2000
         return str(max(100, v))
+
+    def _wlan_enterprise_networks(self) -> list:
+        """Teacher enterprise WLANs as a normalised list, newest form first.
+
+        Accepts both the list form (wlan_enterprise_networks) and the older three single
+        keys, so an existing site.yaml keeps working unchanged.
+        """
+        nets = []
+        for n in (self.answers.get("wlan_enterprise_networks") or []):
+            if isinstance(n, dict) and (n.get("ssid") or "").strip():
+                nets.append({"ssid": str(n["ssid"]).strip(),
+                             "servernames": str(n.get("servernames") or "").strip(),
+                             "ca_cert": str(n.get("ca_cert") or "").strip()})
+        if not nets:
+            ssid = (self.answers.get("wlan_enterprise_ssid") or "").strip()
+            if ssid:
+                nets.append({"ssid": ssid,
+                             "servernames": (self.answers.get("wlan_enterprise_servernames") or "").strip(),
+                             "ca_cert": (self.answers.get("wlan_enterprise_ca_cert") or "").strip()})
+        return nets
 
     def _display_off(self) -> str:
         """Display-off timeout in seconds; 0 = never. Anything unparsable falls back to 0
@@ -417,19 +442,20 @@ class Applier:
             content = wlanmod.build_psk_script(self.answers.get("wlan_psk_networks") or [])
             fname = "lmn-gpo-wlan-psk.ps1"
         elif mode == "enterprise":
-            ca_path = self.answers["wlan_enterprise_ca_cert"]
-            # Print what is actually being pinned: a wrong file here fails silently on the
-            # client (no prompt, because DisableUserPromptForServerValidation is set).
-            try:
-                print(f"    RADIUS CA pinned: {wlanmod.describe_cert(ca_path)}")
-            except Exception as exc:
-                print(f"    \u26a0 {exc}")
-                self.warnings.append(f"teacher Wi-Fi: {exc}")
+            nets = []
+            for n in self._wlan_enterprise_networks():
+                # Print what is actually being pinned per network: a wrong file fails
+                # silently on the client (no prompt - DisableUserPromptForServerValidation).
+                try:
+                    print(f"    {n['ssid']}: RADIUS CA pinned: "
+                          f"{wlanmod.describe_cert(n['ca_cert'])}")
+                    nets.append({**n, "ca_der": wlanmod.read_cert_der(n["ca_cert"])})
+                except Exception as exc:
+                    print(f"    \u26a0 {n['ssid']}: {exc}")
+                    self.warnings.append(f"teacher Wi-Fi '{n['ssid']}': {exc}")
+            if not nets:
                 return
-            ca = wlanmod.read_cert_der(ca_path)
-            content = wlanmod.build_enterprise_script(
-                (self.answers.get("wlan_enterprise_ssid") or "").strip(),
-                (self.answers.get("wlan_enterprise_servernames") or "").strip(), ca)
+            content = wlanmod.build_enterprise_script(nets)
             fname = "lmn-gpo-wlan-enterprise.ps1"
         else:
             return
@@ -459,19 +485,21 @@ class Applier:
         if req == "wlan_psk":
             return bool(self.answers.get("wlan_psk_networks"))
         if req == "wlan_enterprise":
-            ssid = (self.answers.get("wlan_enterprise_ssid") or "").strip()
-            ca = (self.answers.get("wlan_enterprise_ca_cert") or "").strip()
-            if not (ssid and ca):
+            nets = self._wlan_enterprise_networks()
+            if not nets:
                 return False
-            # A path that does not exist used to sail through here and blow up mid-apply.
-            if not os.path.isfile(ca):
+            missing = [n for n in nets if not (n["ca_cert"] and os.path.isfile(n["ca_cert"]))]
+            if missing:
+                # A path that does not exist used to sail through here and blow up mid-apply.
+                # It must never RETIRE the GPO either - a typo would delete a working one.
                 self._file_precondition_failed.add(pack.id)
                 if pack.id not in self._warned:
                     self._warned.add(pack.id)
-                    self.warnings.append(
-                        f"wlan_enterprise_ca_cert not found: {ca} - teacher Wi-Fi pack skipped")
-                    print(f"    \u26a0 RADIUS CA not found: {ca} - teacher Wi-Fi pack skipped "
-                          f"(GPO left untouched).")
+                    for n in missing:
+                        msg = (f"RADIUS CA missing for '{n['ssid']}': "
+                               f"{n['ca_cert'] or '(no ca_cert set)'}")
+                        self.warnings.append(f"{msg} - teacher Wi-Fi pack skipped")
+                        print(f"    \u26a0 {msg} - teacher Wi-Fi pack skipped (GPO left untouched).")
                 return False
             return True
         if req == "bootorder":

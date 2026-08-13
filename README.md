@@ -363,10 +363,21 @@ click-through would do is then applied by the GPO:
 lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem
 ```
 ```yaml
-wlan_enterprise_ssid: "MSG-LEHRER"
-wlan_enterprise_servernames: "radius.evsvbz.org"
-wlan_enterprise_ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca.pem"
+wlan_enterprise_networks:
+  - ssid: "MSG-LEHRER"
+    servernames: "radius.evsvbz.org"
+    ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-msg.pem"
+  - ssid: "GSG-LEHRER"
+    servernames: "radius-gsg.evsvbz.org"
+    ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-gsg.pem"
 ```
+
+One entry per site, **each with its own RADIUS CA** (sites sharing a RADIUS just reference the
+same file). Order is the connection preference. Because the pack is `scope: global` and
+filtered to `@teachernb`, **every teacher notebook receives all of these profiles and all of
+these CAs** — so a teacher roaming to another school connects there too. The older single-key
+form (`wlan_enterprise_ssid` / `_servernames` / `_ca_cert`) still works and is folded into a
+one-element list.
 ```bash
 lmn-gpo apply --pack 13-wlan-enterprise --yes
 ```
@@ -1075,10 +1086,21 @@ am Client durchklickt, erledigt dann die GPO:
 lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem
 ```
 ```yaml
-wlan_enterprise_ssid: "MSG-LEHRER"
-wlan_enterprise_servernames: "radius.evsvbz.org"
-wlan_enterprise_ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca.pem"
+wlan_enterprise_networks:
+  - ssid: "MSG-LEHRER"
+    servernames: "radius.evsvbz.org"
+    ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-msg.pem"
+  - ssid: "GSG-LEHRER"
+    servernames: "radius-gsg.evsvbz.org"
+    ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-gsg.pem"
 ```
+
+One entry per site, **each with its own RADIUS CA** (sites sharing a RADIUS just reference the
+same file). Order is the connection preference. Because the pack is `scope: global` and
+filtered to `@teachernb`, **every teacher notebook receives all of these profiles and all of
+these CAs** — so a teacher roaming to another school connects there too. The older single-key
+form (`wlan_enterprise_ssid` / `_servernames` / `_ca_cert`) still works and is folded into a
+one-element list.
 ```bash
 lmn-gpo apply --pack 13-wlan-enterprise --yes
 ```

@@ -1,3 +1,25 @@
+lmn-gpo (1.11.0) stable; urgency=medium
+
+  * Teacher Wi-Fi accepts SEVERAL networks. wlan_enterprise_networks is a list of
+    {ssid, servernames, ca_cert}, each pinning its OWN RADIUS CA, so sites with separate
+    RADIUS servers work; sites sharing one just reference the same file. Order is the
+    connection preference.
+    This is the roaming case: teachers travel between schools with their notebook, and
+    because pack 13-wlan-enterprise is scope: global and filtered to @teachernb, one GPO at
+    OU=SCHOOLS puts EVERY teacher SSID and EVERY CA on EVERY teacher notebook regardless of
+    which school owns the device. Previously only a single teacher SSID could be configured,
+    while the student PSK side had supported a list all along.
+    The old single-key form (wlan_enterprise_ssid / _servernames / _ca_cert) is still
+    honoured and folded into a one-element list, so existing site.yaml files keep working.
+  * The generated script installs every CA into the machine trusted-root store before
+    importing the profiles, and apply prints the pinned certificate per network
+    ("MSG-LEHRER: RADIUS CA pinned: subject=... SHA1 ..."). A network whose CA file is
+    missing is reported by name and skips the pack without retiring its GPO.
+  * setup: the wizard now loops for teacher WLANs like it already did for student PSK
+    networks, validates each CA on entry and shows its subject and thumbprint.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Thu, 13 Aug 2026 16:00:00 +0000
+
 lmn-gpo (1.10.1) stable; urgency=medium
 
   * FIX: the RADIUS CA for the teacher Wi-Fi was accepted without validation. read_cert_der()

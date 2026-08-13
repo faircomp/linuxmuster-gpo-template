@@ -365,19 +365,42 @@ def build_psk_script(networks: list) -> str:
     return _build_script(entries)
 
 
-def build_enterprise_script(ssid: str, servernames: str, ca_der: bytes) -> str:
-    """Enterprise: install the RADIUS CA cert (Trusted Root) + import the PEAP profile."""
-    tp = thumbprint(ca_der)
-    b64 = base64.b64encode(ca_der).decode("ascii")
-    # The CA must be trusted before the profile is used, and re-adding is harmless.
+def build_enterprise_script(networks: list) -> str:
+    """Enterprise: install every RADIUS CA (machine trusted root) + import every PEAP profile.
+
+    networks: [{'ssid':…, 'servernames':…, 'ca_der': bytes}] - order is the connection
+    preference. Several networks are the roaming case: a teacher notebook travels between
+    sites, so EVERY teacher SSID and EVERY RADIUS CA has to be present on EVERY teacher
+    notebook. The pack is scope: global and filtered to @teachernb, so one GPO at OU=SCHOOLS
+    reaches them all regardless of which school the device belongs to.
+
+    Each network pins its OWN CA by thumbprint, so sites with separate RADIUS servers do not
+    have to share a certificate; sites that do share one simply reference the same file.
+    """
+    entries, cas = [], []
+    for n in networks:
+        ssid = (n.get("ssid") or "").strip()
+        der = n.get("ca_der")
+        if not (ssid and der):
+            continue
+        cas.append(base64.b64encode(der).decode("ascii"))
+        entries.append((ssid, enterprise_profile_xml(
+            ssid, (n.get("servernames") or "").strip(), thumbprint(der))))
+    if not entries:
+        return ""
+    # The CAs must be trusted before a profile is used; certutil -addstore is idempotent,
+    # and without -user it writes the LOCAL MACHINE store - required for pre-logon 802.1X.
+    ca_list = ",\n".join(f"    '{b}'" for b in cas)
     prologue = (
-        "function Install-RadiusCa {\n"
-        f"    $certb64 = '{b64}'\n"
-        "    $cf = Join-Path $env:TEMP ('lmn-gpo-radius-ca-' + [Guid]::NewGuid().ToString('N') + '.cer')\n"
-        "    try {\n"
-        "        [IO.File]::WriteAllBytes($cf, [Convert]::FromBase64String($certb64))\n"
-        "        & certutil.exe -addstore -f Root \"$cf\" 2>&1 | Out-Null\n"
-        "    } finally { Remove-Item -LiteralPath $cf -Force -ErrorAction SilentlyContinue }\n"
+        "$RADIUS_CAS = @(\n" + ca_list + "\n)\n"
+        "function Install-RadiusCas {\n"
+        "    foreach ($certb64 in $RADIUS_CAS) {\n"
+        "        $cf = Join-Path $env:TEMP ('lmn-gpo-radius-ca-' + [Guid]::NewGuid().ToString('N') + '.cer')\n"
+        "        try {\n"
+        "            [IO.File]::WriteAllBytes($cf, [Convert]::FromBase64String($certb64))\n"
+        "            & certutil.exe -addstore -f Root \"$cf\" 2>&1 | Out-Null\n"
+        "        } finally { Remove-Item -LiteralPath $cf -Force -ErrorAction SilentlyContinue }\n"
+        "    }\n"
         "}\n"
-        "Install-RadiusCa\n")
-    return _build_script([(ssid, enterprise_profile_xml(ssid, servernames, tp))], prologue)
+        "Install-RadiusCas\n")
+    return _build_script(entries, prologue)
