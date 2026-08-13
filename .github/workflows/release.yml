@@ -62,8 +62,17 @@ jobs:
                                                      {'ssid': 'Zweites Netz', 'psk': 'passphrase456'}]),
               # umlaut SSID: must not put a non-ASCII byte into the .ps1
               'wlan-psk-uml': wlan.build_psk_script([{'ssid': 'Schueler-Netz-äöü', 'psk': 'passphrase789'}]),
-              # a syntactically valid but meaningless DER blob is enough for a parse check
-              'wlan-ent': wlan.build_enterprise_script('Lehrer', 'radius.example.org', b'\x30\x03\x02\x01\x00'),
+              # a meaningless DER blob is enough for a parse check - only its base64 and
+              # SHA-1 end up in the script. One and several networks are both covered,
+              # because a single entry is where the array shape used to collapse.
+              'wlan-ent-one': wlan.build_enterprise_script(
+                  [{'ssid': 'Lehrer', 'servernames': 'radius.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x00'}]),
+              'wlan-ent-two': wlan.build_enterprise_script(
+                  [{'ssid': 'Lehrer A', 'servernames': 'radius-a.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x00'},
+                   {'ssid': "Lehrer B's Netz", 'servernames': 'radius-b.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x01'}]),
           }
           bad = False
           for name, text in cases.items():
