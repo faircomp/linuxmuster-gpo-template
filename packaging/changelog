@@ -1,3 +1,32 @@
+lmn-gpo (1.10.1) stable; urgency=medium
+
+  * FIX: the RADIUS CA for the teacher Wi-Fi was accepted without validation. read_cert_der()
+    returned the raw bytes of ANY file that lacked a BEGIN CERTIFICATE marker, so pointing
+    wlan_enterprise_ca_cert at a private key, a CSR or a text file produced a SHA-1 thumbprint
+    over garbage. Windows compares that thumbprint against the RADIUS server certificate and
+    then refuses to connect WITHOUT ANY PROMPT, because the profile deliberately sets
+    DisableUserPromptForServerValidation - so the failure was invisible on both ends and
+    looked like a RADIUS problem. The file is now parsed with openssl and a bad one is a hard
+    error naming the file, with the linuxmuster export command in the message.
+  * apply now prints the certificate it pins ("RADIUS CA pinned: subject=... SHA1 ..."), and
+    a missing CA file makes the teacher Wi-Fi pack skip with a warning and a non-zero exit
+    instead of aborting the whole run mid-way.
+  * A missing CA file no longer RETIRES the teacher Wi-Fi GPO. Since 1.5.0 an unmet
+    precondition deletes the pack's GPO, which is right when the operator switched a feature
+    off but wrong for a mistyped path - a typo would have destroyed a working GPO. Failures
+    that come from a missing FILE are now tracked separately and the GPO is kept, reported
+    and left for the next run, exactly like the wallpaper case.
+  * setup: the wizard shows 'lmnradius ca export --out ...' as the way to obtain the CA and
+    immediately echoes the subject and thumbprint of whatever path was entered.
+  * README (both languages): document the full linuxmuster teacher-Wi-Fi path - export the
+    EAP CA, three site.yaml keys, one apply - with a table mapping each manual click in the
+    Windows profile dialog to the setting the pack writes. Also state plainly that the teacher
+    Wi-Fi cannot be up BEFORE login: it authenticates the user, and preLogon means the 802.1X
+    handshake runs during the Windows logon, not that the link already exists at the logon
+    screen. Only machine authentication would change that.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Thu, 13 Aug 2026 09:00:00 +0000
+
 lmn-gpo (1.10.0) stable; urgency=medium
 
   * New pack 10b-veyon-bandwidth-schule: cut the network load of Veyon classroom monitoring.

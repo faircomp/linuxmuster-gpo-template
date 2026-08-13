@@ -97,6 +97,10 @@ class Applier:
         self.warnings: list[str] = []   # non-fatal problems that must still fail the run
         self._links: dict[str, list[str]] | None = None   # gPLink map, built on first retire
         self._warned: set[str] = set()   # de-duplicate per-field validation warnings
+        # packs whose precondition failed because a FILE was missing, not because the
+        # operator switched them off - those must never be retired (a typo in a path
+        # would otherwise delete a working GPO)
+        self._file_precondition_failed: set[str] = set()
         self._wp_cache: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------ #
@@ -413,7 +417,16 @@ class Applier:
             content = wlanmod.build_psk_script(self.answers.get("wlan_psk_networks") or [])
             fname = "lmn-gpo-wlan-psk.ps1"
         elif mode == "enterprise":
-            ca = wlanmod.read_cert_der(self.answers["wlan_enterprise_ca_cert"])
+            ca_path = self.answers["wlan_enterprise_ca_cert"]
+            # Print what is actually being pinned: a wrong file here fails silently on the
+            # client (no prompt, because DisableUserPromptForServerValidation is set).
+            try:
+                print(f"    RADIUS CA pinned: {wlanmod.describe_cert(ca_path)}")
+            except Exception as exc:
+                print(f"    \u26a0 {exc}")
+                self.warnings.append(f"teacher Wi-Fi: {exc}")
+                return
+            ca = wlanmod.read_cert_der(ca_path)
             content = wlanmod.build_enterprise_script(
                 (self.answers.get("wlan_enterprise_ssid") or "").strip(),
                 (self.answers.get("wlan_enterprise_servernames") or "").strip(), ca)
@@ -446,8 +459,21 @@ class Applier:
         if req == "wlan_psk":
             return bool(self.answers.get("wlan_psk_networks"))
         if req == "wlan_enterprise":
-            return bool((self.answers.get("wlan_enterprise_ssid") or "").strip()
-                        and (self.answers.get("wlan_enterprise_ca_cert") or "").strip())
+            ssid = (self.answers.get("wlan_enterprise_ssid") or "").strip()
+            ca = (self.answers.get("wlan_enterprise_ca_cert") or "").strip()
+            if not (ssid and ca):
+                return False
+            # A path that does not exist used to sail through here and blow up mid-apply.
+            if not os.path.isfile(ca):
+                self._file_precondition_failed.add(pack.id)
+                if pack.id not in self._warned:
+                    self._warned.add(pack.id)
+                    self.warnings.append(
+                        f"wlan_enterprise_ca_cert not found: {ca} - teacher Wi-Fi pack skipped")
+                    print(f"    \u26a0 RADIUS CA not found: {ca} - teacher Wi-Fi pack skipped "
+                          f"(GPO left untouched).")
+                return False
+            return True
         if req == "bootorder":
             return bool(self.answers.get("bootorder_pxe_first"))
         if req == "pointandprint":
@@ -541,10 +567,11 @@ class Applier:
             scope_token, container = "GLOBAL", self.env.schools_ou
         name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
         if not self._applicable(pack, school):
-            if (pack.requires or "").strip() in NON_RETIRABLE_REQUIRES:
+            if ((pack.requires or "").strip() in NON_RETIRABLE_REQUIRES
+                    or pack.id in self._file_precondition_failed):
                 if self.eng.find_by_name(name):
                     print(f"\n▸ {name}")
-                    print(f"    ⚠ '{pack.requires}' not found on disk — GPO left untouched "
+                    print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left untouched "
                           f"(not deleted). Fix the source path, or remove it deliberately "
                           f"with 'lmn-gpo remove --pack {pack.id}'.")
                     self.warnings.append(

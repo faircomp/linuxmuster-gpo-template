@@ -354,6 +354,45 @@ so it would stay configured off-site and cut the notebook off from the internet.
 
 ## Wi-Fi: multiple networks & roaming
 
+### Teacher Wi-Fi (WPA2-Enterprise) on linuxmuster
+
+Export the RADIUS EAP CA on the server and point the toolkit at it — everything the manual
+click-through would do is then applied by the GPO:
+
+```bash
+lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem
+```
+```yaml
+wlan_enterprise_ssid: "MSG-LEHRER"
+wlan_enterprise_servernames: "radius.evsvbz.org"
+wlan_enterprise_ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca.pem"
+```
+```bash
+lmn-gpo apply --pack 13-wlan-enterprise --yes
+```
+
+| Manual step | What the pack does |
+|---|---|
+| Install CA in **Local Computer** → Trusted Root | `certutil -addstore -f Root`, run as SYSTEM = machine store |
+| Tick only that one root CA | `TrustedRootCA=<SHA-1>` pins exactly this certificate |
+| Enter the server name | `ServerNames` |
+| "Prompt for new servers" **off** | `DisableUserPromptForServerValidation=true` |
+| SSO tick | `singleSignOn` / `preLogon` |
+
+`apply` prints the certificate it pins (`RADIUS CA pinned: subject=... SHA1 ...`) — check that
+it really is the *EAP CA*. A wrong file used to be accepted silently and produced a thumbprint
+over garbage; the client then refuses to connect **with no prompt at all**, because prompting
+is disabled by design. That is now a hard error instead.
+
+> **The teacher Wi-Fi cannot come up before login, and no setting changes that.** It
+> authenticates the *user* (`authMode=user`), and before login there is no user. `preLogon`
+> means the 802.1X handshake runs *during* the Windows logon with the credentials just typed —
+> not that the link is already up at the logon screen. Consequently the very first teacher
+> logon on a notebook needs cable or another network once. Only *machine* authentication would
+> connect earlier, and that requires a RADIUS policy for domain computers.
+
+
+
 > **How the two packages split.** `13-wlan-psk` deploys the PSK networks as **all-user
 > (machine) profiles**, so LINBO/PXE machines associate **before anyone logs in**. Delivery
 > is a **self-healing scheduled task** (`LMN-GPO-WlanProfiles`, boot + every 15 min + logon),
@@ -1026,6 +1065,47 @@ ist — und weil der Proxy im echten WinINET-Schlüssel landet (nicht unter `…
 > `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
 
 ## WLAN: mehrere Netze & Roaming
+
+### Lehrer-WLAN (WPA2-Enterprise) unter linuxmuster
+
+RADIUS-EAP-CA auf dem Server exportieren und dem Toolkit den Pfad geben — alles, was man sonst
+am Client durchklickt, erledigt dann die GPO:
+
+```bash
+lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem
+```
+```yaml
+wlan_enterprise_ssid: "MSG-LEHRER"
+wlan_enterprise_servernames: "radius.evsvbz.org"
+wlan_enterprise_ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca.pem"
+```
+```bash
+lmn-gpo apply --pack 13-wlan-enterprise --yes
+```
+
+| Schritt von Hand | Was das Paket macht |
+|---|---|
+| CA in **Lokaler Computer** → Vertrauenswürdige Stammzertifizierungsstellen | `certutil -addstore -f Root`, läuft als SYSTEM = Maschinenspeicher |
+| Nur diese eine Stamm-CA anhaken | `TrustedRootCA=<SHA-1>` pinnt genau dieses Zertifikat |
+| Servername eintragen | `ServerNames` |
+| „Benutzer bei neuen Servern fragen" **aus** | `DisableUserPromptForServerValidation=true` |
+| SSO-Häkchen | `singleSignOn` / `preLogon` |
+
+`apply` gibt aus, welches Zertifikat gepinnt wird (`RADIUS CA pinned: subject=... SHA1 ...`) —
+prüf dort, dass es wirklich die *EAP-CA* ist. Eine falsche Datei wurde früher stillschweigend
+akzeptiert und ergab einen Fingerabdruck über Datenmüll; der Client verweigert dann die
+Verbindung **ganz ohne Rückfrage**, weil das Nachfragen bewusst abgeschaltet ist. Das ist jetzt
+ein harter Fehler.
+
+> **Das Lehrer-WLAN kann nicht vor dem Login stehen, daran ändert keine Einstellung etwas.** Es
+> authentifiziert den *Benutzer* (`authMode=user`), und vor der Anmeldung gibt es keinen.
+> `preLogon` heißt: Die 802.1X-Anmeldung läuft *während* der Windows-Anmeldung mit den gerade
+> eingetippten Daten — nicht, dass die Verbindung am Anmeldebildschirm schon steht. Die erste
+> Lehrer-Anmeldung auf einem Notebook braucht deshalb einmal Kabel oder ein anderes Netz. Nur
+> eine *Computerkonto*-Authentifizierung würde früher verbinden, dafür braucht der RADIUS eine
+> Richtlinie für Domänencomputer.
+
+
 
 > **Aufteilung der zwei Pakete.** `13-wlan-psk` verteilt die PSK-Netze als **All-User-Profile
 > (Maschinenprofile)**, LINBO/PXE-Rechner verbinden sich also **vor dem Login**. Ausgeliefert

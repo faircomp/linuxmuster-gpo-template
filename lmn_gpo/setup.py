@@ -118,9 +118,20 @@ def _ask_wlan(answers: dict) -> None:
         answers["wlan_enterprise_servernames"] = _ask(
             "    Name(s) in the RADIUS server certificate, separated by ';' (empty = do not check server name)",
             answers.get("wlan_enterprise_servernames", "") or "").strip()
-        answers["wlan_enterprise_ca_cert"] = _ask(
-            "    Path to the RADIUS CA certificate file on THIS server (.cer/.pem)",
-            answers.get("wlan_enterprise_ca_cert", "") or "").strip()
+        print("    RADIUS CA certificate. On linuxmuster export it with:")
+        print("        lmnradius ca export --out /etc/linuxmuster/lmn-gpo/eap-ca.pem")
+        print("    It is installed into the clients' LOCAL COMPUTER trusted-root store and")
+        print("    pinned by thumbprint in the profile - a wrong file makes the login fail")
+        print("    silently, with no prompt on the client.")
+        ca = _ask("    Path to the RADIUS CA certificate on THIS server (.pem/.cer)",
+                  answers.get("wlan_enterprise_ca_cert", "") or "").strip()
+        answers["wlan_enterprise_ca_cert"] = ca
+        if ca:
+            try:
+                from . import wlan as _wlanmod
+                print(f"      OK: {_wlanmod.describe_cert(ca)}")
+            except Exception as exc:
+                print(f"      ! {exc}")
         print("    Note: The very first teacher login on a notebook requires cable/another")
         print("    network once (user auth); afterwards the WLAN connects automatically via SSO.")
 

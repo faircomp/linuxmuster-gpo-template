@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import re
+import subprocess
 from xml.sax.saxutils import escape
 
 
@@ -26,7 +28,15 @@ def read_cert_der(path: str) -> bytes:
     block is decoded - concatenating all base64 blocks would yield invalid DER and a
     wrong SHA-1 thumbprint (or a padding error). For PEAP TrustedRootCA exactly one
     CA cert is meant.
+
+    The result is VALIDATED as a real certificate. Without that, pointing the setting at
+    the wrong file (a key, a CSR, a text file) produced a thumbprint over garbage, which
+    Windows then compares against the RADIUS server's certificate and silently refuses to
+    connect - with no prompt, because the profile sets
+    DisableUserPromptForServerValidation. That failure is invisible on both ends.
     """
+    if not os.path.isfile(path):
+        raise ValueError(f"RADIUS CA certificate not found: {path}")
     with open(path, "rb") as fh:
         data = fh.read()
     if b"BEGIN CERTIFICATE" in data:
@@ -35,8 +45,37 @@ def read_cert_der(path: str) -> bytes:
                       text, re.DOTALL)
         block = m.group(1) if m else text
         b64 = "".join(line.strip() for line in block.splitlines() if line.strip())
-        return base64.b64decode(b64)
-    return data
+        try:
+            der = base64.b64decode(b64)
+        except Exception as exc:
+            raise ValueError(f"{path}: PEM block is not decodable base64 ({exc})") from exc
+    else:
+        der = data
+    subject = _cert_subject(der)
+    if subject is None:
+        hint = ("it looks like a PRIVATE KEY - export the CA certificate instead"
+                if b"PRIVATE KEY" in data else
+                "expected a PEM or DER encoded X.509 certificate")
+        raise ValueError(f"{path} is not a usable certificate: {hint}. "
+                         f"On linuxmuster: 'lmnradius ca export --out eap-ca.pem'")
+    return der
+
+
+def _cert_subject(der: bytes) -> str | None:
+    """Subject line via openssl, or None when the bytes are not a certificate."""
+    try:
+        p = subprocess.run(["openssl", "x509", "-inform", "DER", "-noout", "-subject"],
+                           input=der, capture_output=True, timeout=15)
+        return p.stdout.decode(errors="replace").strip() if p.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def describe_cert(path: str) -> str:
+    """'<subject>  SHA1 <thumbprint>' - shown at apply time so the operator can eyeball
+    that the pinned CA really is the RADIUS EAP CA and not some other certificate."""
+    der = read_cert_der(path)
+    return f"{_cert_subject(der) or 'subject?'}  SHA1 {thumbprint(der)}"
 
 
 def thumbprint(der: bytes) -> str:
