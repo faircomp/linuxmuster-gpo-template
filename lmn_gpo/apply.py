@@ -171,13 +171,16 @@ class Applier:
             if isinstance(n, dict) and (n.get("ssid") or "").strip():
                 nets.append({"ssid": str(n["ssid"]).strip(),
                              "servernames": str(n.get("servernames") or "").strip(),
-                             "ca_cert": str(n.get("ca_cert") or "").strip()})
+                             "ca_cert": str(n.get("ca_cert") or "").strip(),
+                             "sso_max_delay": n.get("sso_max_delay", 45),
+                             "vlan_per_user": bool(n.get("vlan_per_user", False))})
         if not nets:
             ssid = (self.answers.get("wlan_enterprise_ssid") or "").strip()
             if ssid:
                 nets.append({"ssid": ssid,
                              "servernames": (self.answers.get("wlan_enterprise_servernames") or "").strip(),
-                             "ca_cert": (self.answers.get("wlan_enterprise_ca_cert") or "").strip()})
+                             "ca_cert": (self.answers.get("wlan_enterprise_ca_cert") or "").strip(),
+                             "sso_max_delay": 45, "vlan_per_user": False})
         return nets
 
     def _display_off(self) -> str:

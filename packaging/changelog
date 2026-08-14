@@ -1,3 +1,31 @@
+lmn-gpo (1.12.0) stable; urgency=medium
+
+  * Teacher Wi-Fi: the SSO window is configurable and its default is raised from 10 s to 45 s
+    (sso_max_delay per network, 0-120). maxDelay is the hard ceiling on association + EAP +
+    the 4-way handshake + DHCP; when it is exceeded Windows signs the user in with CACHED
+    credentials and NO network, so the desktop appears and everything needing the network at
+    logon fails - most visibly the H: home drive, which Winlogon maps from the user object's
+    homeDrive/homeDirectory during session setup. 10 s was Microsoft's SAMPLE value and is too
+    tight in practice: three EAPOL-Starts alone (startPeriod 5 s x maxStart 3) exceed it
+    before PEAP begins.
+    Trade-off, documented: a FAILED association now stalls the logon screen for up to 45 s
+    instead of 10 s.
+  * New per-network vlan_per_user (userBasedVirtualLan). Required when RADIUS moves the user to
+    another VLAN after authentication - Windows then waits for the new DHCP lease instead of
+    proceeding on the old, dead address.
+  * Deliberately NOT shipped, after verifying it: the "Always wait for the network at computer
+    startup and logon" policy (SyncForegroundPolicy). Microsoft's own policy text says users
+    with a home directory already sign in synchronously, so it is a no-op exactly where it
+    would be needed and a per-boot cost elsewhere. Documented so it is not tried again.
+    Also recorded: GpNetworkStartTimeoutPolicyValue lives under
+    Software\Policies\Microsoft\Windows\System, NOT under Winlogon as widely repeated - the
+    wrong location is a silent no-op.
+  * README: how to tell the two failure modes apart with klist (no Kerberos tickets = SSO
+    timed out and cached credentials were used; tickets but no H: = name resolution, e.g. a
+    homeDirectory using the short \\server\... form on a just-associated adapter).
+
+ -- Kevin Stenzel <kevin@ks98.de>  Fri, 14 Aug 2026 09:00:00 +0000
+
 lmn-gpo (1.11.0) stable; urgency=medium
 
   * Teacher Wi-Fi accepts SEVERAL networks. wlan_enterprise_networks is a list of

@@ -115,9 +115,23 @@ def psk_profile_xml(ssid: str, psk: str) -> str:
     )
 
 
-def enterprise_profile_xml(ssid: str, servernames: str, tp: str) -> str:
+def enterprise_profile_xml(ssid: str, servernames: str, tp: str,
+                           max_delay: int = 45, vlan_per_user: bool = False) -> str:
     """WPA2-Enterprise PEAP-MSCHAPv2, USER auth + SSO preLogon (connects at login with
-    the logged-in user's domain credentials; RADIUS restricts to the teacher group)."""
+    the logged-in user's domain credentials; RADIUS restricts to the teacher group).
+
+    max_delay is the HARD ceiling (seconds, 0-120) on association + EAP + the 4-way
+    handshake + DHCP before Windows gives up and signs the user in with CACHED credentials
+    and no network. That is the failure that leaves the H: home drive unmapped: Winlogon maps
+    homeDrive/homeDirectory during session setup, and by then the link is not up. Microsoft's
+    sample uses 10 s; that is a sample, not a tuned value, and it is routinely too tight with
+    band steering, 802.11r or a DHCP relay - hence 45 here.
+
+    vlan_per_user must be true when RADIUS moves the user to a different VLAN after
+    authentication (Tunnel-Private-Group-ID). Windows then waits for the new DHCP lease;
+    with false it proceeds on the old, now-dead address - again no network at logon.
+    """
+    max_delay = max(0, min(120, int(max_delay)))
     s = escape(ssid)
     server_el = (f'              <msPeap:ServerNames>{escape(servernames)}</msPeap:ServerNames>\n'
                  if servernames else "")
@@ -138,8 +152,8 @@ def enterprise_profile_xml(ssid: str, servernames: str, tp: str) -> str:
         '      <authMode>user</authMode>\n'
         '      <singleSignOn>\n'
         '        <type>preLogon</type>\n'
-        '        <maxDelay>10</maxDelay>\n'
-        '        <userBasedVirtualLan>false</userBasedVirtualLan>\n'
+        f'        <maxDelay>{max_delay}</maxDelay>\n'
+        f'        <userBasedVirtualLan>{str(bool(vlan_per_user)).lower()}</userBasedVirtualLan>\n'
         '      </singleSignOn>\n'
         '      <EAPConfig>\n'
         '        <EapHostConfig xmlns="http://www.microsoft.com/provisioning/EapHostConfig"'
@@ -385,7 +399,9 @@ def build_enterprise_script(networks: list) -> str:
             continue
         cas.append(base64.b64encode(der).decode("ascii"))
         entries.append((ssid, enterprise_profile_xml(
-            ssid, (n.get("servernames") or "").strip(), thumbprint(der))))
+            ssid, (n.get("servernames") or "").strip(), thumbprint(der),
+            max_delay=n.get("sso_max_delay", 45),
+            vlan_per_user=bool(n.get("vlan_per_user", False)))))
     if not entries:
         return ""
     # The CAs must be trusted before a profile is used; certutil -addstore is idempotent,

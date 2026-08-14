@@ -370,6 +370,8 @@ wlan_enterprise_networks:
   - ssid: "GSG-LEHRER"
     servernames: "radius-gsg.evsvbz.org"
     ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-gsg.pem"
+    sso_max_delay: 45        # optional, seconds (0-120)
+    vlan_per_user: false     # optional, true if RADIUS assigns a per-user VLAN
 ```
 
 One entry per site, **each with its own RADIUS CA** (sites sharing a RADIUS just reference the
@@ -394,6 +396,29 @@ lmn-gpo apply --pack 13-wlan-enterprise --yes
 it really is the *EAP CA*. A wrong file used to be accepted silently and produced a thumbprint
 over garbage; the client then refuses to connect **with no prompt at all**, because prompting
 is disabled by design. That is now a hard error instead.
+
+> **`sso_max_delay` decides whether the logon has a network at all.** It is the hard ceiling
+> on association + EAP + the 4-way handshake + DHCP. When it is exceeded, Windows signs the
+> user in with **cached credentials and no network** — the desktop appears and anything needing
+> the network at logon fails, most visibly the `H:` home drive. Microsoft's sample value is
+> 10 s, which is too tight in practice: three EAPOL-Starts alone (`startPeriod` 5 s x
+> `maxStart` 3) exceed it before PEAP even begins. The default here is **45 s**; the useful
+> range is 45-60. The price: a *failed* association now stalls the logon screen for that long
+> instead of 10 s, which off-site reads as "the notebook is frozen".
+>
+> **`vlan_per_user`** must be `true` if RADIUS moves the user to another VLAN after
+> authentication (`Tunnel-Private-Group-ID`). Windows then waits for the new DHCP lease;
+> otherwise it proceeds on the old, now-dead address — again no network at logon.
+>
+> Diagnose with `klist` right after a logon: **no Kerberos tickets** means the SSO timed out
+> and Windows used cached credentials, so raise `sso_max_delay`. Tickets present but no `H:`
+> points at name resolution instead — note that a `homeDirectory` using the short
+> `\\server\...` form depends on the DNS suffix being applied on a just-associated adapter.
+>
+> **The `Always wait for the network at computer startup and logon` policy does NOT fix this.**
+> Microsoft's own text: users with a home directory already sign in synchronously, so it is a
+> no-op exactly where it would be needed, and a per-boot tax elsewhere. It is deliberately not
+> shipped.
 
 > **The teacher Wi-Fi cannot come up before login, and no setting changes that.** It
 > authenticates the *user* (`authMode=user`), and before login there is no user. `preLogon`
@@ -1093,6 +1118,8 @@ wlan_enterprise_networks:
   - ssid: "GSG-LEHRER"
     servernames: "radius-gsg.evsvbz.org"
     ca_cert: "/etc/linuxmuster/lmn-gpo/eap-ca-gsg.pem"
+    sso_max_delay: 45        # optional, seconds (0-120)
+    vlan_per_user: false     # optional, true if RADIUS assigns a per-user VLAN
 ```
 
 One entry per site, **each with its own RADIUS CA** (sites sharing a RADIUS just reference the
@@ -1118,6 +1145,31 @@ prüf dort, dass es wirklich die *EAP-CA* ist. Eine falsche Datei wurde früher 
 akzeptiert und ergab einen Fingerabdruck über Datenmüll; der Client verweigert dann die
 Verbindung **ganz ohne Rückfrage**, weil das Nachfragen bewusst abgeschaltet ist. Das ist jetzt
 ein harter Fehler.
+
+> **`sso_max_delay` entscheidet, ob die Anmeldung überhaupt Netz hat.** Es ist die harte
+> Obergrenze für Association + EAP + 4-Way-Handshake + DHCP. Wird sie überschritten, meldet
+> Windows den Benutzer mit **zwischengespeicherten Anmeldedaten und ohne Netz** an — der
+> Desktop erscheint, und alles, was zum Anmeldezeitpunkt Netz braucht, scheitert; am
+> sichtbarsten das Heimlaufwerk `H:`. Microsofts Beispielwert ist 10 s und in der Praxis zu
+> knapp: Allein drei EAPOL-Starts (`startPeriod` 5 s × `maxStart` 3) überschreiten ihn, bevor
+> PEAP beginnt. Standard hier ist **45 s**, sinnvoll sind 45–60. Der Preis: Eine
+> *fehlgeschlagene* Anmeldung blockiert den Anmeldebildschirm nun so lange statt 10 s — außer
+> Haus liest sich das als „das Notebook hängt".
+>
+> **`vlan_per_user`** muss `true` sein, wenn der RADIUS den Benutzer nach der Anmeldung in ein
+> anderes VLAN schiebt (`Tunnel-Private-Group-ID`). Windows wartet dann auf die neue
+> DHCP-Lease; sonst läuft es auf der alten, toten Adresse weiter — wieder ohne Netz.
+>
+> Diagnose mit `klist` direkt nach einer Anmeldung: **keine Kerberos-Tickets** heißt, das SSO
+> ist ins Timeout gelaufen und Windows hat den Cache benutzt — dann `sso_max_delay` erhöhen.
+> Tickets vorhanden, aber kein `H:`, deutet auf Namensauflösung: Ein `homeDirectory` in der
+> Kurzform `\\server\...` hängt davon ab, dass das DNS-Suffix auf einem gerade verbundenen
+> Adapter schon greift.
+>
+> **Die Richtlinie „Beim Start des Computers und bei der Anmeldung immer auf das Netzwerk
+> warten" behebt das NICHT.** Microsofts eigener Text: Benutzer mit Heimatverzeichnis melden
+> sich ohnehin synchron an — die Richtlinie ist also genau dort wirkungslos, wo man sie
+> bräuchte, und kostet sonst nur Bootzeit. Sie wird bewusst nicht ausgeliefert.
 
 > **Das Lehrer-WLAN kann nicht vor dem Login stehen, daran ändert keine Einstellung etwas.** Es
 > authentifiziert den *Benutzer* (`authMode=user`), und vor der Anmeldung gibt es keinen.
