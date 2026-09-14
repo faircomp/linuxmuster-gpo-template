@@ -29,6 +29,7 @@ class Pack:
     startup_scripts: list = field(default_factory=list)
     shutdown_scripts: list = field(default_factory=list)
     wlan: dict = field(default_factory=dict)            # {mode: psk|enterprise} -> generated startup script
+    drives: list = field(default_factory=list)          # GPP Drive Maps items (USER policy)
     filter_deny: list = field(default_factory=list)     # deny-apply these groups
     filter_apply: list = field(default_factory=list)    # EXCLUSIVE: only these groups apply
     # Device groups that must not receive this GPO AT ALL (deny Read). Needed instead of
@@ -38,6 +39,8 @@ class Pack:
 
     @property
     def has_user(self) -> bool:
+        if self.drives:          # Drive Maps is user policy and carries no registry entries
+            return True
         return any(str(e.get("class", "machine")).lower() in ("user", "both") for e in self.registry)
 
     @property

@@ -12,6 +12,7 @@ import shutil
 
 from . import ad, catalog
 from .gpo import GpoEngine
+from .drives import GppDrives
 from .gpp import GppGroups
 from .regpol import RegPol, firewall_entries
 from .scripts_ext import ScriptsExt
@@ -96,6 +97,7 @@ class Applier:
         self.rp = RegPol(self.eng)
         self.se = SecEdit(self.eng)
         self.gp = GppGroups(self.eng)
+        self.dm = GppDrives(self.eng)
         self.sc = ScriptsExt(self.eng)
         self.results: list[dict] = []
         self.retired: list[str] = []
@@ -502,6 +504,8 @@ class Applier:
                         print(f"    \u26a0 {msg} - teacher Wi-Fi pack skipped (GPO left untouched).")
                 return False
             return True
+        if req == "home_drive":
+            return bool(self.answers.get("home_drive_enabled"))
         if req == "bootorder":
             return bool(self.answers.get("bootorder_pxe_first"))
         if req == "pointandprint":
@@ -588,6 +592,29 @@ class Applier:
         self.eng.delete(guid)
         self.retired.append(name)
 
+    def _drive_items(self, pack, school, schools):
+        """Catalog drive entries -> Drives.xml items, group tokens resolved to SIDs."""
+        out = []
+        for it in pack.drives:
+            if not isinstance(it, dict) or not it.get("letter"):
+                continue
+            item = dict(it)
+            groups = []
+            for token in it.get("only") or []:
+                for sid in self._group_sids(token, school, schools):
+                    groups.append({"name": str(token).lstrip("@"), "sid": sid})
+            if it.get("only") and not groups:
+                # Same rule as filter_apply: an unresolvable "only these groups" must not
+                # silently widen the item to everyone.
+                print(f"    \u26a0 drive {it['letter']}: group(s) {it['only']} not found - "
+                      f"item skipped (it would otherwise apply to EVERYONE).")
+                self.warnings.append(
+                    f"{pack.id}: drive {it['letter']} group {it['only']} unresolved - item skipped")
+                continue
+            item["groups"] = groups
+            out.append(item)
+        return out
+
     def apply_pack(self, pack, school, schools):
         if pack.scope == "school":
             scope_token, container = school.name, school.devices_ou
@@ -629,6 +656,8 @@ class Applier:
                       privilege_rights=self._priv_rights(pack.privilege_rights, school, schools),
                       group_membership=self._restricted_groups(pack.restricted_groups, school, schools))
         self.gp.add_local_admins(guid, self._admins_members(pack.local_admins, school, schools))
+        if pack.drives:
+            self.dm.set_drives(guid, self._drive_items(pack, school, schools))
         if pack.startup_scripts or pack.shutdown_scripts:
             def _load(lst):
                 return [{"file": s["file"], "content": catalog.load_script(s["file"])} for s in lst]

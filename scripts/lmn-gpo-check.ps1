@@ -444,6 +444,28 @@ if (Test-Path -LiteralPath $oLog) {
     Get-Content -LiteralPath $oLog -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
 }
 
+Write-Head "Home drive H:"
+# Network drives are PER LOGON SESSION: an elevated shell has its own session and sees
+# none of them. Run this as the logged-on user, not "as administrator".
+$homeShare = $env:HOMESHARE
+$hMap = $null
+try { $hMap = (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='H:'" -ErrorAction Stop).ProviderName } catch { }
+if ($hMap) {
+    Write-Host ("  {0}H: -> {1}" -f (Mark $true), $hMap) -ForegroundColor Green
+    $ok++
+    if ($homeShare -and $hMap -ne $homeShare) {
+        Write-Host ("       note: AD homeDirectory says {0}" -f $homeShare) -ForegroundColor Yellow
+    }
+} elseif ($homeShare) {
+    Write-Host ("  {0}H: NOT mapped, although the account has a home directory ({1})" -f (Mark $false), $homeShare) -ForegroundColor Red
+    Write-Host "       Usually means there was no network at logon. klist with no tickets =" -ForegroundColor DarkGray
+    Write-Host "       cached credentials were used; see the Wi-Fi section of the README." -ForegroundColor DarkGray
+    $fail++
+} else {
+    Write-Host "  [--] no home directory on the account - nothing to map" -ForegroundColor DarkGray
+    $skip++
+}
+
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {
     Write-Head "Full GPO report"

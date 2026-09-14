@@ -1,3 +1,48 @@
+lmn-gpo (1.13.0) stable; urgency=medium
+
+  * New OPT-IN pack 19-home-h: maps the home drive H: a second time via Group Policy
+    Preferences (Drive Maps), in addition to the homeDrive/homeDirectory attributes that
+    linuxmuster already sets. Off unless home_drive_enabled is set; the setup wizard asks.
+    It does NOT make H: appear sooner - Winlogon still connects it first during session
+    setup. It closes the case where Winlogon fails because the network is not up yet
+    (typical on 802.1X notebooks) and H: silently stays missing: the Drive Maps CSE runs
+    later in the same logon, and unlike Winlogon it is re-invoked when the machine regains
+    connectivity to a domain controller ([MS-GPOL] 3.2.7.1).
+    The path is NOT hardcoded per school or role. An LDAP query targeting item reads the
+    user's own homeDirectory into a variable that the same item's path then expands, so a
+    single entry covers every school, role and class - which is required, because student
+    homes carry the class in the path and there is no preference variable for a class.
+  * Verified on a real Windows 11 24H2 client, not inferred from documentation: that a
+    variable produced by FilterLdap really expands in the path of the SAME item was the
+    one load-bearing unknown. Proven with a second item on a letter Winlogon never maps
+    (H: alone proves nothing - Winlogon maps it identically from the AD attribute). Both
+    a teacher (\\server\<school>\teachers\<user>) and a student with a class in the
+    path (\\server\<school>\students\<class>\<user>) mapped correctly. RSoP reported
+    ErrorCount=0 and ProcessingAppMode=ForegroundSync, and H: existed exactly once - no
+    collision with Winlogon's own mapping.
+  * Fail-closed, also observed rather than assumed: on an account whose home directory did
+    not exist on disk, neither Winlogon nor the preference mapped anything, and the other
+    drives were unaffected thanks to bypassErrors="1". No home directory, no unreachable
+    share, no mapping - never a wrong one.
+  * action="U" (Update) deliberately, not Replace: on a letter that already holds a working
+    mapping it is a no-op, and it can never tear down a working H: that it then fails to
+    re-create. useLetter="0" is never emitted and CI asserts it - per KB3091116 it means
+    "delete all, starting at" and would wipe every mapping from that letter through Z:.
+  * Drive Maps is USER policy: the CSE is registered on gPCUserExtensionNames and the USER
+    half of versionNumber is bumped (Groups.xml is the machine counterpart). CI asserts the
+    pack resolves to a user GPO, since a machine GPO here would silently do nothing.
+  * Known limitation, stated rather than hidden: a client-side extension reapplies only when
+    the GPO changed, so the self-healing retry after the network returns needs the "process
+    even if the GPOs have not changed" option for Drive Maps. That registry value is NOT yet
+    shipped - it is unverified, and shipping an unverified reprocess-every-refresh setting
+    would be a side effect of its own. Within a single logon the safety net works today.
+  * sophomorix' own GPO is never touched; removing the pack removes the mapping and leaves
+    exactly the behaviour linuxmuster has without it.
+  * Version 1.12.0 is deliberately skipped. It was published and then withdrawn on request,
+    and reusing the number for different content would be worse than leaving a gap.
+
+ -- Kevin Stenzel <kevin@ks98.de>  Mon, 14 Sep 2026 12:00:00 +0000
+
 lmn-gpo (1.11.0) stable; urgency=medium
 
   * Teacher Wi-Fi accepts SEVERAL networks. wlan_enterprise_networks is a list of

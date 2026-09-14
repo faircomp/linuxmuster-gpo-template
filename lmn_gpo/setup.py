@@ -382,6 +382,15 @@ def run(site_path: str = DEFAULT_SITE) -> int:
         "    Enable? (hardware-dependent — test on ONE device first, log under %SystemRoot%\\Temp)",
         bool(answers.get("bootorder_pxe_first")))
 
+    # Home drive H: as a safety net (opt-in)
+    print("\n  Home drive H: (optional): maps H: a SECOND time via Group Policy,")
+    print("    in addition to linuxmuster's homeDrive/homeDirectory attributes. Helps where")
+    print("    the network is not up yet at logon (802.1X notebooks) and H: stays missing.")
+    print("    Does not make H: appear sooner - it makes it appear at all. No effect where")
+    print("    H: already works, and removing it restores today's behaviour exactly.")
+    answers["home_drive_enabled"] = _ask_yesno(
+        "    Enable?", bool(answers.get("home_drive_enabled")))
+
     # Point and Print (optional): allow non-admin driver install from the print server
     _ask_pointandprint(answers, e)
 

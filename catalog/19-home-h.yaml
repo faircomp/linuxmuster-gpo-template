@@ -1,0 +1,28 @@
+id: "19-home-h"
+title: "Home drive H: as a safety net (GPP Drive Map, all schools)"
+scope: global
+target: user
+requires: home_drive
+description: >
+  Maps the home drive H: a second time, via Group Policy Preferences, in addition to
+  the homeDrive/homeDirectory attributes that linuxmuster already sets on every user.
+  This does NOT replace those attributes and does not make H: appear sooner - Winlogon
+  still connects it first during session setup. It closes the case where Winlogon
+  fails because the network is not up yet (typical on 802.1X notebooks): the Drive Maps
+  CSE runs later in the same logon and is re-invoked when the machine regains
+  connectivity to a domain controller, which Winlogon never does.
+
+  The path is read per user from the directory (homeDirectory) by an LDAP query
+  targeting item, so ONE entry covers every school, every role and every class -
+  including student homes, which carry the class in the path.
+
+  Fail-closed by construction: no homeDirectory, no unreachable share, no mapping -
+  never a wrong one. Removing the pack removes the mapping and leaves exactly the
+  behaviour linuxmuster has today.
+drives:
+  - letter: H
+    from_ldap: homeDirectory
+    label: Home
+    # "U" (Update) deliberately, not "Replace": where H: already works this is a no-op,
+    # and it can never tear down a working mapping it then fails to re-create.
+    action: U

@@ -91,6 +91,33 @@ jobs:
           print(f'generated {len(cases)} scripts')
           PY
 
+      - name: Drive maps XML check
+        run: |
+          python3 - <<'PY'
+          import sys, xml.dom.minidom as md; sys.path.insert(0, '.')
+          from lmn_gpo import drives, catalog
+          p = {x.id: x for x in catalog.load_packs()}["19-home-h"]
+          # Drive Maps is USER policy and carries no registry entries - if has_user ever
+          # went false the GPO would be created as a machine GPO and silently do nothing.
+          assert p.has_user and not p.has_machine and p.type_letter == "U", \
+              f"19-home-h has the wrong GPO type: {p.type_letter}"
+          xml = drives.render([dict(i) for i in p.drives], "{00000000-0000-0000-0000-000000000000}")
+          xml.encode("ascii")                    # non-ASCII in sysvol XML breaks clients
+          flat = xml.replace("\r\n", "\n")
+          md.parseString(flat)                   # must be well-formed
+          # Exactly the shape proven on a real Windows 11 client. Any drift here means the
+          # H: mapping silently stops working, which no other test would catch.
+          for must in ['attribute="homeDirectory"', 'variableName="lmnHomeDirectory"',
+                       'path="%lmnHomeDirectory%"', 'binding="LDAP:"',
+                       'searchFilter="(&amp;(objectClass=user)(sAMAccountName=%LogonUser%))"',
+                       'action="U"', 'useLetter="1"', 'persistent="0"', 'bypassErrors="1"']:
+              assert must in flat, f"missing from Drives.xml: {must}"
+          # KB3091116: useLetter="0" is "delete all, starting at" and wipes every mapping
+          # from that letter through Z:. It must never appear.
+          assert 'useLetter="0"' not in flat, 'useLetter="0" would wipe drive letters'
+          print("drive maps: ok")
+          PY
+
       - name: PowerShell syntax check (real parser)
         shell: pwsh
         run: |

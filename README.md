@@ -52,7 +52,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
   (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
   `sysvolreset`.
 
-## Features (32 packages)
+## Features (33 packages)
 
 **Always active** (no extra parameter needed):
 
@@ -576,6 +576,53 @@ Fixes "not all clocks are correct" (always active). **Core fix:**
 for dead BIOS/CMOS batteries); without it a client that drifted far simply never catches up.
 Clients only (linked at `OU=SCHOOLS`); the DC stays untouched.
 Check on the client: `w32tm /query /source` and `w32tm /query /status`.
+
+## Home drive H: (safety net)
+
+Off by default. Enable with `home_drive_enabled: true` (the assistant asks) to have
+pack `19-home-h` map **H: a second time** via Group Policy Preferences, on top of the
+`homeDrive`/`homeDirectory` attributes linuxmuster sets on every user.
+
+**What it does not do:** make H: appear sooner. Winlogon still connects it first,
+during session setup, straight from the Kerberos PAC. What it adds is a second
+attempt at a better moment — the Drive Maps extension runs later in the same logon,
+and unlike Winlogon it is re-invoked when the machine regains connectivity to a
+domain controller ([MS-GPOL] 3.2.7.1). That covers the case this exists for: a
+notebook authenticating over 802.1X where the link is not up yet, the desktop appears
+normally and H: is silently missing.
+
+The path is **not** hardcoded per school or role. An LDAP query targeting item reads
+the user's own `homeDirectory` into a variable, which the same item's `path` then
+expands. One entry therefore covers every school, every role and every class — which
+is not a nicety but a requirement: student homes carry the class in the path
+(`\\server\<school>\students\<class>\<user>`) and there is no preference variable
+for a class.
+
+```yaml
+home_drive_enabled: true
+```
+
+**Safety properties**, each observed on a real client rather than assumed:
+
+- No `homeDirectory`, or a share that cannot be reached → **no mapping at all**, never
+  a wrong one. Other drives keep working (`bypassErrors="1"`).
+- Where H: already works, the entry is a **no-op** — `action="U"` cannot relocate an
+  existing mapping, so it can never tear down a working H:.
+- sophomorix' own GPO is never touched. Remove the pack and you are back to exactly
+  today's behaviour.
+
+**Known limitation:** an extension reapplies only when its GPO changed, so the
+self-healing retry *after* the network comes back needs the "process even if the Group
+Policy objects have not changed" option for Drive Maps. That is **not shipped yet** —
+it is unverified, and turning on reprocessing at every refresh unverified would be a
+side effect of its own. Within a single logon the safety net works today.
+
+Check on the client, logged on as the user (not elevated — network drives are
+per-session):
+
+```
+net use
+```
 
 ## Point and Print (printer drivers for students)
 
