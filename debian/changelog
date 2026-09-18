@@ -1,3 +1,20 @@
+lmn-gpo (7.3.0) lmn73; urgency=medium
+
+  * Switch to the linuxmuster.net version scheme (7.<line>.<n>, distribution lmn73);
+    dpkg sorts 7.3.0 above 1.13.0, so installed sites upgrade as usual
+  * debian/changelog (moved from packaging/changelog) is the single version source:
+    packaging/build-deb.sh reads it with dpkg-parsechangelog, writes it into the control
+    file and generates lmn_gpo/_version.py in the package; `lmn-gpo --version` reports it
+  * Add `make deb` and a GitHub Actions ci.yml that runs the former release-time sanity
+    checks (py_compile, catalog YAML, ASCII-only .ps1, generated Wi-Fi scripts, Drives.xml,
+    PowerShell parser) on every push, builds the package in
+    ghcr.io/linuxmuster/lmndev-runner:24.04 and installs it on ubuntu-24.04
+  * release.yml refuses a tag that does not equal the changelog version and builds in the
+    same container; the release notes keep the install instructions and the SHA256
+  * Maintainer address is now Kevin Stenzel <mail@kevin-stenzel.de>
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Fri, 18 Sep 2026 10:00:00 +0200
+
 lmn-gpo (1.13.0) stable; urgency=medium
 
   * New OPT-IN pack 19-home-h: maps the home drive H: a second time via Group Policy

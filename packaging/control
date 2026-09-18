@@ -1,9 +1,9 @@
 Package: lmn-gpo
-Version: 1.13.0
+Version: @VERSION@
 Section: admin
 Priority: optional
 Architecture: all
-Maintainer: Kevin Stenzel <kevin@ks98.de>
+Maintainer: Kevin Stenzel <mail@kevin-stenzel.de>
 Depends: python3 (>= 3.10), python3-yaml, python3-samba, samba-common-bin, openssl
 Homepage: https://github.com/faircomp/linuxmuster-gpo-template
 Description: Windows Group Policy toolkit for linuxmuster.net (Samba AD DC)
