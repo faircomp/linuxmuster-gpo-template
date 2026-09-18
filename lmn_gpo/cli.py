@@ -15,7 +15,7 @@ import os
 import subprocess
 import sys
 
-from . import ad, env as envmod
+from . import __version__, ad, env as envmod
 
 # Display-name prefix that marks every GPO this toolkit owns. Everything else
 # (sophomorix:*, Default Domain Policy, ...) is left untouched.
@@ -307,6 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="lmn-gpo",
         description="GPO template toolkit for linuxmuster.net 7.x (Samba AD DC).")
     p.add_argument("--no-color", action="store_true", help="disable colored output")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("doctor", help="environment self-check (read-only)")

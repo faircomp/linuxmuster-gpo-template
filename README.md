@@ -126,13 +126,15 @@ cd linuxmuster-gpo-template
 ./lmn-gpo-cli doctor          # environment self-check – must be green
 ```
 
-You can also build the `.deb` yourself from the checkout (needs only `dpkg-deb`, no
-debhelper) and install it — the command is then `lmn-gpo` as above:
+You can also build the `.deb` yourself from the checkout (needs `make` and `dpkg-dev`, no
+debhelper, no root) and install it — the command is then `lmn-gpo` as above:
 
 ```bash
-sh packaging/build-deb.sh                    # -> dist/lmn-gpo_*_all.deb
+make deb                                 # = sh packaging/build-deb.sh -> dist/lmn-gpo_*_all.deb
 apt install ./dist/lmn-gpo_*_all.deb     # or: dpkg -i dist/lmn-gpo_*_all.deb
 ```
+
+The version comes from the top entry of `debian/changelog` (`lmn-gpo --version` shows it).
 
 No extra packages are required (see [Requirements](#requirements) – Python, the `samba`
 bindings and `samba-tool` come with linuxmuster).
@@ -748,8 +750,8 @@ linuxmuster.net 7.x Samba AD DC, Python ≥ 3.10, `python3-yaml`, the `samba` Py
 `samba-tool` (Samba ≥ 4.16 for `gpo load`), `openssl` (for Veyon/Wi-Fi certificates).
 Runs as root on the DC.
 
-Building the `.deb` yourself needs only `dpkg-deb` (no debhelper) — and can be done on any
-machine, not just the DC. Installing the ready-made `.deb` from a release needs nothing extra.
+Building the `.deb` yourself needs `make` and `dpkg-dev` (no debhelper) — and can be done on
+any machine, not just the DC. Installing the ready-made `.deb` from a release needs nothing extra.
 
 ## Directory layout
 
@@ -760,8 +762,11 @@ scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagn
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   branding images per school (images not committed)
-packaging/    Debian packaging (build-deb.sh, control, copyright, changelog, postinst/prerm/postrm)
-.github/workflows/  GitHub Actions (release.yml builds the .deb and attaches it on a v* tag)
+debian/       changelog — the single version source (top entry = package version, dist lmn73)
+packaging/    Debian packaging (build-deb.sh, control, copyright, postinst/prerm/postrm)
+Makefile      make deb -> dist/lmn-gpo_<version>_all.deb
+.github/workflows/  GitHub Actions (ci.yml checks, builds and installs on every push;
+              release.yml builds the .deb and attaches it on a v* tag that equals the changelog)
 LICENSE       GPL-3.0
 dist/         build output (the .deb) — gitignored
 ```
@@ -894,13 +899,15 @@ cd linuxmuster-gpo-template
 ./lmn-gpo-cli doctor          # Umgebungs-Selbstcheck – muss grün sein
 ```
 
-Optional das `.deb` selbst aus dem Checkout bauen (braucht nur `dpkg-deb`, kein debhelper)
-und installieren — das Kommando ist dann `lmn-gpo` wie oben:
+Optional das `.deb` selbst aus dem Checkout bauen (braucht `make` und `dpkg-dev`, kein
+debhelper, kein root) und installieren — das Kommando ist dann `lmn-gpo` wie oben:
 
 ```bash
-sh packaging/build-deb.sh                    # -> dist/lmn-gpo_*_all.deb
+make deb                                 # = sh packaging/build-deb.sh -> dist/lmn-gpo_*_all.deb
 apt install ./dist/lmn-gpo_*_all.deb     # oder: dpkg -i dist/lmn-gpo_*_all.deb
 ```
+
+Die Version stammt aus dem obersten Eintrag von `debian/changelog` (`lmn-gpo --version` zeigt sie).
 
 Es sind keine zusätzlichen Pakete nötig (siehe [Anforderungen](#anforderungen) – Python,
 `samba`-Bindings und `samba-tool` bringt linuxmuster mit).
@@ -1478,7 +1485,7 @@ linuxmuster.net 7.x Samba-AD-DC, Python ≥ 3.10, `python3-yaml`, `samba` Python
 `samba-tool` (Samba ≥ 4.16 für `gpo load`), `openssl` (für Veyon-/WLAN-Zertifikate).
 Läuft als root auf dem DC.
 
-Das `.deb` selbst zu bauen braucht nur `dpkg-deb` (kein debhelper) — und geht auf jedem
+Das `.deb` selbst zu bauen braucht `make` und `dpkg-dev` (kein debhelper) — und geht auf jedem
 Rechner, nicht nur auf dem DC. Für das Installieren eines fertigen `.deb` aus einem Release
 ist nichts Zusätzliches nötig.
 
@@ -1491,8 +1498,11 @@ scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagno
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   Branding-Bilder je Schule (Bilder nicht eingecheckt)
-packaging/    Debian-Paketierung (build-deb.sh, control, copyright, changelog, postinst/prerm/postrm)
-.github/workflows/  GitHub Actions (release.yml baut das .deb und hängt es an einen v*-Tag)
+debian/       changelog — die einzige Versionsquelle (oberster Eintrag = Paketversion, Dist lmn73)
+packaging/    Debian-Paketierung (build-deb.sh, control, copyright, postinst/prerm/postrm)
+Makefile      make deb -> dist/lmn-gpo_<version>_all.deb
+.github/workflows/  GitHub Actions (ci.yml prüft, baut und installiert bei jedem Push;
+              release.yml baut das .deb und hängt es an einen v*-Tag, der dem Changelog entspricht)
 LICENSE       GPL-3.0
 dist/         Build-Ausgabe (das .deb) — gitignored
 ```

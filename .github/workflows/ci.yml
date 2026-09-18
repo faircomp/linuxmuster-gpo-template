@@ -1,0 +1,205 @@
+# From linuxmusterDEV/templates/ci.yml. Three jobs on every push/PR: the fast tier (the
+# sanity checks that used to run only at release time in release.yml), the package build
+# in the same container upstream CI uses, and an install smoke on ubuntu-24.04. The real
+# end-to-end check, `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
+name: ci
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v[0-9]*']       # the sanity checks run for releases too (release.yml only gates/builds)
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    runs-on: ubuntu-latest        # GitHub-hosted: ships python3 with PyYAML and pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity check (Python compiles, catalog parses, PowerShell is ASCII)
+        run: |
+          python3 -m py_compile lmn_gpo/*.py
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in sorted(glob.glob('catalog/*.yaml'))]"
+          # Windows PowerShell 5.1 reads a .ps1 without BOM in the system codepage. A UTF-8
+          # em-dash then decodes to a curly quote, which ENDS the string early and breaks the
+          # whole script on the client. Keep every shipped .ps1 pure ASCII.
+          python3 - <<'PY'
+          import glob, re, sys
+          bad = {}
+          for f in sorted(glob.glob('scripts/*.ps1')):
+              s = open(f, encoding='utf-8').read()
+              chars = sorted({c for c in s if ord(c) > 127})
+              if chars:
+                  bad[f] = chars
+          if bad:
+              for f, chars in bad.items():
+                  print(f"::error file={f}::non-ASCII in a shipped PowerShell script: "
+                        + ", ".join(f"{c!r} U+{ord(c):04X}" for c in chars))
+              sys.exit(1)
+          print("powershell: pure ASCII ok")
+          PY
+          echo "sanity ok"
+
+      - name: Version (lmn-gpo --version must equal debian/changelog, the single source)
+        run: |
+          WANT=$(dpkg-parsechangelog -S Version)
+          GOT=$(./lmn-gpo-cli --version)
+          echo "changelog=$WANT  cli=$GOT"
+          test "$GOT" = "lmn-gpo $WANT" || { echo "::error::lmn-gpo --version says '$GOT', debian/changelog says $WANT"; exit 1; }
+
+      - name: Generate the dynamic PowerShell (Wi-Fi) for syntax checking
+        run: |
+          # lmn_gpo/wlan.py BUILDS a .ps1 at apply time; it never exists in scripts/, so the
+          # parser check below would not see it -- yet it runs unattended on every client.
+          mkdir -p /tmp/gen-ps
+          python3 - <<'PY'
+          import sys, re; sys.path.insert(0, '.')
+          from lmn_gpo import wlan
+          # ONE network is its own fixture on purpose: 1.9.0 shipped a generator that only
+          # worked with two or more, and a two-network fixture kept CI green while every
+          # single-network site got no Wi-Fi at all.
+          cases = {
+              'wlan-psk-one': wlan.build_psk_script([{'ssid': 'Einziges Netz', 'psk': 'passphrase123'}]),
+              'wlan-psk-two': wlan.build_psk_script([{'ssid': "A's Netz", 'psk': 'passphrase123'},
+                                                     {'ssid': 'Zweites Netz', 'psk': 'passphrase456'}]),
+              # umlaut SSID: must not put a non-ASCII byte into the .ps1
+              'wlan-psk-uml': wlan.build_psk_script([{'ssid': 'Schueler-Netz-äöü', 'psk': 'passphrase789'}]),
+              # a meaningless DER blob is enough for a parse check - only its base64 and
+              # SHA-1 end up in the script. One and several networks are both covered,
+              # because a single entry is where the array shape used to collapse.
+              'wlan-ent-one': wlan.build_enterprise_script(
+                  [{'ssid': 'Lehrer', 'servernames': 'radius.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x00'}]),
+              'wlan-ent-two': wlan.build_enterprise_script(
+                  [{'ssid': 'Lehrer A', 'servernames': 'radius-a.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x00'},
+                   {'ssid': "Lehrer B's Netz", 'servernames': 'radius-b.example.org',
+                    'ca_der': b'\x30\x03\x02\x01\x01'}]),
+          }
+          bad = False
+          for name, text in cases.items():
+              nonascii = sorted({c for c in text if ord(c) > 127})
+              if nonascii:
+                  print(f"::error::{name}: non-ASCII in generated PowerShell: {nonascii}")
+                  bad = True
+              # the 1.9.0 bug in one assertion: a bare @( @(..) ) collapses for a single row
+              if re.search(r'\$PROFILES\s*=\s*@\(', text):
+                  print(f"::error::{name}: $PROFILES built with @( ... ) - collapses when there "
+                        f"is exactly one profile; use a typed List")
+                  bad = True
+              open(f'/tmp/gen-ps/{name}.ps1', 'w').write(text)
+          if bad:
+              sys.exit(1)
+          print(f'generated {len(cases)} scripts')
+          PY
+
+      - name: Drive maps XML check
+        run: |
+          python3 - <<'PY'
+          import sys, xml.dom.minidom as md; sys.path.insert(0, '.')
+          from lmn_gpo import drives, catalog
+          p = {x.id: x for x in catalog.load_packs()}["19-home-h"]
+          # Drive Maps is USER policy and carries no registry entries - if has_user ever
+          # went false the GPO would be created as a machine GPO and silently do nothing.
+          assert p.has_user and not p.has_machine and p.type_letter == "U", \
+              f"19-home-h has the wrong GPO type: {p.type_letter}"
+          xml = drives.render([dict(i) for i in p.drives], "{00000000-0000-0000-0000-000000000000}")
+          xml.encode("ascii")                    # non-ASCII in sysvol XML breaks clients
+          flat = xml.replace("\r\n", "\n")
+          md.parseString(flat)                   # must be well-formed
+          # Exactly the shape proven on a real Windows 11 client. Any drift here means the
+          # H: mapping silently stops working, which no other test would catch.
+          for must in ['attribute="homeDirectory"', 'variableName="lmnHomeDirectory"',
+                       'path="%lmnHomeDirectory%"', 'binding="LDAP:"',
+                       'searchFilter="(&amp;(objectClass=user)(sAMAccountName=%LogonUser%))"',
+                       'action="U"', 'useLetter="1"', 'persistent="0"', 'bypassErrors="1"']:
+              assert must in flat, f"missing from Drives.xml: {must}"
+          # KB3091116: useLetter="0" is "delete all, starting at" and wipes every mapping
+          # from that letter through Z:. It must never appear.
+          assert 'useLetter="0"' not in flat, 'useLetter="0" would wipe drive letters'
+          print("drive maps: ok")
+          PY
+
+      - name: PowerShell syntax check (real parser)
+        shell: pwsh
+        run: |
+          # Parse every shipped script with PowerShell's own parser. Static greps cannot
+          # catch things like \" -- which is NOT an escape in PowerShell: the backslash
+          # stays literal and the quote ENDS the string, so the rest is parsed as code.
+          $failed = $false
+          $files = @(Get-ChildItem -Path scripts -Filter *.ps1) +
+                   @(Get-ChildItem -Path /tmp/gen-ps -Filter *.ps1 -ErrorAction SilentlyContinue)
+          foreach ($f in $files) {
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $f.FullName, [ref]$null, [ref]$errors)
+              if ($errors -and $errors.Count) {
+                  $failed = $true
+                  foreach ($e in $errors) {
+                      Write-Host "::error file=scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+                  }
+              } else {
+                  Write-Host "ok: $($f.Name)"
+              }
+          }
+          if ($failed) { exit 1 }
+
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      version: ${{ steps.image.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: image
+        run: |
+          DIST=$(dpkg-parsechangelog -S Distribution); NUM="${DIST#lmn}"
+          if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=ghcr.io/linuxmuster/lmndev-runner:latest; else IMG=ghcr.io/linuxmuster/lmndev-runner:24.04; fi
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "version=$(dpkg-parsechangelog -S Version)" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: resolve
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.resolve.outputs.image }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build package (make deb wraps packaging/build-deb.sh; dpkg-dev is in the image)
+        run: |
+          make deb
+          mkdir -p output && mv dist/*.deb output/
+          dpkg-deb -I output/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: output/
+          if-no-files-found: error
+
+  install-smoke:
+    needs: [resolve, package]
+    runs-on: ubuntu-24.04              # the target OS (linuxmuster.net 7.3)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages/
+      - name: Install and use the package like an admin would
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq
+          sudo -E apt-get install -y ./packages/*.deb
+          test "$(command -v lmn-gpo)" = /usr/bin/lmn-gpo
+          lmn-gpo --help
+          test "$(lmn-gpo --version)" = "lmn-gpo $VERSION"
+          python3 -c 'import lmn_gpo; print("lmn_gpo", lmn_gpo.__version__)'
+          test -f /usr/share/lmn-gpo/catalog/19-home-h.yaml
+          # `lmn-gpo doctor` needs a Samba AD DC and is the lab's job, not CI's.

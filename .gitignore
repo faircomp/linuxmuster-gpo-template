@@ -12,6 +12,8 @@ wallpapers/*.bmp
 # Build artifacts (.deb output)
 dist/
 build/
+# generated into the package by packaging/build-deb.sh, never into the checkout
+lmn_gpo/_version.py
 
 # Python
 __pycache__/
