@@ -3,7 +3,8 @@
 #   git tag v7.3.0 && git push origin v7.3.0
 # The tag (minus the leading "v") must equal the top entry of debian/changelog, the single
 # version source. A manual run (workflow_dispatch) only builds, smokes and uploads the .deb.
-# No publish job yet (no faircomp/deb archive); no .changes file until the debian/ conversion.
+# No publish job yet (no faircomp/deb archive). Since the debian/ conversion the build also
+# produces a .changes file, which is attached to the release next to the .deb.
 name: release
 
 on:
@@ -37,11 +38,17 @@ jobs:
       options: --user root
     steps:
       - uses: actions/checkout@v4
-      - name: Build package (make deb wraps packaging/build-deb.sh; dpkg-dev is in the image)
+      - name: Build package (make deb = dpkg-buildpackage; debhelper and dh-python via build-dep)
         run: |
+          apt-get update -qq
+          apt-get build-dep -y -qq .
           make deb
-          mkdir -p output && mv dist/*.deb output/
+          # dpkg-buildpackage writes one level above the source tree.
+          mkdir -p output && mv ../*.deb ../*.changes ../*.buildinfo output/
           dpkg-deb -I output/*.deb
+          # The .deb only: `lmn73` is not a distribution lintian knows, so linting the
+          # .changes would fail every build with E: bad-distribution-in-changes-file.
+          lintian --fail-on error output/*.deb
       - uses: actions/upload-artifact@v4
         with:
           name: packages
@@ -111,4 +118,5 @@ jobs:
           body_path: notes.md
           files: |
             packages/*.deb
+            packages/*.changes
           generate_release_notes: true      # appended below the notes above
