@@ -5,9 +5,12 @@
 name: ci
 
 on:
+  # Only main and tags on push: every other branch is covered by its pull request, so a
+  # topic branch does not run the whole pipeline twice per commit. A tag still runs the
+  # sanity checks AND the file-tree gate here (release.yml only gates, builds and smokes).
   push:
-    branches: ['**']
-    tags: ['v[0-9]*']       # the sanity checks run for releases too (release.yml only gates/builds)
+    branches: [main]
+    tags: ['v[0-9]*']
   pull_request:
   workflow_dispatch:
     inputs:
