@@ -124,6 +124,118 @@ jobs:
           print("drive maps: ok")
           PY
 
+      - name: Engine logic (GPO name parser, remove selection, skip reasons, exclusions — no DC needed)
+        run: |
+          # Applier and GpoEngine construct without touching AD, so the decisions apply
+          # makes BEFORE it writes anything are checked here against a fake two-school
+          # domain (default-school with d_nopxe, school 'one' without — the lab layout).
+          python3 - <<'PY'
+          import io, sys, contextlib; sys.path.insert(0, '.')
+          from lmn_gpo import apply, catalog
+          from lmn_gpo.env import Env, School, Group
+
+          # A two-school domain like the lab: default-school has d_nopxe, school 'one' has none.
+          BASE = "DC=dev,DC=lmschule,DC=de"
+          def school(name, nopxe):
+              dn = f"OU={name},OU=SCHOOLS,{BASE}"
+              return School(name=name, dn=dn, prefix="" if name == "default-school" else f"{name}-",
+                            is_default=(name == "default-school"), devices_ou=f"OU=Devices,{dn}",
+                            management_ou=f"OU=Management,{dn}",
+                            admins=Group(cn="admins", dn=f"CN=admins,OU=Management,{dn}", sid="S-1-5-21-1-2-3-1105"),
+                            nopxe=Group(cn="d_nopxe", dn=f"CN=d_nopxe,OU=Devices,{dn}", sid="S-1-5-21-1-2-3-1145") if nopxe else None)
+          env = Env(realm="DEV.LMSCHULE.DE", dnsdomain="dev.lmschule.de", basedn=BASE, netbios="DEV",
+                    serverip="10.250.0.10", subnet="10.250.0.0/24", sysvol_policies="/nonexistent",
+                    schools_ou=f"OU=SCHOOLS,{BASE}", global_ou=f"OU=GLOBAL,{BASE}",
+                    schools=[school("default-school", True), school("one", False)])
+          default, one = env.schools
+          packs = {p.id: p for p in catalog.load_packs()}
+          # No sam.ldb here: the global role groups (@role-student ...) resolve through a stub, the
+          # device groups (@nopxe/@teachernb) through the School objects above.
+          apply.ad.find_one = lambda expr, base=None, scope="sub", attrs=None: {"role": expr} if "role-" in expr else None
+          apply.ad.sid_of = lambda msg: "S-1-5-21-1-2-3-1119"
+
+          # --- remove: the GPO name parser and the --school/--pack selection --------------------
+          scopes = ["default-school", "one", "GLOBAL"]
+          assert apply.parse_gpo_name("LMN-C-default-school-07-admins-schule", scopes) == ("C", "default-school", "07-admins-schule")
+          assert apply.parse_gpo_name("LMN-U-one-12-proxy-student-schule", scopes) == ("U", "one", "12-proxy-student-schule")
+          assert apply.parse_gpo_name("LMN-CU-GLOBAL-15-lockdown-base", scopes) == ("CU", "GLOBAL", "15-lockdown-base")
+          assert apply.parse_gpo_name("LMN-C-one-x-07-admins-schule", ["one", "one-x"]) == ("C", "one-x", "07-admins-schule")
+          assert apply.parse_gpo_name("LMN-SELFTEST-DELETEME", scopes) is None
+          assert apply.parse_gpo_name("sophomorix:school:one", scopes) is None
+          sel = apply.selected_for_removal
+          assert sel("LMN-C-one-07-admins-schule", scopes, schools=["one"])
+          assert not sel("LMN-C-default-school-07-admins-schule", scopes, schools=["one"])
+          assert not sel("LMN-C-GLOBAL-02-updates", scopes, schools=["one"]), "a school selection must never remove a global GPO"
+          assert sel("LMN-C-GLOBAL-02-updates", scopes)                        # no filter = everything
+          assert sel("LMN-C-GLOBAL-02-updates", scopes, only_ids=["02-updates"])
+          assert not sel("LMN-C-one-07-admins-schule", scopes, only_ids=["02-updates"])
+          assert sel("LMN-C-one-07-admins-schule", scopes, only_ids=["07-admins-schule"], schools=["one"])
+          assert not sel("LMN-C-one-07-admins-schule", scopes, only_ids=["07-admins-schule"], schools=["default-school"])
+          assert not sel("sophomorix:school:one", scopes)
+          assert sel("LMN-SELFTEST-DELETEME", scopes) and not sel("LMN-SELFTEST-DELETEME", scopes, schools=["one"])
+          print("remove selection: ok")
+
+          # --- optional packs say why they are skipped ------------------------------------------
+          ap = apply.Applier(env, {"firefox_homepage_by_school": {"one": "https://start.one"}}, dry_run=True)
+          r = ap._skip_reason(packs["11-firefox-homepage-schule"], one)
+          assert "firefox_enabled" in r and "https://start.one" in r and "ignored" in r, r
+          ap = apply.Applier(env, {"firefox_enabled": True}, dry_run=True)
+          assert "firefox_homepage" in ap._skip_reason(packs["11-firefox-homepage-schule"], one)
+          ap = apply.Applier(env, {"firefox_enabled": True, "firefox_homepage": "https://x"}, dry_run=True)
+          assert ap._skip_reason(packs["11-firefox-homepage-schule"], one) == ""
+          ap = apply.Applier(env, {"proxy_host_by_school": {"one": "proxy.one"}}, dry_run=True)
+          assert "proxy_enabled" in ap._skip_reason(packs["12-proxy-student-schule"], one)
+          assert ap._skip_reason(packs["09-kms"], None) == "kmshost is empty"
+          assert ap._skip_reason(packs["00-datenschutz"], None) == "", "always-on packs have no skip reason"
+          print("skip reasons: ok")
+
+          # --- @teachernb / @nopxe: one rule, no 'warn + exit 1 but created anyway' -------------
+          proxy = {"proxy_enabled": True, "proxy_host": "proxy.example"}
+          ap = apply.Applier(env, proxy, dry_run=True)                       # teachernb: nopxe (default)
+          assert ap._exclusion("@teachernb", one, [one])[1] == "missing"      # school pack, no d_nopxe here
+          sids, status, note = ap._exclusion("@teachernb", None, env.schools)  # global pack: resolves via default-school
+          assert status == "ok" and sids == ["S-1-5-21-1-2-3-1145"] and "one" in note, (status, note)
+          assert ap._exclusion("@teachernb", default, [default])[1] == "ok"
+          assert ap._exclusion("@nopxe", one, [one])[1] == "missing"
+          ap = apply.Applier(env, {**proxy, "teachernb": "skip"}, dry_run=True)
+          assert ap._exclusion("@teachernb", one, [one])[1] == "disabled"
+          assert ap._exclusion("@nopxe", one, [one])[1] == "missing", "teachernb: skip must not touch @nopxe"
+          ap._find_group_sid = lambda cn, base: None                          # a CN that exists nowhere
+          ap = apply.Applier(env, {**proxy, "teachernb": "d_typo"}, dry_run=True)
+          ap._find_group_sid = lambda cn, base: None
+          assert ap._exclusion("@teachernb", None, env.schools)[1] == "missing"
+          # preflight rows carry the status apply acts on
+          ap = apply.Applier(env, {**proxy, "schools": ["one"], "packs": ["12-proxy-student-schule", "12-proxy-base"]}, dry_run=True)
+          rows = ap.preflight(list(packs.values()))
+          by = {(r[0], r[4]) for r in rows}
+          assert ("12-proxy-student-schule", "missing") in by, rows
+          assert ("12-proxy-base", "partial") in by, rows
+          ap = apply.Applier(env, {**proxy, "teachernb": "skip", "schools": ["one"], "packs": ["12-proxy-student-schule", "13-wlan-enterprise"],
+                                   "wlan_enterprise_networks": [{"ssid": "x", "ca_cert": __file__}]}, dry_run=True)
+          rows = ap.preflight(list(packs.values()))
+          by = {(r[0], r[2], r[4]) for r in rows}
+          assert ("12-proxy-student-schule", "exclude-read", "disabled") in by, rows
+          assert ("13-wlan-enterprise", "only", "disabled") in by, rows
+          # apply_pack on the fake env: the held-back pack never reaches the engine (no samba-tool call)
+          class Boom(Exception): pass
+          def boom(*a, **k): raise Boom("engine touched")
+          ap = apply.Applier(env, {**proxy, "schools": ["one"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          ap.eng.ensure = boom
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              ap.apply_pack(packs["12-proxy-student-schule"], one, [one])
+          assert "held back" in out.getvalue() and ap.held_back == ["LMN-U-one-12-proxy-student-schule"], out.getvalue()
+          ap = apply.Applier(env, {"firefox_homepage_by_school": {"one": "https://start.one"}, "schools": ["one"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          ap.eng.ensure = boom
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              ap.apply_pack(packs["11-firefox-homepage-schule"], one, [one])
+          assert "skipped: firefox_enabled is not true" in out.getvalue() and ap.skipped, out.getvalue()
+          print("exclusions: ok")
+          PY
+
       - name: PowerShell syntax check (real parser)
         shell: pwsh
         run: |
@@ -175,6 +287,10 @@ jobs:
           make deb
           mkdir -p output && mv dist/*.deb output/
           dpkg-deb -I output/*.deb
+          # DEBIAN/md5sums must cover every shipped file, or `dpkg --verify` is a no-op.
+          dpkg-deb --ctrl-tarfile output/*.deb | tar -tf - | grep -qx './md5sums'
+          test "$(dpkg-deb -c output/*.deb | grep -c '^-')" = "$(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l)"
+          echo "md5sums: $(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l) files"
       - uses: actions/upload-artifact@v4
         with:
           name: packages
@@ -202,4 +318,7 @@ jobs:
           test "$(lmn-gpo --version)" = "lmn-gpo $VERSION"
           python3 -c 'import lmn_gpo; print("lmn_gpo", lmn_gpo.__version__)'
           test -f /usr/share/lmn-gpo/catalog/19-home-h.yaml
+          # every installed file matches the shipped md5sums (silent = ok)
+          test -z "$(dpkg --verify lmn-gpo)"
+          lmn-gpo --no-color remove --help | grep -q -- '--school'
           # `lmn-gpo doctor` needs a Samba AD DC and is the lab's job, not CI's.
