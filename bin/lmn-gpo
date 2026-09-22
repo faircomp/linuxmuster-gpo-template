@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Command-line entry point for the lmn-gpo toolkit."""
+import sys
+
+from lmn_gpo.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())
