@@ -466,21 +466,118 @@ jobs:
       options: --user root
     steps:
       - uses: actions/checkout@v4
-      - name: Build package (make deb wraps packaging/build-deb.sh; dpkg-dev is in the image)
+      - name: Build package (make deb = dpkg-buildpackage; debhelper and dh-python via build-dep)
         run: |
+          apt-get update -qq
+          apt-get build-dep -y -qq .
           make deb
-          mkdir -p output && mv dist/*.deb output/
+          # dpkg-buildpackage writes one level above the source tree.
+          mkdir -p output && mv ../*.deb ../*.changes ../*.buildinfo output/
           dpkg-deb -I output/*.deb
           # DEBIAN/md5sums must cover every shipped file, or `dpkg --verify` is a no-op.
           dpkg-deb --ctrl-tarfile output/*.deb | tar -tf - | grep -qx './md5sums'
           test "$(dpkg-deb -c output/*.deb | grep -c '^-')" = "$(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l)"
           echo "md5sums: $(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l) files"
+      - name: Lintian (the .deb only)
+        run: |
+          # Never lint the .changes: `lmn73` is not a known distribution, which makes
+          # lintian fail with E: bad-distribution-in-changes-file on every single build.
+          lintian --fail-on error output/*.deb
       - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: output/
           if-no-files-found: error
 
+  # The one failure mode of a packaging change that no other job would notice: a catalog
+  # YAML, a .ps1 or lib/veyon-default-pub.pem quietly falls out of the package because
+  # debian/install matches differently than the old `cp -a`. It would only show up on a
+  # school DC, as a pack that is never applied. So every build is compared, path by path,
+  # against the newest published release: a path that disappears or changes mode/owner
+  # fails the build. This gate is permanent, not just for the debian/ conversion.
+  file-tree:
+    needs: package
+    runs-on: ubuntu-latest        # GitHub-hosted: gh is installed here, not in the container
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages/
+      - name: Fetch the newest published release
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p previous
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
+                  --json tagName,isDraft,isPrerelease \
+                  --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
+          if [ -z "$tag" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::no published release yet, file-tree comparison skipped"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir previous && break
+            echo "download attempt $i failed, retrying"; sleep 10
+          done
+          test -n "$(ls previous/*.deb 2>/dev/null)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Compare the file tree with the released package
+        if: steps.prev.outputs.skip != '1'
+        env:
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail          # without pipefail `tee` would swallow the exit code
+          # mode owner path, sorted. Directories are compared too: /var/lib/lmn-gpo/wallpapers
+          # is shipped EMPTY, so losing it would be invisible in a file-only comparison.
+          norm() { dpkg-deb -c "$1" | awk '{print $1, $2, $6}' | LC_ALL=C sort; }
+          norm previous/*.deb > old.txt
+          norm packages/*.deb > new.txt
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, sys
+
+          # Paths that may legitimately disappear, with the release that did it. Add an
+          # entry ONLY together with the changelog sentence that explains it to admins.
+          ALLOW_GONE = {
+              # 7.3.3, debhelper conversion: dh_installchangelogs uses the name Debian
+              # policy wants for a NATIVE package.
+              "usr/share/doc/lmn-gpo/changelog.Debian.gz",
+          }
+
+          def read(name):
+              rows = {}
+              for line in open(name):
+                  mode, owner, path = line.rstrip("\n").split(" ", 2)
+                  rows[path.removeprefix("./")] = (mode, owner)
+              return rows
+
+          old, new = read("old.txt"), read("new.txt")
+          gone = sorted(set(old) - set(new))
+          added = sorted(set(new) - set(old))
+          changed = sorted(p for p in set(old) & set(new) if old[p] != new[p])
+
+          print(f"## File tree vs {os.environ['PREV_TAG']}")
+          print()
+          print(f"- released: {len(old)} entries, built: {len(new)} entries")
+          for p in added:
+              print(f"- added: `{p}`")
+          for p in gone:
+              if p in ALLOW_GONE:
+                  print(f"- gone, allowed: `{p}`")
+          bad = [p for p in gone if p not in ALLOW_GONE]
+          for p in bad:
+              print(f"::error::file lost from the package: {p}")
+          for p in changed:
+              print(f"::error::mode or owner changed: {p}: {old[p]} -> {new[p]}")
+          if bad or changed:
+              sys.exit(1)
+          print()
+          print("file tree: nothing lost, no mode or owner change")
+          PY
   install-smoke:
     needs: [resolve, package]
     runs-on: ubuntu-24.04              # the target OS (linuxmuster.net 7.3)
@@ -506,3 +603,4 @@ jobs:
           test -z "$(dpkg --verify lmn-gpo)"
           lmn-gpo --no-color remove --help | grep -q -- '--school'
           # `lmn-gpo doctor` needs a Samba AD DC and is the lab's job, not CI's.
+
