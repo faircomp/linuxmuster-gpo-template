@@ -375,9 +375,15 @@ class Applier:
         return []
 
     def _teachernb(self) -> str:
-        """The teachernb answer: 'nopxe' (default), 'skip' (no teacher notebooks) or a CN."""
+        """The teachernb answer: 'nopxe' (default), 'skip' (no teacher notebooks) or a CN.
+
+        Only the literal 'skip' switches the exclusions off. An empty or null value (a bare
+        `teachernb:` line) is not a decision and falls back to the default, so it cannot
+        silently apply the packs to every device.
+        """
         tnb = self.answers.get("teachernb", "nopxe")
-        return "skip" if tnb in (None, "", "skip") else str(tnb).strip()
+        tnb = str(tnb).strip() if tnb is not None else ""
+        return tnb or "nopxe"
 
     def _device_group_label(self, token) -> str:
         if token == "@teachernb" and self._teachernb() not in ("nopxe", "skip"):
@@ -712,14 +718,21 @@ class Applier:
         self.retired.append(name)
         return True
 
-    def _hold_back(self, name, pack, reason):
-        """Fail closed: an exclusion that resolves to no group would make the GPO reach
-        exactly the devices it was meant to spare, so the pack is not applied in this scope.
-        One line, no exit-code drama: nothing was changed, and the preflight said why."""
+    @staticmethod
+    def _remove_hint(pack, school) -> str:
+        """The remove command for exactly this GPO (a bare --pack would hit every school)."""
+        return (f"lmn-gpo remove --school {school.name} --pack {pack.id}" if school
+                else f"lmn-gpo remove --pack {pack.id}")
+
+    def _hold_back(self, name, pack, school, reason):
+        """Fail closed: a filter group that resolves to nothing would make the GPO reach
+        exactly the devices it was meant to spare (or everyone, for an exclusive filter), so
+        the pack is not applied in this scope. One line, no exit-code drama: nothing was
+        changed, and the preflight said why."""
         existing = self.eng.find_by_name(name)
         print(f"\n▸ {name}  held back: {reason}"
               + (f" — existing GPO left untouched (remove it deliberately with "
-                 f"'lmn-gpo remove --pack {pack.id}')" if existing else " — GPO not created"))
+                 f"'{self._remove_hint(pack, school)}')" if existing else " — GPO not created"))
         self.held_back.append(name)
 
     def _drive_items(self, pack, school, schools):
@@ -758,7 +771,7 @@ class Applier:
                 print(f"\n▸ {name}")
                 print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left untouched "
                       f"(not deleted). Fix the source path, or remove it deliberately "
-                      f"with 'lmn-gpo remove --pack {pack.id}'.")
+                      f"with '{self._remove_hint(pack, school)}'.")
                 self.warnings.append(
                     f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
             elif not keep and self._retire(name):
@@ -772,7 +785,8 @@ class Applier:
         # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
         # Users, and set_exclusive_filter only restricts when it gets ≥1 SID. If the
         # 'only these groups' filter resolves to zero SIDs (e.g. @teachernb but no school
-        # has a d_nopxe group), linking would roll the GPO out to EVERYONE. Skip + say so.
+        # has a d_nopxe group), linking would roll the GPO out to EVERYONE. Held back, like
+        # a missing exclusion group.
         filter_apply_sids = []
         if pack.filter_apply:
             for token in pack.filter_apply:
@@ -782,8 +796,8 @@ class Applier:
                 why = ("teachernb: skip" if self._teachernb() == "skip"
                        and "@teachernb" in pack.filter_apply
                        else f"exclusive-filter group(s) {pack.filter_apply} not found")
-                print(f"\n▸ {name}  skipped: {why} — otherwise the GPO would apply to EVERYONE")
-                self.skipped.append(name)
+                self._hold_back(name, pack, school,
+                                f"{why} — otherwise the GPO would apply to EVERYONE")
                 return
         # Exclusions are resolved BEFORE anything is written. One that matches no group
         # in this scope holds the pack back (fail-closed) — never "warn, exit 1, but the
@@ -794,7 +808,8 @@ class Applier:
             for token in tokens:
                 sids, status, note = self._exclusion(token, school, schools)
                 if status == "missing":
-                    self._hold_back(name, pack, f"exclusion {token} matches no group ({note})")
+                    self._hold_back(name, pack, school,
+                                    f"exclusion {token} matches no group ({note})")
                     return
                 if status == "ok" and note:
                     notes.append(note)
@@ -881,12 +896,16 @@ class Applier:
         return 0
 
 
-def parse_gpo_name(name, scopes):
-    """Split 'LMN-<C|U|CU>-<scope>-<pack-id>' into (type, scope, pack_id); None if not ours.
+def parse_gpo_name(name, scopes, pack_ids):
+    """Split 'LMN-<C|U|CU>-<scope>-<pack-id>' into (type, scope, pack_id); None if not ours
+    or not attributable.
 
     School names and pack ids both contain hyphens (default-school, 07-admins-schule), so
-    the scope is matched against the known scope names (school OU names + GLOBAL), longest
-    first — 'one' must not swallow a school called 'one-x'.
+    the split is only accepted when the scope is a known scope name (school OU names +
+    GLOBAL) AND the remainder is a known pack id. With schools 'one' and 'one-07',
+    'LMN-C-one-07-admins-schule' would otherwise read as school 'one-07' + pack
+    'admins-schule' and `remove --school one-07` could delete school one's GPO. A name that
+    admits no such split, or more than one, is not attributed to any school.
     """
     if not name.startswith(GPO_PREFIX):
         return None
@@ -894,22 +913,22 @@ def parse_gpo_name(name, scopes):
     if not m:
         return None
     typ, rest = m.group(1), m.group(2)
-    for scope in sorted(scopes, key=len, reverse=True):
-        if rest.startswith(scope + "-") and len(rest) > len(scope) + 1:
-            return typ, scope, rest[len(scope) + 1:]
-    return None
+    found = [(typ, scope, rest[len(scope) + 1:]) for scope in scopes
+             if rest.startswith(scope + "-") and rest[len(scope) + 1:] in pack_ids]
+    return found[0] if len(found) == 1 else None
 
 
-def selected_for_removal(name, scopes, only_ids=None, schools=None) -> bool:
+def selected_for_removal(name, scopes, pack_ids, only_ids=None, schools=None) -> bool:
     """Does this GPO fall under `remove --pack ... --school ...`?
 
     --school limits the removal to that school's per-school GPOs; a global GPO
     (scope GLOBAL, linked at OU=SCHOOLS) reaches every school and is therefore never
-    removed by a school selection — the same rule `apply --school` follows.
+    removed by a school selection — the same rule `apply --school` follows. A GPO whose
+    name cannot be attributed to exactly one school is never removed by --school.
     """
     if not name.startswith(GPO_PREFIX):
         return False
-    parsed = parse_gpo_name(name, scopes)
+    parsed = parse_gpo_name(name, scopes, pack_ids)
     if schools and (parsed is None or parsed[1] not in schools):
         return False
     if only_ids:
@@ -925,15 +944,24 @@ def remove(env, dry_run=False, only_ids=None, schools=None):
     base = f"CN=Policies,CN=System,{env.basedn}"
     gplinks = _gplink_map()
     scopes = [s.name for s in env.schools] + ["GLOBAL"]
+    packs = {p.id: p for p in catalog.load_packs()}
     if schools:
         print(f"Removing the per-school GPOs of: {', '.join(schools)} "
               "(global LMN-*-GLOBAL-* GPOs are left in place)")
+        for pid in only_ids or []:
+            if pid in packs and packs[pid].scope != "school":
+                print(f"    note: {pid} is a global pack (LMN-*-GLOBAL-{pid}) — not selected "
+                      f"by --school; use 'lmn-gpo remove --pack {pid}' without --school")
 
     removed = 0
     for msg in ad.search(base=base, scope="one", expr="(objectClass=groupPolicyContainer)",
                          attrs=["displayName", "cn"]):
         name, guid = ad.val(msg, "displayName", ""), ad.val(msg, "cn", "")
-        if not selected_for_removal(name, scopes, only_ids, schools):
+        if not selected_for_removal(name, scopes, packs, only_ids, schools):
+            if schools and name.startswith(GPO_PREFIX) \
+                    and parse_gpo_name(name, scopes, packs) is None:
+                print(f"    note: {name} cannot be attributed to a school (unknown school or "
+                      f"pack id) — not selected by --school")
             continue
         print(f"▸ removing {name} {guid}")
         for container in gplinks.get(guid.upper(), []):

@@ -156,23 +156,32 @@ jobs:
 
           # --- remove: the GPO name parser and the --school/--pack selection --------------------
           scopes = ["default-school", "one", "GLOBAL"]
-          assert apply.parse_gpo_name("LMN-C-default-school-07-admins-schule", scopes) == ("C", "default-school", "07-admins-schule")
-          assert apply.parse_gpo_name("LMN-U-one-12-proxy-student-schule", scopes) == ("U", "one", "12-proxy-student-schule")
-          assert apply.parse_gpo_name("LMN-CU-GLOBAL-15-lockdown-base", scopes) == ("CU", "GLOBAL", "15-lockdown-base")
-          assert apply.parse_gpo_name("LMN-C-one-x-07-admins-schule", ["one", "one-x"]) == ("C", "one-x", "07-admins-schule")
-          assert apply.parse_gpo_name("LMN-SELFTEST-DELETEME", scopes) is None
-          assert apply.parse_gpo_name("sophomorix:school:one", scopes) is None
-          sel = apply.selected_for_removal
-          assert sel("LMN-C-one-07-admins-schule", scopes, schools=["one"])
-          assert not sel("LMN-C-default-school-07-admins-schule", scopes, schools=["one"])
-          assert not sel("LMN-C-GLOBAL-02-updates", scopes, schools=["one"]), "a school selection must never remove a global GPO"
-          assert sel("LMN-C-GLOBAL-02-updates", scopes)                        # no filter = everything
-          assert sel("LMN-C-GLOBAL-02-updates", scopes, only_ids=["02-updates"])
-          assert not sel("LMN-C-one-07-admins-schule", scopes, only_ids=["02-updates"])
-          assert sel("LMN-C-one-07-admins-schule", scopes, only_ids=["07-admins-schule"], schools=["one"])
-          assert not sel("LMN-C-one-07-admins-schule", scopes, only_ids=["07-admins-schule"], schools=["default-school"])
-          assert not sel("sophomorix:school:one", scopes)
-          assert sel("LMN-SELFTEST-DELETEME", scopes) and not sel("LMN-SELFTEST-DELETEME", scopes, schools=["one"])
+          ids = set(packs)
+          parse = lambda name, sc=scopes: apply.parse_gpo_name(name, sc, ids)
+          assert parse("LMN-C-default-school-07-admins-schule") == ("C", "default-school", "07-admins-schule")
+          assert parse("LMN-U-one-12-proxy-student-schule") == ("U", "one", "12-proxy-student-schule")
+          assert parse("LMN-CU-GLOBAL-15-lockdown-base") == ("CU", "GLOBAL", "15-lockdown-base")
+          assert parse("LMN-C-one-x-07-admins-schule", ["one", "one-x"]) == ("C", "one-x", "07-admins-schule")
+          # prefix collision: school 'one-07' must not claim school one's 07-admins-schule GPO
+          assert parse("LMN-C-one-07-admins-schule", ["one", "one-07"]) == ("C", "one", "07-admins-schule")
+          assert parse("LMN-C-one-07-07-admins-schule", ["one", "one-07"]) == ("C", "one-07", "07-admins-schule")
+          assert parse("LMN-C-one-no-such-pack") is None                       # unknown pack id: not attributed
+          assert parse("LMN-SELFTEST-DELETEME") is None
+          assert parse("sophomorix:school:one") is None
+          sel = lambda name, sc=scopes, **kw: apply.selected_for_removal(name, sc, ids, **kw)
+          assert sel("LMN-C-one-07-admins-schule", schools=["one"])
+          assert not sel("LMN-C-one-07-admins-schule", ["one", "one-07"], schools=["one-07"]), "remove --school one-07 must not touch school one"
+          assert sel("LMN-C-one-07-admins-schule", ["one", "one-07"], schools=["one"])
+          assert not sel("LMN-C-default-school-07-admins-schule", schools=["one"])
+          assert not sel("LMN-C-GLOBAL-02-updates", schools=["one"]), "a school selection must never remove a global GPO"
+          assert sel("LMN-C-GLOBAL-02-updates")                                 # no filter = everything
+          assert sel("LMN-C-GLOBAL-02-updates", only_ids=["02-updates"])
+          assert not sel("LMN-C-one-07-admins-schule", only_ids=["02-updates"])
+          assert sel("LMN-C-one-07-admins-schule", only_ids=["07-admins-schule"], schools=["one"])
+          assert not sel("LMN-C-one-07-admins-schule", only_ids=["07-admins-schule"], schools=["default-school"])
+          assert not sel("sophomorix:school:one")
+          assert sel("LMN-SELFTEST-DELETEME") and not sel("LMN-SELFTEST-DELETEME", schools=["one"])
+          assert not sel("LMN-C-one-no-such-pack", schools=["one"])            # unattributable: never by --school
           print("remove selection: ok")
 
           # --- optional packs say why they are skipped ------------------------------------------
@@ -200,8 +209,12 @@ jobs:
           ap = apply.Applier(env, {**proxy, "teachernb": "skip"}, dry_run=True)
           assert ap._exclusion("@teachernb", one, [one])[1] == "disabled"
           assert ap._exclusion("@nopxe", one, [one])[1] == "missing", "teachernb: skip must not touch @nopxe"
-          ap._find_group_sid = lambda cn, base: None                          # a CN that exists nowhere
-          ap = apply.Applier(env, {**proxy, "teachernb": "d_typo"}, dry_run=True)
+          # only the literal 'skip' disables: a bare 'teachernb:' (None) or '' is the default nopxe, ' skip ' is skip
+          for raw, want in ((None, "nopxe"), ("", "nopxe"), ("  ", "nopxe"), (" skip ", "skip"), ("Skip", "Skip")):
+              assert apply.Applier(env, {"teachernb": raw}, dry_run=True)._teachernb() == want, raw
+          assert apply.Applier(env, {**proxy, "teachernb": None}, dry_run=True)._exclusion("@teachernb", one, [one])[1] == "missing"
+          assert apply.Applier(env, {**proxy, "teachernb": None}, dry_run=True)._exclusion("@teachernb", default, [default])[1] == "ok"
+          ap = apply.Applier(env, {**proxy, "teachernb": "d_typo"}, dry_run=True)   # a CN that exists nowhere
           ap._find_group_sid = lambda cn, base: None
           assert ap._exclusion("@teachernb", None, env.schools)[1] == "missing"
           # preflight rows carry the status apply acts on (the CA path only has to exist here;
@@ -227,6 +240,14 @@ jobs:
           with contextlib.redirect_stdout(out):
               ap.apply_pack(packs["12-proxy-student-schule"], one, [one])
           assert "held back" in out.getvalue() and ap.held_back == ["LMN-U-one-12-proxy-student-schule"], out.getvalue()
+          # an exclusive filter that resolves to nothing is held back too, before the engine is touched
+          ap = apply.Applier(env, {"teachernb": "skip", "wlan_enterprise_networks": [{"ssid": "x", "ca_cert": "lib/veyon-default-pub.pem"}]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          ap.eng.ensure = boom
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              ap.apply_pack(packs["13-wlan-enterprise"], None, env.schools)
+          assert "held back: teachernb: skip" in out.getvalue() and ap.held_back == ["LMN-C-GLOBAL-13-wlan-enterprise"] and not ap.skipped, out.getvalue()
           ap = apply.Applier(env, {"firefox_homepage_by_school": {"one": "https://start.one"}, "schools": ["one"]}, dry_run=True)
           ap.eng.find_by_name = lambda name: None
           ap.eng.ensure = boom

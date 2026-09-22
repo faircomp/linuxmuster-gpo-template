@@ -136,9 +136,11 @@ def cmd_doctor(args) -> int:
         cfg = setupmod.default_site()
         answers = setupmod.load_site(cfg)
         print(f"  config: {cfg}{'' if answers else '  (missing/empty — defaults assumed)'}")
-        print(f"  teacher-notebook group (teachernb): "
-              f"{answers.get('teachernb', 'nopxe')!r}")
         ap = applymod.Applier(e, answers, dry_run=True)
+        raw = answers.get("teachernb", "nopxe")
+        raw = str(raw).strip() if raw is not None else ""
+        print(f"  teacher-notebook group (teachernb): {ap._teachernb()!r}"
+              + ("  (empty in site.yaml — default assumed)" if not raw else ""))
         rows = ap.preflight(catalog.load_packs())
         if not rows:
             print(f"  {ui.OK} every security-filter group resolves")
@@ -156,9 +158,8 @@ def cmd_doctor(args) -> int:
             if status == "disabled" and kind != "only":
                 continue
             what = "teachernb: skip" if status == "disabled" else note
-            outcome = "pack skipped" if kind == "only" else "pack held back by apply"
             print(f"  {ui.WARN} {pid:26} {label:16} {kind:13} {token:12} {what}"
-                  f"  → {outcome} (fail-closed)")
+                  f"  → pack held back by apply (fail-closed)")
     except Exception as exc:
         print(f"  {ui.WARN} could not evaluate: {exc}")
 
@@ -247,6 +248,13 @@ def cmd_apply(args) -> int:
         print("    pass --defaults if you really mean 'no optional features'.")
         return 2
     if args.school:
+        known = [s.name for s in e.schools]
+        unknown = [s for s in args.school if s not in known]
+        if unknown:
+            # A silent empty selection would still apply the global packs domain-wide.
+            print(f"{ui.BAD} unknown school(s): {', '.join(unknown)} — detected: "
+                  f"{', '.join(known) or 'none'}", file=sys.stderr)
+            return 2
         answers["schools"] = args.school
     if args.pack:
         answers["packs"] = args.pack

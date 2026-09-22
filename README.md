@@ -695,14 +695,17 @@ to spare:
 
 - **Group missing in the pack's scope** (a school without `d_nopxe`, a `teachernb` CN that
   exists nowhere): the pack is **held back** — GPO not created, an existing one left untouched
-  (`lmn-gpo remove --pack <id>` removes it deliberately). One line per pack, exit 0. For a
+  (`lmn-gpo remove --school <school> --pack <id>` removes it deliberately). One line per pack, exit 0. For a
   global pack the group only has to exist in *some* school; schools without it are named in
   a `note:` line (nothing is excluded there).
 - **`teachernb: skip`**: you are saying there are no teacher notebooks. The `@teachernb`
   exclusions are dropped, the packs apply to every device, the preflight names them in one
-  line. `13-wlan-enterprise` (filtered *to* teacher notebooks) is skipped.
+  line. Only the literal `skip` does this; an empty `teachernb:` counts as `nopxe`. GPOs that
+  already exist keep the deny ACEs of an earlier run until they are re-created — `apply` adds
+  filter ACEs, it never removes them. `13-wlan-enterprise` (filtered *to* teacher notebooks)
+  is held back.
 - **`filter_apply` group missing** (`13-wlan-enterprise` without a teacher-notebook group):
-  the pack is skipped, as before.
+  the pack is held back, as before (it would otherwise apply to everyone).
 
 ```
 Security-filter prerequisites (from site.yaml):
@@ -1469,14 +1472,17 @@ würde, die sie aussparen sollte:
 
 - **Gruppe fehlt im Geltungsbereich des Packs** (eine Schule ohne `d_nopxe`, ein
   `teachernb`-CN, den es nirgends gibt): das Pack wird **zurückgehalten** — GPO nicht angelegt,
-  eine vorhandene bleibt unangetastet (`lmn-gpo remove --pack <id>` entfernt sie bewusst). Eine
+  eine vorhandene bleibt unangetastet (`lmn-gpo remove --school <schule> --pack <id>` entfernt sie bewusst). Eine
   Zeile pro Pack, Exit 0. Bei einem globalen Pack muss die Gruppe nur in *irgendeiner* Schule
   existieren; Schulen ohne sie stehen in einer `note:`-Zeile (dort wird nichts ausgenommen).
 - **`teachernb: skip`**: du sagst, es gibt keine Lehrer-Notebooks. Die `@teachernb`-Ausschlüsse
-  entfallen, die Packs gelten für alle Geräte, die Vorprüfung nennt sie in einer Zeile.
-  `13-wlan-enterprise` (gefiltert *auf* Lehrer-Notebooks) wird übersprungen.
+  entfallen, die Packs gelten für alle Geräte, die Vorprüfung nennt sie in einer Zeile. Nur das
+  Literal `skip` tut das; ein leeres `teachernb:` zählt als `nopxe`. Schon vorhandene GPOs
+  behalten die Deny-ACEs eines früheren Laufs, bis sie neu angelegt werden — `apply` fügt
+  Filter-ACEs hinzu, es entfernt keine. `13-wlan-enterprise` (gefiltert *auf* Lehrer-Notebooks)
+  wird zurückgehalten.
 - **`filter_apply`-Gruppe fehlt** (`13-wlan-enterprise` ohne Lehrer-Notebook-Gruppe): das Pack
-  wird übersprungen, wie bisher.
+  wird zurückgehalten, wie bisher (sonst gälte es für alle).
 
 ```
 Security-filter prerequisites (from site.yaml):
