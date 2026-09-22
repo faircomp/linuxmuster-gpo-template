@@ -11,7 +11,7 @@ Policies **directly from the Linux server** – without the Windows GPMC – and
 **multi-school capable** (several schools per server, and identical rollout across many
 customer servers).
 
-> **Status: complete & verified.** 30 policy packages, idempotent, with `--dry-run`.
+> **Status: complete & verified.** 33 policy packs, idempotent, with `--dry-run`.
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
 
@@ -22,7 +22,7 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features (32 packages)](#features-32-packages)
+- [Features](#features) (33 packs)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
 - **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Point and Print](#point-and-print-printer-drivers-for-students)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
@@ -52,9 +52,9 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
   (`aclcheck`/`sysvolcheck`) after every change and reconciles sysvol permissions via
   `sysvolreset`.
 
-## Features (33 packages)
+## Features
 
-**Always active** (no extra parameter needed):
+All 33 packs in `catalog/`. **Always active** (no extra parameter needed):
 
 | Package | Effect |
 |---|---|
@@ -83,7 +83,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 | **Branding per school** | wallpaper file | desktop **and** logon background per school (from NETLOGON) |
 | **Veyon** | `veyon_binddn` + password | classroom management, LDAP directory, roaming, **teachers only** (`role-teacher` + `all-teachers`); bandwidth-tuned monitoring |
 | **Firefox hardening** | `firefox_enabled` | first-run off, clean new-tab (search + shortcuts, no ads) |
-| **Firefox homepage** | `firefox_homepage` | global default **or per school**, optionally locked |
+| **Firefox homepage** | `firefox_enabled` **and** `firefox_homepage` (or `firefox_homepage_by_school`) | global default **or per school**, optionally locked — a URL without `firefox_enabled: true` is ignored, `apply` says so |
 | **Role-based proxy** | `proxy_enabled` + host | **address follows the device** (school), **port follows the user** (teacher/student/staff), roaming-proof; all browsers on the system proxy; proxy host as Intranet zone (SSO) |
 | **Wi-Fi PSK (students)** | `wlan_psk_networks` | any number of PSK networks as machine profiles → connect **before login**, **roaming across sites**; *not* on teacher notebooks |
 | **Wi-Fi Enterprise (teachers)** | `wlan_enterprise_ssid` + CA cert | WPA2-Enterprise/PEAP with RADIUS, CA cert installed; **teachers only** (RADIUS enforces the group), exclusive to `d_nopxe` |
@@ -168,16 +168,21 @@ Then on a client `gpupdate /force` + reboot, and check with
 All commands: `lmn-gpo <command>`. Everywhere: **read-only commands change nothing**,
 writing ones need `--yes` (or the prompt in the assistant).
 
-| Command | Purpose |
-|---|---|
-| `doctor` | environment self-check (realm, groups, sysvol, secret) — read-only |
-| `env` | print the detected environment (schools, groups, SIDs) |
-| `list` | existing GPOs + their links |
-| `setup` | interactive assistant → writes `site.yaml`, optionally applies right away |
-| `apply` | apply the catalog from a `site.yaml` (non-interactive) |
-| `remove` | remove the toolkit's `LMN-*` GPOs again |
-| `selftest --yes` | non-destructive end-to-end test of the engine (throwaway GPO) |
-| `veyon-encrypt-password` | encrypt the Veyon bind password (hex for `site.yaml`) |
+| Command | Purpose | Options |
+|---|---|---|
+| `doctor` | environment self-check (realm, groups, sysvol, secret, security-filter groups) — read-only | |
+| `env` | print the detected environment (schools, groups, SIDs) | `--json` machine-readable |
+| `list` | existing GPOs + their links | `--mine` only the toolkit's `LMN-*` GPOs |
+| `setup` | interactive assistant → writes `site.yaml`, optionally applies right away | `--config <file>` |
+| `apply` | apply the catalog from a `site.yaml` (non-interactive) | `--config`, `--school` (repeatable), `--pack` (repeatable), `--dry-run`, `--yes`, `--defaults` |
+| `remove` | remove the toolkit's `LMN-*` GPOs again | `--school` (repeatable), `--pack` (repeatable), `--dry-run`, `--yes` |
+| `selftest --yes` | non-destructive end-to-end test of the engine (throwaway GPO, linked briefly to the first detected school's Devices OU) | `--dry-run` |
+| `veyon-encrypt-password` | encrypt the Veyon bind password (hex for `site.yaml`) | `--password` (otherwise prompted) |
+
+Global: `lmn-gpo --no-color <command>` prints `[ok]`/`[warn]`/`[FAIL]` instead of colored
+glyphs (automatic when stdout is not a terminal, e.g. via ssh or in a log). `apply --defaults`
+runs without an answers file — every optional pack then counts as disabled, so `apply`
+**removes** their GPOs; without `--defaults` a missing or empty `site.yaml` is refused.
 
 ### Configuring with the assistant
 
@@ -200,11 +205,22 @@ lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run
 # actually apply:
 lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 
-# only specific schools or packages:
-lmn-gpo apply --school schule1 --pack 02-updates --pack 17-ntp-zeit --yes
+# only the per-school packs of one school (repeat --school for several):
+lmn-gpo apply --school schule1 --pack 07-admins-schule --pack 12-proxy-student-schule --yes
+
+# only specific global packs (they reach every school regardless of --school):
+lmn-gpo apply --pack 02-updates --pack 17-ntp-zeit --yes
 ```
 
 Without `--config`, `apply`/`setup` use `/etc/linuxmuster/lmn-gpo/site.yaml` automatically.
+
+`--school` narrows the **per-school packs** (`scope: school`, all `*-schule`) to the named
+schools. Global packs are linked at `OU=SCHOOLS` and reach **every** school; `--school` does
+not limit them. `--pack` takes catalog IDs (`ls /usr/share/lmn-gpo/catalog`).
+
+Every pack is accounted for in the output: an optional pack whose feature is not enabled is
+listed with `skipped: <which site.yaml key is missing>`, a pack whose exclusion group does not
+exist in its scope with `held back` (see [Checking the prerequisites](#checking-the-prerequisites-automatic)).
 
 **Idempotent:** run `apply` as often as you like – a second run creates no new GPOs,
 rewrites no registry values and bumps no versions; only real deviations are corrected.
@@ -212,9 +228,16 @@ rewrites no registry values and bumps no versions; only real deviations are corr
 ### Removing again
 
 ```bash
-lmn-gpo remove --dry-run    # shows what would be removed
-lmn-gpo remove --yes        # removes ALL LMN-* GPOs (default/sophomorix GPOs stay)
+lmn-gpo remove --dry-run                    # shows what would be removed
+lmn-gpo remove --yes                        # removes ALL LMN-* GPOs (default/sophomorix GPOs stay)
+lmn-gpo remove --school schule1 --yes       # only schule1's per-school GPOs (LMN-*-schule1-*)
+lmn-gpo remove --pack 12-proxy-student-schule --yes            # one pack, in every school
+lmn-gpo remove --school schule1 --pack 07-admins-schule --yes  # one pack, one school
 ```
+
+`--school` follows the same rule as `apply --school`: it selects the per-school GPOs of the
+named schools and never touches global GPOs (`LMN-*-GLOBAL-*`), which every school shares. To
+remove a global pack use `--pack <id>` without `--school`. An unknown school name is refused.
 
 ## Configuration (`site.yaml`)
 
@@ -225,7 +248,9 @@ Full reference:
 schools: null                 # null = all detected schools, otherwise [schule1, schule2]
 packs: null                   # null = whole catalog, otherwise a list of pack IDs
 fwsource: serverip            # firewall source for remote mgmt: serverip | subnet | <IP/CIDR>
-teachernb: nopxe              # teacher-notebook group (relaxed power/lock): nopxe | skip | <CN>
+teachernb: nopxe              # teacher-notebook group (excluded from power/lock/proxy/PSK Wi-Fi):
+                              #   nopxe = the school's d_nopxe device group | <CN> = a group of that
+                              #   name in every school | skip = there are NO teacher notebooks (no exclusion)
 
 kmshost: "kms.school.de"      # empty = no KMS (Windows)
 kms_port: "1688"              # Windows KMS port
@@ -329,7 +354,10 @@ firefox_homepage_locked: true                     # optional, locks the homepage
 firefox_homepage_by_school: { schule1: "https://schule1.school.de" }   # optional, per school
 ```
 First-run/import assistants off, clean new-tab page (search + shortcuts, no ads), optional
-locked homepage.
+locked homepage. `firefox_enabled: true` switches both Firefox packs on; the homepage pack
+(`11-firefox-homepage-schule`) additionally needs a URL. A URL without `firefox_enabled` is
+ignored — `apply` prints `skipped: firefox_enabled is not true (the configured homepage … is
+ignored)` for it.
 
 ## Role-based proxy
 
@@ -660,25 +688,37 @@ GPOs only take effect once the client fetches them and the respective service re
 
 ## Checking the prerequisites (automatic)
 
-`lmn-gpo doctor` resolves every security-filter group from your real `site.yaml` and fails
-(exit 1) when an **exclusion** matches nothing — because that is the silent case: the GPO then
-applies to exactly the devices it was meant to spare.
+`lmn-gpo doctor` resolves every security-filter group from your real `site.yaml` and warns
+when an **exclusion** matches nothing. `apply` runs the same check **before its first change**
+and then follows one rule — it never creates a GPO that would reach the devices it was meant
+to spare:
+
+- **Group missing in the pack's scope** (a school without `d_nopxe`, a `teachernb` CN that
+  exists nowhere): the pack is **held back** — GPO not created, an existing one left untouched
+  (`lmn-gpo remove --pack <id>` removes it deliberately). One line per pack, exit 0. For a
+  global pack the group only has to exist in *some* school; schools without it are named in
+  a `note:` line (nothing is excluded there).
+- **`teachernb: skip`**: you are saying there are no teacher notebooks. The `@teachernb`
+  exclusions are dropped, the packs apply to every device, the preflight names them in one
+  line. `13-wlan-enterprise` (filtered *to* teacher notebooks) is skipped.
+- **`filter_apply` group missing** (`13-wlan-enterprise` without a teacher-notebook group):
+  the pack is skipped, as before.
 
 ```
 Security-filter prerequisites (from site.yaml):
   config: /etc/linuxmuster/lmn-gpo/site.yaml
-  teacher-notebook group (teachernb): 'd_lehrer-nb'
-  ✗ 12-proxy-base   GLOBAL   exclude   @teachernb  → applies to them anyway!
+  teacher-notebook group (teachernb): 'nopxe'
+  ⚠ 12-proxy-student-schule    one   exclude-read  @teachernb  no d_nopxe group in one  → pack held back by apply (fail-closed)
 ```
 
-The same block is printed by `lmn-gpo apply` **before the first change**, so a broken
-`teachernb` or a school without a noPXE group shows up before anything is written rather than
-afterwards. `lmn-gpo env` additionally flags any school that has no noPXE group at all.
+`lmn-gpo env` additionally flags any school that has no noPXE group at all. `teachernb` is one
+value for all schools: `nopxe` means each school's own `d_nopxe` group, a CN is looked up
+below each school's OU, so a group of that name is needed in every school that uses the packs.
 
 ## Checking on the client
 
 `scripts/lmn-gpo-check.ps1` checks **on the Windows client** (read-only) whether the policies
-have arrived **and take effect** — covering all 32 packages: `gpresult` (computer **and**
+have arrived **and take effect** — covering every pack: `gpresult` (computer **and**
 user), registry actual values, firewall, local groups, KMS (Windows **and** Office),
 hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
@@ -734,7 +774,7 @@ git pull
 
 | Symptom | Cause / fix |
 |---|---|
-| `apply` says **"0 GPO(s) applied"** | an **opt-in package** is not enabled (e.g. `bootorder_pxe_first: true` missing), or filtered by `--pack`. `grep bootorder site.yaml`. |
+| `apply` says **"0 GPO(s) applied"** or a pack is missing from the output | an **opt-in pack** is not enabled, or filtered by `--pack`. Every skipped pack has a line `▸ LMN-… skipped: <missing site.yaml key>` (e.g. `firefox_enabled is not true`), every held-back pack a line `held back: exclusion … matches no group` — read those lines. |
 | **Settings lost after an update** | `site.yaml` was **inside** the repo folder and deleted by `git clean`/`reset`. → move it to `/etc/linuxmuster/lmn-gpo/`. |
 | **Two `site.yaml`** (assistant vs. `--config`) | `setup` saves to `/etc/linuxmuster/lmn-gpo/`. Always apply the **same** file. |
 | **Teachers can't open the Veyon Master** | on the client `gpupdate /force` + **restart the Veyon service**. The toolkit already sets the correct **BaseDN-relative** group DNs. |
@@ -757,7 +797,7 @@ any machine, not just the DC. Installing the ready-made `.deb` from a release ne
 
 ```
 lmn_gpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      30 YAML policy packages
+catalog/      33 YAML policy packs
 scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagnostics)
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
@@ -785,7 +825,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 30 Policy-Pakete, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 33 Policy-Packs, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -796,7 +836,7 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features (32 Pakete)](#features-32-pakete)
+- [Features](#features-1) (33 Packs)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
 - **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
@@ -825,9 +865,9 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 - **Schonend**: rührt `sophomorix:*`- und Default-GPOs nie an, prüft nach jeder Änderung
   ACLs (`aclcheck`/`sysvolcheck`) und gleicht sysvol-Rechte per `sysvolreset` ab.
 
-## Features (32 Pakete)
+## Features
 
-**Immer aktiv** (kein zusätzlicher Parameter nötig):
+Alle 33 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
 | Paket | Wirkung |
 |---|---|
@@ -856,7 +896,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 | **Branding pro Schule** | Wallpaper-Datei | Desktop- **und** Anmelde-Hintergrund je Schule (aus NETLOGON) |
 | **Veyon** | `veyon_binddn` + Passwort | Klassenraum-Steuerung, LDAP-Directory, Roaming, **nur Lehrer** (`role-teacher` + `all-teachers`); bandbreitenoptimiertes Monitoring |
 | **Firefox-Grundhärtung** | `firefox_enabled` | First-Run aus, saubere New-Tab (Suche + Verknüpfungen, kein Werbekram) |
-| **Firefox-Startseite** | `firefox_homepage` | global-Default **oder pro Schule**, optional fest gesperrt |
+| **Firefox-Startseite** | `firefox_enabled` **und** `firefox_homepage` (oder `firefox_homepage_by_school`) | global-Default **oder pro Schule**, optional fest gesperrt — eine URL ohne `firefox_enabled: true` wird ignoriert, `apply` sagt es |
 | **Rollen-Proxy** | `proxy_enabled` + Host | **Adresse folgt dem Gerät** (Schule), **Port folgt dem Nutzer** (Lehrer/Schüler/Staff), roaming-fest; alle Browser auf System-Proxy; Proxy-Host als Intranet-Zone (SSO) |
 | **WLAN PSK (Schüler)** | `wlan_psk_networks` | beliebig viele PSK-Netze als Maschinen-Profil → verbinden **vor dem Login**, **standortübergreifend roaming-fähig**; *nicht* auf Lehrer-Notebooks |
 | **WLAN Enterprise (Lehrer)** | `wlan_enterprise_ssid` + CA-Cert | WPA2-Enterprise/PEAP mit RADIUS, CA-Zertifikat wird installiert; **nur Lehrer** (RADIUS erzwingt Gruppe), exklusiv auf `d_nopxe` |
@@ -942,16 +982,21 @@ Danach auf einem Client `gpupdate /force` + Neustart, dann mit
 Alle Kommandos: `lmn-gpo <befehl>`. Überall gilt: **read-only-Befehle ändern nichts**,
 schreibende brauchen `--yes` (oder die Rückfrage im Assistenten).
 
-| Befehl | Zweck |
-|---|---|
-| `doctor` | Umgebungs-Selbstcheck (Realm, Gruppen, sysvol, Secret) — read-only |
-| `env` | erkannte Umgebung ausgeben (Schulen, Gruppen, SIDs) |
-| `list` | vorhandene GPOs + ihre Verlinkungen |
-| `setup` | interaktiver Assistent → schreibt `site.yaml`, optional gleich anwenden |
-| `apply` | Katalog aus einer `site.yaml` anwenden (nicht-interaktiv) |
-| `remove` | die `LMN-*`-GPOs des Toolkits wieder entfernen |
-| `selftest --yes` | nicht-destruktiver End-to-End-Test der Engine (Wegwerf-GPO) |
-| `veyon-encrypt-password` | Bind-Passwort für Veyon verschlüsseln (Hex für `site.yaml`) |
+| Befehl | Zweck | Optionen |
+|---|---|---|
+| `doctor` | Umgebungs-Selbstcheck (Realm, Gruppen, sysvol, Secret, Security-Filter-Gruppen) — read-only | |
+| `env` | erkannte Umgebung ausgeben (Schulen, Gruppen, SIDs) | `--json` maschinenlesbar |
+| `list` | vorhandene GPOs + ihre Verlinkungen | `--mine` nur die `LMN-*`-GPOs des Toolkits |
+| `setup` | interaktiver Assistent → schreibt `site.yaml`, optional gleich anwenden | `--config <datei>` |
+| `apply` | Katalog aus einer `site.yaml` anwenden (nicht-interaktiv) | `--config`, `--school` (wiederholbar), `--pack` (wiederholbar), `--dry-run`, `--yes`, `--defaults` |
+| `remove` | die `LMN-*`-GPOs des Toolkits wieder entfernen | `--school` (wiederholbar), `--pack` (wiederholbar), `--dry-run`, `--yes` |
+| `selftest --yes` | nicht-destruktiver End-to-End-Test der Engine (Wegwerf-GPO, kurz an die Devices-OU der ersten erkannten Schule gelinkt) | `--dry-run` |
+| `veyon-encrypt-password` | Bind-Passwort für Veyon verschlüsseln (Hex für `site.yaml`) | `--password` (sonst Abfrage) |
+
+Global: `lmn-gpo --no-color <befehl>` gibt `[ok]`/`[warn]`/`[FAIL]` statt farbiger Zeichen aus
+(automatisch, wenn stdout kein Terminal ist, z. B. per ssh oder in ein Log). `apply --defaults`
+läuft ohne Antwortdatei — jedes optionale Pack gilt dann als abgeschaltet, `apply` **entfernt**
+also deren GPOs; ohne `--defaults` wird eine fehlende oder leere `site.yaml` abgelehnt.
 
 ### Einrichten mit dem Assistenten
 
@@ -974,11 +1019,22 @@ lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --dry-run
 # Wirklich anwenden:
 lmn-gpo apply --config /etc/linuxmuster/lmn-gpo/site.yaml --yes
 
-# Nur einzelne Schulen bzw. Pakete:
-lmn-gpo apply --school schule1 --pack 02-updates --pack 17-ntp-zeit --yes
+# Nur die Schul-Packs einer Schule (--school für mehrere wiederholen):
+lmn-gpo apply --school schule1 --pack 07-admins-schule --pack 12-proxy-student-schule --yes
+
+# Nur bestimmte globale Packs (erreichen alle Schulen, unabhängig von --school):
+lmn-gpo apply --pack 02-updates --pack 17-ntp-zeit --yes
 ```
 
 Ohne `--config` nutzt `apply`/`setup` automatisch `/etc/linuxmuster/lmn-gpo/site.yaml`.
+
+`--school` grenzt die **Schul-Packs** (`scope: school`, alle `*-schule`) auf die genannten
+Schulen ein. Globale Packs hängen an `OU=SCHOOLS` und erreichen **alle** Schulen; `--school`
+begrenzt sie nicht. `--pack` nimmt Katalog-IDs (`ls /usr/share/lmn-gpo/catalog`).
+
+Jedes Pack taucht in der Ausgabe auf: ein optionales Pack, dessen Feature nicht aktiviert ist,
+steht mit `skipped: <welcher site.yaml-Schlüssel fehlt>` da, ein Pack, dessen Ausschlussgruppe
+in seinem Geltungsbereich fehlt, mit `held back` (siehe [Voraussetzungen prüfen](#voraussetzungen-prüfen-automatisch)).
 
 **Idempotent:** `apply` beliebig oft ausführen – ein zweiter Lauf erzeugt keine neuen GPOs,
 schreibt keine Registry-Werte neu und bumpt keine Versionen; nur echte Abweichungen werden
@@ -987,9 +1043,16 @@ korrigiert.
 ### Wieder entfernen
 
 ```bash
-lmn-gpo remove --dry-run    # zeigt, was entfernt würde
-lmn-gpo remove --yes        # entfernt ALLE LMN-*-GPOs restlos (Default-/sophomorix-GPOs bleiben)
+lmn-gpo remove --dry-run                    # zeigt, was entfernt würde
+lmn-gpo remove --yes                        # entfernt ALLE LMN-*-GPOs restlos (Default-/sophomorix-GPOs bleiben)
+lmn-gpo remove --school schule1 --yes       # nur die Schul-GPOs von schule1 (LMN-*-schule1-*)
+lmn-gpo remove --pack 12-proxy-student-schule --yes            # ein Pack, in allen Schulen
+lmn-gpo remove --school schule1 --pack 07-admins-schule --yes  # ein Pack, eine Schule
 ```
+
+`--school` folgt derselben Regel wie `apply --school`: es wählt die Schul-GPOs der genannten
+Schulen und rührt globale GPOs (`LMN-*-GLOBAL-*`), die alle Schulen teilen, nie an. Ein
+globales Pack entfernt `--pack <id>` ohne `--school`. Ein unbekannter Schulname wird abgelehnt.
 
 ## Konfiguration (`site.yaml`)
 
@@ -1000,7 +1063,9 @@ wiederverwenden. Vollständige Referenz:
 schools: null                 # null = alle erkannten Schulen, sonst [schule-a, schule-b]
 packs: null                   # null = ganzer Katalog, sonst Liste von Pack-IDs
 fwsource: serverip            # Firewall-Quelle für Remote-Mgmt: serverip | subnet | <IP/CIDR>
-teachernb: nopxe              # Lehrer-Notebook-Gruppe (lockerere Energie/Sperre): nopxe | skip | <CN>
+teachernb: nopxe              # Lehrer-Notebook-Gruppe (ausgenommen von Energie/Sperre/Proxy/PSK-WLAN):
+                              #   nopxe = die d_nopxe-Gerätegruppe der Schule | <CN> = gleichnamige Gruppe
+                              #   in jeder Schule | skip = es gibt KEINE Lehrer-Notebooks (kein Ausschluss)
 
 kmshost: "kms.schule.de"      # leer = kein KMS (Windows)
 kms_port: "1688"              # Windows-KMS-Port
@@ -1104,7 +1169,10 @@ firefox_homepage_locked: true                    # optional, sperrt die Startsei
 firefox_homepage_by_school: { schule-a: "https://a.schule.de" }   # optional, pro Schule
 ```
 First-Run/Import-Assistenten aus, saubere New-Tab-Seite (Suche + Verknüpfungen, kein
-Werbekram), optionale gesperrte Startseite.
+Werbekram), optionale gesperrte Startseite. `firefox_enabled: true` schaltet beide
+Firefox-Packs ein; das Startseiten-Pack (`11-firefox-homepage-schule`) braucht zusätzlich eine
+URL. Eine URL ohne `firefox_enabled` wird ignoriert — `apply` gibt dafür `skipped:
+firefox_enabled is not true (the configured homepage … is ignored)` aus.
 
 ## Rollen-Proxy
 
@@ -1394,25 +1462,38 @@ GPOs wirken erst, wenn der Client sie holt und der jeweilige Dienst sie liest:
 
 ## Voraussetzungen prüfen (automatisch)
 
-`lmn-gpo doctor` löst jede Security-Filter-Gruppe aus deiner echten `site.yaml` auf und
-scheitert (Exit 1), wenn ein **Ausschluss** ins Leere greift — das ist der stille Fall: die
-GPO gilt dann genau für die Geräte, die sie aussparen sollte.
+`lmn-gpo doctor` löst jede Security-Filter-Gruppe aus deiner echten `site.yaml` auf und warnt,
+wenn ein **Ausschluss** ins Leere greift. `apply` macht dieselbe Prüfung **vor der ersten
+Änderung** und folgt dann einer Regel — es legt nie eine GPO an, die genau die Geräte erreichen
+würde, die sie aussparen sollte:
+
+- **Gruppe fehlt im Geltungsbereich des Packs** (eine Schule ohne `d_nopxe`, ein
+  `teachernb`-CN, den es nirgends gibt): das Pack wird **zurückgehalten** — GPO nicht angelegt,
+  eine vorhandene bleibt unangetastet (`lmn-gpo remove --pack <id>` entfernt sie bewusst). Eine
+  Zeile pro Pack, Exit 0. Bei einem globalen Pack muss die Gruppe nur in *irgendeiner* Schule
+  existieren; Schulen ohne sie stehen in einer `note:`-Zeile (dort wird nichts ausgenommen).
+- **`teachernb: skip`**: du sagst, es gibt keine Lehrer-Notebooks. Die `@teachernb`-Ausschlüsse
+  entfallen, die Packs gelten für alle Geräte, die Vorprüfung nennt sie in einer Zeile.
+  `13-wlan-enterprise` (gefiltert *auf* Lehrer-Notebooks) wird übersprungen.
+- **`filter_apply`-Gruppe fehlt** (`13-wlan-enterprise` ohne Lehrer-Notebook-Gruppe): das Pack
+  wird übersprungen, wie bisher.
 
 ```
 Security-filter prerequisites (from site.yaml):
   config: /etc/linuxmuster/lmn-gpo/site.yaml
-  teacher-notebook group (teachernb): 'd_lehrer-nb'
-  ✗ 12-proxy-base   GLOBAL   exclude   @teachernb  → applies to them anyway!
+  teacher-notebook group (teachernb): 'nopxe'
+  ⚠ 12-proxy-student-schule    one   exclude-read  @teachernb  no d_nopxe group in one  → pack held back by apply (fail-closed)
 ```
 
-Denselben Block gibt `lmn-gpo apply` **vor der ersten Änderung** aus — ein kaputtes
-`teachernb` oder eine Schule ohne noPXE-Gruppe fällt also auf, bevor etwas geschrieben wird.
-`lmn-gpo env` markiert zusätzlich jede Schule, die gar keine noPXE-Gruppe hat.
+`lmn-gpo env` markiert zusätzlich jede Schule, die gar keine noPXE-Gruppe hat. `teachernb` ist
+ein Wert für alle Schulen: `nopxe` meint die eigene `d_nopxe`-Gruppe jeder Schule, ein CN wird
+unterhalb jeder Schul-OU gesucht — eine gleichnamige Gruppe muss also in jeder Schule
+existieren, die die Packs nutzt.
 
 ## Prüfen am Client
 
 `scripts/lmn-gpo-check.ps1` prüft **auf dem Windows-Client** (rein lesend), ob die Richtlinien
-angekommen sind **und wirken** — deckt alle 32 Pakete ab: `gpresult` (Computer **und** User),
+angekommen sind **und wirken** — deckt jedes Pack ab: `gpresult` (Computer **und** User),
 Registry-Ist-Werte, Firewall, lokale Gruppen, KMS (Windows **und** Office), Hotspot,
 OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync
@@ -1469,7 +1550,7 @@ git pull
 
 | Symptom | Ursache / Lösung |
 |---|---|
-| `apply` sagt **„0 GPO(s) angewandt"** | Ein **Opt-in-Pack** ist nicht aktiviert (z. B. `bootorder_pxe_first: true` fehlt), oder `--pack` gefiltert. `grep bootorder site.yaml`. |
+| `apply` sagt **„0 GPO(s) applied"** oder ein Pack fehlt in der Ausgabe | Ein **Opt-in-Pack** ist nicht aktiviert, oder `--pack` gefiltert. Jedes übersprungene Pack hat eine Zeile `▸ LMN-… skipped: <fehlender site.yaml-Schlüssel>` (z. B. `firefox_enabled is not true`), jedes zurückgehaltene eine Zeile `held back: exclusion … matches no group` — diese Zeilen lesen. |
 | **Einstellungen nach Update weg** | `site.yaml` lag **im** Repo-Ordner und wurde von `git clean`/`reset` gelöscht. → nach `/etc/linuxmuster/lmn-gpo/` verschieben. |
 | **Zwei `site.yaml`** (Assistent vs. `--config`) | `setup` speichert nach `/etc/linuxmuster/lmn-gpo/`. Immer **dieselbe** Datei anwenden. |
 | **Lehrer können Veyon-Master nicht öffnen** | am Client `gpupdate /force` + **Veyon-Dienst neu starten**. Das Toolkit setzt bereits die korrekten **BaseDN-relativen** Gruppen-DNs. |
@@ -1493,7 +1574,7 @@ ist nichts Zusätzliches nötig.
 
 ```
 lmn_gpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      30 YAML-Policy-Pakete
+catalog/      33 YAML-Policy-Packs
 scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagnose)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
