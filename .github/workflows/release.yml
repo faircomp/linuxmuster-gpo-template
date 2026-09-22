@@ -4,7 +4,9 @@
 # The tag (minus the leading "v") must equal the top entry of debian/changelog, the single
 # version source. The release is gated on the same install AND upgrade smoke as ci.yml, so no
 # tag can be published that does not install on top of the version a school already runs.
-# A manual run (workflow_dispatch) only builds, smokes and uploads the .deb.
+# A manual run (workflow_dispatch) only builds, smokes and uploads the .deb. Since the
+# debian/ conversion the build also produces the .changes, .dsc and source tarball; all
+# three are attached so the .changes describes files that are actually there.
 # No publish job yet (no faircomp/deb archive). Since the debian/ conversion the build also
 # produces a .changes file, which is attached to the release next to the .deb.
 name: release
@@ -50,9 +52,14 @@ jobs:
           apt-get update -qq
           apt-get build-dep -y -qq .
           make deb
-          # dpkg-buildpackage writes one level above the source tree.
-          mkdir -p output && mv ../*.deb ../*.changes ../*.buildinfo output/
+          # dpkg-buildpackage writes one level above the source tree. The .dsc and the
+          # source tarball go along because the .changes lists them with their checksums;
+          # attaching the .changes alone would point at files nobody can download.
+          mkdir -p output && mv ../*.deb ../*.changes ../*.buildinfo ../*.dsc ../*.tar.* output/
           dpkg-deb -I output/*.deb
+          # DEBIAN/md5sums must cover every shipped file, or `dpkg --verify` is a no-op.
+          dpkg-deb --ctrl-tarfile output/*.deb | tar -tf - | grep -qx './md5sums'
+          test "$(dpkg-deb -c output/*.deb | grep -c '^-')" = "$(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l)"
           # The .deb only: `lmn73` is not a distribution lintian knows, so linting the
           # .changes would fail every build with E: bad-distribution-in-changes-file.
           lintian --fail-on error output/*.deb
@@ -83,6 +90,10 @@ jobs:
           test "$(lmn-gpo --version)" = "lmn-gpo $VERSION"
           python3 -c 'import lmn_gpo; print("lmn_gpo", lmn_gpo.__version__)'
           test -f /usr/share/lmn-gpo/catalog/19-home-h.yaml
+          # every installed file matches the shipped md5sums (silent = ok)
+          test -z "$(dpkg --verify lmn-gpo)"
+          lmn-gpo --no-color remove --help | grep -q -- '--school'
+          # `lmn-gpo doctor` needs a Samba AD DC and is the lab's job, not CI's.
 
   # Kevin's rule: a release must still install cleanly ON TOP OF the version that is already
   # running on a school server. Be honest about what a runner can prove here: every lmn-gpo
@@ -339,8 +350,112 @@ jobs:
           test -z "$(dpkg --verify lmn-gpo)"
           test -z "$(dpkg --audit)"
 
+  # The one failure mode of a packaging change that no other job would notice: a catalog
+  # YAML, a .ps1 or lib/veyon-default-pub.pem quietly falls out of the package because
+  # debian/install matches differently than the old `cp -a`. It would only show up on a
+  # school DC, as a pack that is never applied. So every build is compared, path by path,
+  # against the newest published release: a path that disappears or changes mode/owner
+  # fails the build. This gate is permanent, not just for the debian/ conversion.
+  file-tree:
+    needs: build
+    runs-on: ubuntu-latest        # GitHub-hosted: gh is installed here, not in the container
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages/
+      - name: Fetch the newest published release
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p previous
+          # Prefer the newest real release, fall back to the newest prerelease. Skipping is
+          # only legitimate when the repo has NO release at all: this gate stands between a
+          # silently shrunk package and a school DC.
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                  --json tagName,isDraft,isPrerelease \
+                  --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
+          if [ -z "$tag" ]; then
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                    --json tagName,isDraft --jq '[.[] | select(.isDraft == false)][0].tagName // ""')
+            [ -n "$tag" ] && echo "::warning::no full release yet, comparing against prerelease $tag"
+          fi
+          if [ -z "$tag" ]; then
+            if [ "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq 'length')" != "0" ]; then
+              echo "::error::releases exist but none could be selected - refusing to skip"; exit 1
+            fi
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::first release of this package, nothing to compare against"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir previous && break
+            echo "download attempt $i failed, retrying"; sleep 10
+          done
+          test -n "$(ls previous/*.deb 2>/dev/null)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Compare the file tree with the released package
+        if: steps.prev.outputs.skip != '1'
+        env:
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail          # without pipefail `tee` would swallow the exit code
+          # mode owner path, sorted. Directories are compared too: /var/lib/lmn-gpo/wallpapers
+          # is shipped EMPTY, so losing it would be invisible in a file-only comparison.
+          # A symlink prints "path -> target"; carry the target, so a retargeted link is
+          # drift too. The package has none today -- which is exactly why it must not grow
+          # one unnoticed.
+          norm() { dpkg-deb -c "$1" | awk '{t = ($7 == "->" ? " " $7 " " $8 : ""); print $1, $2, $6 t}' | LC_ALL=C sort; }
+          norm previous/*.deb > old.txt
+          norm packages/*.deb > new.txt
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, sys
+
+          # Paths that may legitimately disappear, with the release that did it. Add an
+          # entry ONLY together with the changelog sentence that explains it to admins.
+          ALLOW_GONE = {
+              # 7.3.3, debhelper conversion: dh_installchangelogs uses the name Debian
+              # policy wants for a NATIVE package.
+              "usr/share/doc/lmn-gpo/changelog.Debian.gz",
+          }
+
+          def read(name):
+              rows = {}
+              for line in open(name):
+                  mode, owner, path = line.rstrip("\n").split(" ", 2)
+                  rows[path.removeprefix("./")] = (mode, owner)
+              return rows
+
+          old, new = read("old.txt"), read("new.txt")
+          gone = sorted(set(old) - set(new))
+          added = sorted(set(new) - set(old))
+          changed = sorted(p for p in set(old) & set(new) if old[p] != new[p])
+
+          print(f"## File tree vs {os.environ['PREV_TAG']}")
+          print()
+          print(f"- released: {len(old)} entries, built: {len(new)} entries")
+          for p in added:
+              print(f"- added: `{p}`")
+          for p in gone:
+              if p in ALLOW_GONE:
+                  print(f"- gone, allowed: `{p}`")
+          bad = [p for p in gone if p not in ALLOW_GONE]
+          for p in bad:
+              print(f"::error::file lost from the package: {p}")
+          for p in changed:
+              print(f"::error::mode or owner changed: {p}: {old[p]} -> {new[p]}")
+          if bad or changed:
+              sys.exit(1)
+          print()
+          print("file tree: nothing lost, no mode or owner change")
+          PY
+
   release:
-    needs: [gate, build, install-smoke, upgrade-smoke]
+    needs: [gate, build, install-smoke, upgrade-smoke, file-tree]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
@@ -381,4 +496,6 @@ jobs:
           files: |
             packages/*.deb
             packages/*.changes
+            packages/*.dsc
+            packages/*.tar.*
           generate_release_notes: true      # appended below the notes above

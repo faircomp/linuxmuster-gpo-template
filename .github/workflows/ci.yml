@@ -1,13 +1,16 @@
-# From linuxmusterDEV/templates/ci.yml. Three jobs on every push/PR: the fast tier (the
-# sanity checks that used to run only at release time in release.yml), the package build
-# in the same container upstream CI uses, and an install smoke on ubuntu-24.04. The real
-# end-to-end check, `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
+# From linuxmusterDEV/templates/ci.yml. Six jobs on every push to main and every PR: the
+# fast tier (the sanity checks that used to run only at release time in release.yml), the
+# package build in the same container upstream CI uses, the file-tree gate against the last
+# release, an install smoke and an upgrade smoke on ubuntu-24.04. release.yml runs the same
+# gates on a tag and the release job needs every one of them. The real end-to-end check,
+# `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
 name: ci
 
 on:
   # Only main and tags on push: every other branch is covered by its pull request, so a
-  # topic branch does not run the whole pipeline twice per commit. A tag still runs the
-  # sanity checks AND the file-tree gate here (release.yml only gates, builds and smokes).
+  # topic branch does not run the whole pipeline twice per commit. A tag runs this workflow
+  # as well, but release.yml carries its own copy of every gate, so publishing never depends
+  # on a run this workflow happens to schedule.
   push:
     branches: [main]
     tags: ['v[0-9]*']
