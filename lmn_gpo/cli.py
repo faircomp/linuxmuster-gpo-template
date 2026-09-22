@@ -129,6 +129,7 @@ def cmd_doctor(args) -> int:
     # `apply` runs before its first change. A pack whose exclusion group does not exist is
     # held back by apply (fail-closed), so this is a warning here, not a failure.
     print("\nSecurity-filter prerequisites (from site.yaml):")
+    ap, all_packs = None, []
     try:
         from . import apply as applymod
         from . import catalog
@@ -137,11 +138,12 @@ def cmd_doctor(args) -> int:
         answers = setupmod.load_site(cfg)
         print(f"  config: {cfg}{'' if answers else '  (missing/empty — defaults assumed)'}")
         ap = applymod.Applier(e, answers, dry_run=True)
+        all_packs = catalog.load_packs()
         raw = answers.get("teachernb", "nopxe")
         raw = str(raw).strip() if raw is not None else ""
         print(f"  teacher-notebook group (teachernb): {ap._teachernb()!r}"
               + ("  (empty in site.yaml — default assumed)" if not raw else ""))
-        rows = ap.preflight(catalog.load_packs())
+        rows = ap.preflight(all_packs)
         if not rows:
             print(f"  {ui.OK} every security-filter group resolves")
         disabled = sorted({r[0] for r in rows if r[4] == "disabled" and r[2] != "only"})
@@ -168,28 +170,39 @@ def cmd_doctor(args) -> int:
     # OUs. Without a pack that sets UserPolicyMode on those machines it reaches nobody,
     # while apply still reports success. Warning only: the GPOs themselves are correct,
     # so the exit code is unchanged.
-    print("\nLoopback prerequisite (per-school user packs, from site.yaml):")
+    # Loopback. Two questions: is it switched on for the per-school user packs (they are
+    # linked to OU=Devices, a sibling of the user OUs, and reach nobody without it), and
+    # does an existing loopback GPO carry the RIGHT value — a GPO created by lmn-gpo 7.3.1
+    # with `loopback: merge` still holds 2 (Replace) until it is written again, and
+    # upgrading the package alone changes nothing on a single client. Warnings only: the
+    # GPOs are correct, the deployment around them is not, so the exit code is unchanged.
+    print("\nLoopback (per-school user packs and the value on the DC):")
     try:
-        from . import apply as applymod
-        from . import catalog
-        from . import setup as setupmod
-        answers = setupmod.load_site(setupmod.default_site())
-        ap = applymod.Applier(e, answers, dry_run=True)
-        packs = catalog.load_packs()
-        per_school = [p.id for p in ap.selected_packs(packs) if ap.needs_loopback(p)]
-        rows = ap.loopback_gap(packs)
+        if ap is None:
+            raise RuntimeError("site.yaml could not be evaluated (see above)")
+        stale_lines, stale_hint = ap.loopback_stale_text(ap.loopback_stale(all_packs))
+        for line in stale_lines:
+            print(f"  {ui.WARN} {line}")
+        for line in stale_hint:
+            print(f"       {line}")
+        per_school = [p.id for p in ap.selected_packs(all_packs)
+                      if ap.needs_loopback(p)
+                      and any(ap._applicable(p, sc) for sc in ap.selected_schools())]
+        rows = ap.loopback_gap(all_packs)
         if not per_school:
-            print(f"  {ui.OK} no per-school user pack selected - loopback is not required")
+            print(f"  {ui.OK} no per-school user pack applies here - loopback is not required")
         elif not rows:
-            for sname, pid, how in ap.loopback_status(packs):
-                print(f"  {ui.OK} {sname}: loopback is on ({pid}, {how}) - "
+            for sname, pid, how in ap.loopback_status(all_packs):
+                # doctor changes nothing, so say where the pack comes from, not "this run"
+                src = "selected in site.yaml" if how == "this run" else how
+                print(f"  {ui.OK} {sname}: loopback is on ({pid}, {src}) - "
                       f"{', '.join(per_school)} reach their users")
         else:
             for pid, sname, cands in rows:
                 print(f"  {ui.WARN} {pid:26} {sname:16} is linked to OU=Devices and delivers "
                       f"USER settings,")
                 print(f"       but no pack with 'loopback:' is active on that school's "
-                      f"devices → the GPO reaches NO user.")
+                      f"devices \u2192 the GPO reaches NO user.")
                 print(f"       Fix: add one of {', '.join(cands)} to 'packs:' in site.yaml.")
     except Exception as exc:
         print(f"  {ui.WARN} could not evaluate: {exc}")

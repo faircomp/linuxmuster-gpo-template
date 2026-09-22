@@ -803,6 +803,25 @@ per check + a summary.
 
 ## Updating the toolkit
 
+> ### Upgrading from 7.3.1 or older: re-apply once
+> 7.3.2 corrects the loopback value. Up to 7.3.1 `loopback: merge` wrote
+> `UserPolicyMode=2`, which is Windows' **Replace** — the inverse of what was meant.
+> **Installing the package changes nothing on a single client:** the value lives in the
+> GPO, so the existing `LMN-C-GLOBAL-15-lockdown-base` / `LMN-C-GLOBAL-12-proxy-base` keeps
+> saying `2` until it is written again.
+>
+> ```bash
+> lmn-gpo doctor        # names the stale value: "its GPO still carries UserPolicyMode=2 (Replace)"
+> lmn-gpo apply --yes   # writes 1 (Merge) and bumps the GPO version
+> ```
+> then `gpupdate /force` + reboot on the clients; event 5311 must then say "Merge".
+>
+> **Be aware of what changes for the clients.** Under Replace, every GPO linked in a
+> *user's* own OU path (`OU=Students`, `OU=Teachers`, a class OU, `OU=Management`, GPOs from
+> other tools) was silently dropped on every managed machine. With Merge they take effect
+> again — that is the correct behaviour and what the README always promised, but if your
+> site unknowingly relied on Replace, check those GPOs before you re-apply.
+
 How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmn-gpo/site.yaml`
 is preserved** (Wi-Fi passwords and all) — so no settings are lost.
 
@@ -1650,6 +1669,26 @@ je Prüfung + Summe.
 > Ergebnis aus einer Remote-Shell ist wertlos.
 
 ## Update des Toolkits
+
+> ### Update von 7.3.1 oder älter: einmal neu anwenden
+> 7.3.2 korrigiert den Loopback-Wert. Bis 7.3.1 schrieb `loopback: merge`
+> `UserPolicyMode=2` — das ist Windows' **Replace**, also das Gegenteil des Gemeinten.
+> **Das Installieren des Pakets ändert an keinem Client etwas:** Der Wert steckt in der GPO,
+> die vorhandene `LMN-C-GLOBAL-15-lockdown-base` / `LMN-C-GLOBAL-12-proxy-base` trägt
+> weiterhin `2`, bis sie neu geschrieben wird.
+>
+> ```bash
+> lmn-gpo doctor        # nennt den veralteten Wert: "its GPO still carries UserPolicyMode=2 (Replace)"
+> lmn-gpo apply --yes   # schreibt 1 (Merge) und zieht die GPO-Version hoch
+> ```
+> danach am Client `gpupdate /force` + Neustart; Ereignis 5311 muss dann „Merge" nennen.
+>
+> **Was sich dadurch für die Clients ändert.** Unter Replace fiel auf jedem verwalteten
+> Rechner jede GPO aus dem OU-Pfad des *Benutzers* (`OU=Students`, `OU=Teachers`, eine
+> Klassen-OU, `OU=Management`, GPOs fremder Werkzeuge) stillschweigend weg. Mit Merge wirken
+> sie wieder — das ist das richtige Verhalten und das, was das README immer versprochen hat.
+> Wer sich unwissentlich auf Replace verlassen hat, sieht sich diese GPOs vor dem erneuten
+> Anwenden besser an.
 
 Wie du aktualisierst, hängt von der Installationsart ab. **In beiden Fällen bleibt
 `/etc/linuxmuster/lmn-gpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine

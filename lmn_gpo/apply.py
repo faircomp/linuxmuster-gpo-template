@@ -14,6 +14,7 @@ from . import ad, catalog
 from .gpo import GpoEngine
 from .drives import GppDrives
 from .gpp import GppGroups
+from . import regpol as regpol_mod
 from .regpol import RegPol, firewall_entries
 from .scripts_ext import ScriptsExt
 from .secedit import SecEdit
@@ -29,6 +30,8 @@ GPO_PREFIX = "LMN-"
 # managed client into Replace and user GPOs outside the device OU path silently vanished.
 # The CI engine check pins it to these two values.
 LOOPBACK_MODE = {"merge": 1, "replace": 2}
+LOOPBACK_KEY = r"Software\Policies\Microsoft\Windows\System"
+LOOPBACK_VALUE = "UserPolicyMode"
 RETIRE_BACKUP_DIR = "/var/backups/lmn-gpo"
 # Preconditions that depend on a FILE rather than on an operator answer. A missing file is
 # usually an accident (wallpaper dir moved, share not mounted, source checkout replaced by
@@ -86,6 +89,11 @@ DEFAULT_ANSWERS = {
     "pointandprint_enabled": False,    # opt-in: allow non-admin Point-and-Print driver install
     "printservers_extra": [],          # extra/external print server FQDNs to also trust
 }
+
+
+def _loopback_word(mode) -> str:
+    """Windows' own name for a UserPolicyMode value, as the client reports it (event 5311)."""
+    return {1: "Merge", 2: "Replace"}.get(mode, f"unknown mode {mode}")
 
 
 def gpo_name(pack, school) -> str:
@@ -500,8 +508,8 @@ class Applier:
                 "class": CLASS_MAP.get(str(e.get("class", "machine")).lower(), "MACHINE"),
                 "type": t, "data": data})
         if pack.loopback in LOOPBACK_MODE:
-            entries.append({"keyname": r"Software\Policies\Microsoft\Windows\System",
-                            "valuename": "UserPolicyMode", "class": "MACHINE",
+            entries.append({"keyname": LOOPBACK_KEY, "valuename": LOOPBACK_VALUE,
+                            "class": "MACHINE",
                             "type": "REG_DWORD", "data": LOOPBACK_MODE[pack.loopback]})
         if pack.firewall:
             fw = {"profiles": pack.firewall.get("profiles"),
@@ -715,14 +723,38 @@ class Applier:
     # ------------------------------------------------------------------ #
     # loopback prerequisite of the per-school user packs
     # ------------------------------------------------------------------ #
-    def _gpo_exists(self, name) -> bool:
-        """Is there already a GPO with this display name? Read-only, cached, dry-run safe."""
+    def _gpo_guid(self, name):
+        """The GUID of an existing GPO with this display name, or None. Cached, read-only."""
         if name not in self._gpo_seen:
             try:
-                self._gpo_seen[name] = bool(self.eng.find_by_name(name))
+                self._gpo_seen[name] = self.eng.find_by_name(name) or None
             except Exception:
-                self._gpo_seen[name] = False   # no directory here (tests): assume 'no'
+                self._gpo_seen[name] = None   # no directory here (tests): assume 'no'
         return self._gpo_seen[name]
+
+    def _gpo_exists(self, name) -> bool:
+        """Is there already a GPO with this display name? Read-only, cached, dry-run safe."""
+        return self._gpo_guid(name) is not None
+
+    def _loopback_mode_of(self, name):
+        """The UserPolicyMode an EXISTING GPO really carries, or None.
+
+        The name alone says nothing about the value: a GPO created by 7.3.1 with
+        `loopback: merge` still carries 2 (Replace) until the pack is applied once more,
+        and every client keeps dropping the user's own GPOs. That is exactly the upgrade
+        case this release is about, so the checks read the Registry.pol instead of
+        trusting the name.
+        """
+        guid = self._gpo_guid(name)
+        if not guid:
+            return None
+        try:
+            pol = regpol_mod._read_pol(
+                os.path.join(self.eng.sysvol_path(guid), "Machine", "Registry.pol"))
+            cur = pol.get((LOOPBACK_KEY.lower(), LOOPBACK_VALUE.lower()))
+            return int(cur[1]) if cur else None
+        except Exception:
+            return None
 
     @staticmethod
     def needs_loopback(pack) -> bool:
@@ -741,14 +773,62 @@ class Applier:
         """Which pack switches loopback on for the machines of <school>?
 
         Returns (pack_id, how) with how in {'this run', 'already applied'}, or (None, '').
+        A provider that this run is about to RETIRE (selected, precondition no longer met)
+        does not count as a source: its GPO is on its way out.
         """
         for pack in providers:
             scope = school if pack.scope == "school" else None
-            if pack in selected and self._applicable(pack, scope):
-                return pack.id, "this run"
+            if pack in selected:
+                if self._applicable(pack, scope):
+                    return pack.id, "this run"
+                continue
             if self._gpo_exists(gpo_name(pack, scope)):
                 return pack.id, "already applied"
         return None, ""
+
+    def loopback_stale(self, packs, schools=None, skip_this_run=False):
+        """Loopback GPOs that exist but carry the WRONG UserPolicyMode.
+
+        Rows (pack_id, scope_label, found, want). The 7.3.1 case: the GPO was created with
+        the inverted mapping, still says 2 (Replace) and keeps every client in Replace
+        until the pack is applied once more — upgrading the package alone changes nothing.
+        `skip_this_run` leaves out the packs this very run rewrites anyway.
+        """
+        selected = self.selected_packs(packs)
+        schools = list(schools if schools is not None else self.selected_schools())
+        rows = []
+        for pack in packs:
+            if not pack.enabled or pack.loopback not in LOOPBACK_MODE:
+                continue
+            want = LOOPBACK_MODE[pack.loopback]
+            for school in (schools if pack.scope == "school" else [None]):
+                if skip_this_run and pack in selected and self._applicable(pack, school):
+                    continue
+                found = self._loopback_mode_of(gpo_name(pack, school))
+                if found is not None and found != want:
+                    rows.append((pack.id, school.name if school else "GLOBAL", found, want))
+        return rows
+
+    @staticmethod
+    def loopback_stale_text(rows):
+        """The stale-value warning, shared by apply and doctor (same words, same fix).
+
+        Returns (one line per row, the two explanation lines) so each caller can mark the
+        rows in its own style.
+        """
+        if not rows:
+            return [], []
+        lines = [f"{pid:26} {label:16} its GPO still carries {LOOPBACK_VALUE}={found} "
+                 f"({_loopback_word(found)}), the catalog wants {want} "
+                 f"({_loopback_word(want)})"
+                 for pid, label, found, want in rows]
+        hint = [f"Every client keeps processing user policy in "
+                f"{_loopback_word(rows[0][2])} until the pack is written again \u2014 "
+                f"lmn-gpo 7.3.1 and earlier wrote the inverted value, and upgrading the "
+                f"package alone changes nothing.",
+                "Fix: run 'lmn-gpo apply --yes' once, then 'gpupdate /force' + reboot on "
+                "the clients."]
+        return lines, hint
 
     def loopback_gap(self, packs, schools=None):
         """User packs that are created, linked and filtered correctly — and still reach
@@ -769,8 +849,17 @@ class Applier:
                     continue
                 if self._loopback_source(providers, selected, school)[0]:
                     continue
-                rows.append((pack.id, school.name, [p.id for p in providers]))
+                rows.append((pack.id, school.name, self._loopback_candidates(providers, school)))
         return rows
+
+    def _loopback_candidates(self, providers, school):
+        """Providers that would actually work here: their own precondition has to be met
+        too (09-branding-schule without a wallpaper helps nobody), and the two base packs
+        are named first because they are the ones meant for this."""
+        usable = [p.id for p in providers
+                  if self._applicable(p, school if p.scope == "school" else None)]
+        first = [p for p in ("12-proxy-base", "15-lockdown-base") if p in usable]
+        return first + [p for p in usable if p not in first]
 
     def loopback_status(self, packs, schools=None):
         """(school, pack id, how) for every selected school whose devices DO get loopback."""
@@ -784,17 +873,29 @@ class Applier:
                 out.append((school.name, pid, how))
         return out
 
-    def print_loopback_gap(self, packs, schools=None) -> bool:
-        """Print the loopback prerequisite check. True when nothing is missing.
+    def print_loopback_check(self, packs, schools=None) -> bool:
+        """Print the loopback prerequisite check. True when nothing is wrong.
 
-        This never changes the exit code: the GPOs are correct, the deployment around them
-        is incomplete. But it must not stay silent either — before 7.3.2 `apply` happily
-        reported 'Done: 3 GPO(s) applied.' for GPOs that could not possibly do anything.
+        Two questions, one section: is loopback switched on at all for these packs, and
+        does an existing loopback GPO carry the RIGHT value. Neither changes the exit
+        code: the GPOs are correct, the deployment around them is not. But it must not
+        stay silent either — before 7.3.2 `apply` happily reported 'Done: 3 GPO(s)
+        applied.' for GPOs that could not possibly do anything.
         """
         rows = self.loopback_gap(packs, schools)
+        stale = self.loopback_stale(packs, schools, skip_this_run=True)
         self._loopback_gap = {(pid, sname) for pid, sname, _ in rows}
+        if stale:
+            lines, hint = self.loopback_stale_text(stale)
+            print("\nLoopback value:")
+            print("    ⚠ an existing loopback GPO does NOT carry the mode the catalog asks "
+                  "for:")
+            for line in lines:
+                print(f"        {line}")
+            for line in hint:
+                print(f"    {line}")
         if not rows:
-            return True
+            return not stale
         print("\nLoopback prerequisite:")
         print("    ⚠ these packs are linked to OU=Devices (address follows the device) and "
               "deliver USER settings.\n"
@@ -803,7 +904,7 @@ class Applier:
         for pid, sname, _cands in rows:
             print(f"        {pid:26} {sname:16} needs a pack with 'loopback:' on this "
                   f"school's devices")
-        cands = sorted({c for _p, _s, cl in rows for c in cl})
+        cands = list(dict.fromkeys(c for _p, _s, cl in rows for c in cl))   # keep the order
         print(f"    Fix: add a pack that switches loopback on to 'packs:' in site.yaml (or "
               f"drop the 'packs:' list to apply every pack): {', '.join(cands)}")
         print("    Check on a client: 'reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\"
@@ -959,7 +1060,8 @@ class Applier:
             action(guid, sid)
         if filter_apply_sids:
             self.eng.set_exclusive_filter(guid, filter_apply_sids)
-        self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
+        self.results.append({"pack": pack.id, "gpo": name, "guid": guid,
+                             "school": school.name if school else "GLOBAL"})
 
     def run(self, packs):
         catalog_packs = list(packs)      # the whole catalog: the loopback check names the
@@ -967,7 +1069,11 @@ class Applier:
         schools = self.selected_schools()
         print(f"Applying to {len(schools)} school(s): {', '.join(s.name for s in schools)}")
         self.print_preflight(packs, schools)
-        loopback_ok = self.print_loopback_gap(catalog_packs, schools)
+        try:
+            loopback_ok = self.print_loopback_check(catalog_packs, schools)
+        except Exception as exc:      # a check must never stop a legitimate apply
+            print(f"    note: loopback check skipped ({exc})")
+            loopback_ok = True
         if self._kmshost():
             print(f"KMS host (Windows): {self._kmshost()}:{self._kms_port()}")
         if self._kms_office_host():
@@ -996,9 +1102,11 @@ class Applier:
               + (f" {len(self.skipped)} skipped (feature not enabled)." if self.skipped else "")
               + (f" {len(self.held_back)} held back (exclusion group missing)."
                  if self.held_back else ""))
-        if not loopback_ok:
-            print(f"  ⚠ {len(self._loopback_gap)} of them cannot reach a user until a pack "
-                  f"with 'loopback:' is applied (see 'Loopback prerequisite' above).")
+        # only count what was really written: a pack held back or skipped never got a GPO
+        blind = [r for r in self.results if (r["pack"], r["school"]) in self._loopback_gap]
+        if blind:
+            print(f"  ⚠ {len(blind)} of them cannot reach a user until a pack with "
+                  f"'loopback:' is applied (see 'Loopback prerequisite' above).")
         if self.retired:
             print("  Note: the KMS registry values are outside the Policies branches and are")
             print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")

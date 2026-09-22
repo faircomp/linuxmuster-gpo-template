@@ -13,6 +13,12 @@ lmn-gpo (7.3.2) lmn73; urgency=medium
     ACTION: re-run `lmn-gpo apply --yes` once — the clients pick up UserPolicyMode=1 with
     the next `gpupdate /force` + reboot; event 5311 then says "Merge". No GPO has to be
     re-created.
+  * doctor/apply: the loopback check reads the VALUE, not just the GPO name. After
+    upgrading from 7.3.1 without a re-apply the existing 15-lockdown-base/12-proxy-base GPO
+    still carries UserPolicyMode=2, so every client keeps running in Replace; doctor now
+    says so ("its GPO still carries UserPolicyMode=2 (Replace), the catalog wants 1
+    (Merge)") and names the fix instead of reporting the loopback as fine. apply prints the
+    same for packs it is not going to rewrite in this run.
   * apply/doctor: new loopback prerequisite check. A pack with scope: school that carries
     USER settings (12-proxy-{student,teacher,staff}-schule) is linked to OU=Devices — a
     sibling of the user OUs — so it only ever reaches a user through loopback. Until now
@@ -21,6 +27,11 @@ lmn-gpo (7.3.2) lmn73; urgency=medium
     per GPO and as a summary; doctor prints the same as a warning. Nothing is held back
     and no exit code changes — the GPOs themselves are correct.
   * scripts/lmn-gpo-check.ps1 expects UserPolicyMode=1 for "Loopback merge active".
+  * README (EN + DE): the update section spells out that 7.3.2 needs one `lmn-gpo apply
+    --yes` to take effect and that switching to Merge makes GPOs linked in the user OUs
+    apply again on managed machines.
+  * catalog: an unknown `loopback:` value is now an error at load time instead of silently
+    switching loopback off.
   * README (EN + DE), docs/RESEARCH.md and the pack descriptions: the loopback values are
     Microsoft's (1 = Merge, 2 = Replace); the per-school user packs need a loopback pack;
     `remove` cannot take back the WinINET proxy values (ProxyEnable/ProxyServer/
