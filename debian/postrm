@@ -1,0 +1,20 @@
+#!/bin/sh
+# postrm for lmn-gpo
+set -e
+
+case "$1" in
+    purge)
+        # Remove our runtime state. We deliberately keep the admin configuration
+        # under /etc/linuxmuster/lmn-gpo (it may be shared / valuable); remove it by hand.
+        # site.yaml is NOT a conffile on purpose: it carries the bind password, is created
+        # by `lmn-gpo setup` rather than shipped, must stay 0600, and a conffile prompt
+        # would stall `apt upgrade` on an unattended school server.
+        rm -rf /var/lib/lmn-gpo
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
