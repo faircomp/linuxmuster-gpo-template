@@ -1,3 +1,27 @@
+lmn-gpo (7.3.1) lmn73; urgency=medium
+
+  * apply: an optional pack that is not enabled is no longer skipped silently; its line
+    says which site.yaml key is missing (11-firefox-homepage-schule needs
+    firefox_enabled: true besides the URL — the README feature table said otherwise).
+  * apply: one rule for @teachernb/@nopxe exclusions instead of "warning, exit 1, but
+    the GPO is created anyway". A pack whose exclusion group does not exist in its scope
+    (a school without d_nopxe, a teachernb CN that resolves nowhere) is held back — GPO
+    not created, an existing one left untouched — with a notice and exit 0; teachernb:
+    skip now means "there are no teacher notebooks": the exclusion is dropped, the packs
+    apply to every device, one notice line. doctor reports these as warnings, not FAIL.
+  * remove: new --school <name> (repeatable) removes only that school's per-school GPOs;
+    global LMN-*-GLOBAL-* GPOs stay, the same rule apply --school follows. Unknown
+    school names are refused.
+  * --no-color now also applies to the selftest output.
+  * README (EN + DE): --school does not limit global packs (corrected example), the pack
+    count is 33 everywhere with a working anchor, list --mine, env --json, apply
+    --defaults, remove --pack/--school, selftest --dry-run and --no-color are documented,
+    the teachernb semantics are spelled out. Nothing changes on the clients; no re-roll
+    needed.
+  * Package ships DEBIAN/md5sums, so `dpkg --verify lmn-gpo` works.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Tue, 22 Sep 2026 15:10:00 +0200
+
 lmn-gpo (7.3.0) lmn73; urgency=medium
 
   * Switch to the linuxmuster.net version scheme (7.<line>.<n>, distribution lmn73);

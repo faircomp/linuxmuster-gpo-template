@@ -74,6 +74,12 @@ INSTKB=$(du -k -s --exclude=DEBIAN "$ROOT" | cut -f1)
 for s in postinst prerm postrm; do
     install -m 755 "$HERE/$s" "$ROOT/DEBIAN/$s"
 done
+# md5sums of every shipped file (what dh_md5sums would write): without it `dpkg --verify
+# lmn-gpo` has nothing to check and lintian reports no-md5sums-control-file. Paths are
+# relative to the package root without a leading ./, as dpkg expects.
+( cd "$ROOT" && find . -type f -not -path './DEBIAN/*' -printf '%P\n' | LC_ALL=C sort \
+      | xargs -d '\n' md5sum ) > "$ROOT/DEBIAN/md5sums"
+chmod 644 "$ROOT/DEBIAN/md5sums"
 
 # ---- build ---------------------------------------------------------------
 mkdir -p "$OUTDIR"
