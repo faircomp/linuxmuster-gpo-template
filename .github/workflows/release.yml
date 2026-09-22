@@ -301,7 +301,15 @@ jobs:
         run: |
           set -eux
           export DEBIAN_FRONTEND=noninteractive
+          # The state from run A is still in place here, so purge is asserted, not just run.
+          # `apt purge` deleting site.yaml would be the most expensive regression for a
+          # school: it holds the bind password and is not backed up by dpkg anywhere.
           sudo -E apt-get purge -y lmn-gpo
+          sudo test -f /etc/linuxmuster/lmn-gpo/site.yaml
+          test "$(sudo stat -c %a /etc/linuxmuster/lmn-gpo/site.yaml)" = 600
+          sudo test ! -e /var/lib/lmn-gpo
+          sudo test ! -e /usr/lib/python3/dist-packages/lmn_gpo
+          sudo test ! -e /usr/bin/lmn-gpo
           sudo rm -rf /etc/linuxmuster/lmn-gpo /etc/linuxmuster/lmgpo /var/lib/lmn-gpo
           sudo -E apt-get install -y ./previous/*.deb
           # a server that still sits on the pre-rename config path
