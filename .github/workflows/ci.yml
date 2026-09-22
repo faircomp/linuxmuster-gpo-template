@@ -256,6 +256,168 @@ jobs:
               ap.apply_pack(packs["11-firefox-homepage-schule"], one, [one])
           assert "skipped: firefox_enabled is not true" in out.getvalue() and ap.skipped, out.getvalue()
           print("exclusions: ok")
+
+          # --- loopback: Microsoft's values, pinned -------------------------------------------
+          # GroupPolicy.admx (CSE_LoopbackMode) and the client's event 5311 both say:
+          # 1 = Merge, 2 = Replace. 7.3.1 had the mapping inverted, so `loopback: merge` put
+          # every managed client into REPLACE and silently dropped every user GPO linked in
+          # the user's own OU path. Proven on a Windows 11 client, so this is pinned here.
+          assert apply.LOOPBACK_MODE == {"merge": 1, "replace": 2}, apply.LOOPBACK_MODE
+          ap = apply.Applier(env, {}, dry_run=True)
+          ent = {(e["valuename"], e["class"]): e
+                 for e in ap._registry_entries(packs["15-lockdown-base"], None, {})}
+          upm = ent[("UserPolicyMode", "MACHINE")]
+          assert upm["keyname"] == r"Software\Policies\Microsoft\Windows\System", upm
+          assert upm["type"] == "REG_DWORD" and upm["data"] == 1, \
+              f"15-lockdown-base declares 'loopback: merge' -> UserPolicyMode must be 1 (Merge), got {upm}"
+          # every catalog value must be one this engine knows, and no pack may ship 'replace'
+          # unintentionally (nothing in the catalog needs it)
+          for p in packs.values():
+              assert p.loopback in ("none",) or p.loopback in apply.LOOPBACK_MODE, (p.id, p.loopback)
+              assert p.loopback != "replace", f"{p.id}: loopback replace drops the user's own GPOs"
+          # a pack WITHOUT loopback must not write UserPolicyMode at all
+          assert not [e for e in ap._registry_entries(packs["02-updates"], None, {})
+                      if e["valuename"] == "UserPolicyMode"]
+          print("loopback mapping: ok")
+
+          # --- the loopback prerequisite of the per-school user packs -------------------------
+          # scope: school + USER settings -> linked to OU=Devices, a SIBLING of the user OUs:
+          # without a pack that sets UserPolicyMode these GPOs reach nobody, and until 7.3.2
+          # apply just reported "Done: N GPO(s) applied."
+          assert {p.id for p in packs.values() if apply.Applier.needs_loopback(p)} == \
+              {"12-proxy-student-schule", "12-proxy-teacher-schule", "12-proxy-staff-schule"}, \
+              sorted(p.id for p in packs.values() if apply.Applier.needs_loopback(p))
+          allp = list(packs.values())
+          # only the role proxy selected -> gap, and the warning names pack, school and the fix
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None          # nothing applied on this DC yet
+          rows = ap.loopback_gap(allp)
+          assert [(r[0], r[1]) for r in rows] == [("12-proxy-student-schule", "default-school")], rows
+          assert rows[0][2][:2] == ["12-proxy-base", "15-lockdown-base"], rows
+          # only packs that would really work here: 09-branding-schule needs a wallpaper
+          assert "09-branding-schule" not in rows[0][2], rows
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              assert ap.print_loopback_check(allp) is False
+          text = out.getvalue()
+          assert "12-proxy-student-schule" in text and "default-school" in text, text
+          assert "15-lockdown-base" in text and "OU=Devices" in text, text
+          assert ap._loopback_gap == {("12-proxy-student-schule", "default-school")}
+          # the same run WITH a loopback pack: no gap
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule", "12-proxy-base"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          assert ap.loopback_gap(allp) == [], ap.loopback_gap(allp)
+          # ... and with 15-lockdown-base already applied on the DC (not in this run's packs)
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: "{GUID}" if name == "LMN-C-GLOBAL-15-lockdown-base" else None
+          assert ap.loopback_gap(allp) == [], ap.loopback_gap(allp)
+          # run() must hand the WHOLE catalog to the check, not its own filtered selection -
+          # otherwise the "add one of these packs" hint comes out empty (regression 7.3.2).
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          ap.eng.aclcheck = lambda: (True, "")
+          ap.apply_pack = lambda *a, **k: None
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              rc = ap.run(allp)
+          text = out.getvalue()
+          assert rc == 0, "the loopback gap is a warning, it must not change the exit code"
+          assert "Loopback prerequisite" in text, text
+          assert "12-proxy-base, 15-lockdown-base" in text, text     # the useful ones first
+          # apply_pack is patched out here, so nothing was written - and the summary counts
+          # only GPOs that really exist (a held-back or skipped pack never got one)
+          assert "cannot reach a user" not in text, text
+          # loopback_status names the pack that actually provides it and where it comes from
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule", "15-lockdown-base"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: None
+          assert ap.loopback_status(allp) == [("default-school", "15-lockdown-base", "this run")], \
+              ap.loopback_status(allp)
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda name: "{G}" if name == "LMN-C-GLOBAL-12-proxy-base" else None
+          assert ap.loopback_status(allp) == [("default-school", "12-proxy-base", "already applied")], \
+              ap.loopback_status(allp)
+          # --- the VALUE, not just the name: the 7.3.1 upgrade case ---------------------------
+          # An existing loopback GPO created by 7.3.1 still carries UserPolicyMode=2 until it
+          # is written again. Checking only "a GPO of that name exists" would report green
+          # while every client keeps running in Replace - the very situation 7.3.2 is about.
+          import os, tempfile
+          # python3-samba (and with it the NDR parser for Registry.pol) is not on a
+          # GitHub-hosted runner, so the pol READER is stubbed - what is under test here is
+          # what apply/doctor do with the value, not samba's parser.
+          def fake_pol(mode):
+              key = (apply.LOOPBACK_KEY.lower(), apply.LOOPBACK_VALUE.lower())
+              return lambda path: {key: (4, mode)} if "GUID" in path else {}
+          for mode, want_rows in ((2, 1), (1, 0)):
+              apply.regpol_mod._read_pol = fake_pol(mode)
+              ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                       "packs": ["12-proxy-student-schule"]}, dry_run=True)
+              ap.eng.find_by_name = lambda n: "{GUID}" if n == "LMN-C-GLOBAL-15-lockdown-base" else None
+              stale = ap.loopback_stale(allp)
+              assert len(stale) == want_rows, (mode, stale)
+              if want_rows:
+                  assert stale[0][:2] == ("15-lockdown-base", "GLOBAL") and stale[0][2:] == (2, 1), stale
+                  lines, hint = ap.loopback_stale_text(stale)
+                  assert "UserPolicyMode=2" in lines[0] and "Replace" in lines[0], lines
+                  assert "apply --yes" in hint[1], hint
+                  # the gap check stays quiet (loopback IS on), the value check does not
+                  assert ap.loopback_gap(allp) == []
+                  out = io.StringIO()
+                  with contextlib.redirect_stdout(out):
+                      assert ap.print_loopback_check(allp) is False
+                  assert "Loopback value" in out.getvalue() and "Replace" in out.getvalue(), out.getvalue()
+          # skip_this_run: apply rewrites the pack in this very run, so it must not warn
+          apply.regpol_mod._read_pol = fake_pol(2)
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule", "15-lockdown-base"]}, dry_run=True)
+          ap.eng.find_by_name = lambda n: "{GUID}" if n == "LMN-C-GLOBAL-15-lockdown-base" else None
+          assert ap.loopback_stale(allp, skip_this_run=True) == []
+          assert len(ap.loopback_stale(allp)) == 1          # doctor still says it
+          # an unreadable/absent Registry.pol must never invent a warning
+          apply.regpol_mod._read_pol = lambda path: {}
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda n: "{GUID}" if n == "LMN-C-GLOBAL-15-lockdown-base" else None
+          assert ap.loopback_stale(allp) == []
+
+          # --- the per-GPO line in apply_pack ---------------------------------------------------
+          ap = apply.Applier(env, {**proxy, "schools": ["default-school"],
+                                   "packs": ["12-proxy-student-schule"]}, dry_run=True)
+          ap.eng.find_by_name = lambda n: None
+          ap.eng.ensure = lambda name: ("{GUID}", True)      # no samba-tool, no DC
+          ap.eng.sysvol_path = lambda g: "/nonexistent"
+          ap.eng.link = lambda *a, **k: None
+          ap.eng.deny_read = lambda *a, **k: None
+          ap.eng.set_exclusive_filter = lambda *a, **k: None
+          ap.rp.load = lambda *a, **k: None
+          ap.se.apply = lambda *a, **k: None
+          ap.gp.add_local_admins = lambda *a, **k: None
+          ap._loopback_gap = {("12-proxy-student-schule", "default-school")}
+          out = io.StringIO()
+          with contextlib.redirect_stdout(out):
+              ap.apply_pack(packs["12-proxy-student-schule"], default, [default])
+          assert "reach NO user" in out.getvalue(), out.getvalue()
+          assert ap.results and ap.results[0]["school"] == "default-school", ap.results
+          # a catalog value that is not none/merge/replace must not load at all
+          d = tempfile.mkdtemp()
+          text = open("catalog/15-lockdown-base.yaml").read().replace("loopback: merge",
+                                                                      "loopback: mergee")
+          open(os.path.join(d, "15-lockdown-base.yaml"), "w").write(text)
+          try:
+              catalog.load_packs(d)
+              raise SystemExit("::error::a bogus loopback value loaded without complaint")
+          except ValueError as exc:
+              assert "mergee" in str(exc), exc
+          # a global user pack (linked at OU=SCHOOLS, the common ancestor) never needs loopback
+          assert not apply.Applier.needs_loopback(packs["15-lockdown-student"])
+          # a school pack that carries loopback itself is its own precondition
+          assert not apply.Applier.needs_loopback(packs["09-branding-schule"])
+          print("loopback prerequisite: ok")
           PY
 
       - name: PowerShell syntax check (real parser)

@@ -239,6 +239,24 @@ lmn-gpo remove --school schule1 --pack 07-admins-schule --yes  # one pack, one s
 named schools and never touches global GPOs (`LMN-*-GLOBAL-*`), which every school shares. To
 remove a global pack use `--pack <id>` without `--school`. An unknown school name is refused.
 
+**What `remove` cannot take back.** Everything the packs write under one of the four
+`…\Policies\…` branches is withdrawn by Windows' registry CSE at the next `gpupdate`/logon —
+GPO gone, value gone. Values *outside* those branches **tattoo**: they stay on the client
+forever. In this catalog that is the role proxy
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`: `ProxyEnable`,
+`ProxyServer`, `ProxyOverride` — measured on Windows 11 after a full `remove`) and the KMS host.
+Clear them per profile / per machine:
+
+```cmd
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyOverride /f
+slmgr.vbs /ckms                  ::  Windows KMS host
+cscript ospp.vbs /remhst         ::  Office KMS host
+```
+For a profile nobody is logged into: `reg load HKU\tmp C:\Users\<user>\NTUSER.DAT`, delete the
+values under `HKU\tmp\…`, then `reg unload HKU\tmp`.
+
 ## Configuration (`site.yaml`)
 
 The assistant creates the file; you can also maintain it by hand and reuse it per customer.
@@ -381,6 +399,20 @@ so it would stay configured off-site and cut the notebook off from the internet.
 > If those notebooks already carry a proxy from an earlier rollout, removing the policy does
 > **not** clear it. Reset it once per affected profile, e.g.
 > `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
+
+> ### These per-school packs only work with loopback
+> `12-proxy-student-schule`, `12-proxy-teacher-schule` and `12-proxy-staff-schule` are linked
+> to `OU=Devices,OU=<school>` — that is exactly how the **address can follow the device** while
+> the port follows the user's role. But `OU=Devices` is a *sibling* of `OU=Students`/`OU=Teachers`,
+> never a parent of a user object, so their HKCU settings reach a user **only through loopback
+> processing**. A pack that switches loopback on must therefore be applied to the same machines:
+> `12-proxy-base` (it comes with `proxy_enabled: true`) or `15-lockdown-base`.
+>
+> This matters when you pin `packs:` in `site.yaml`: a list with only the per-school proxy packs
+> produces GPOs that are created, linked and filtered correctly — **and reach nobody**. Since
+> 7.3.2 `apply` and `doctor` say so ("Loopback prerequisite"); before that they reported success.
+> On the client, loopback is visible as
+> `HKLM\SOFTWARE\Policies\Microsoft\Windows\System!UserPolicyMode = 0x1` (Merge).
 
 ## Wi-Fi: multiple networks & roaming
 
@@ -537,8 +569,12 @@ falls back to lossless. Check with `veyon-cli config get Core/ApplicationVersion
 Two packages make sure that **only students** (`role-student`) cannot change certain Windows
 settings, while **teachers and admins stay unrestricted** (always active):
 
-- `15-lockdown-base` (computer): enables **loopback merge** (`UserPolicyMode=2`) so that
-  user-based, role-filtered policies take effect on shared classroom machines.
+- `15-lockdown-base` (computer): enables **loopback merge** (`UserPolicyMode=1`) so that
+  user-based, role-filtered policies take effect on shared classroom machines. Windows'
+  own values are **1 = Merge** and **2 = Replace** (client event 5311 names the mode);
+  merge keeps the user's own GPOs and layers the machine's user settings on top, replace
+  would drop every GPO linked in the user's OU path. lmn-gpo only ever writes replace when
+  a pack explicitly says `loopback: replace` — no catalog pack does.
 - `15-lockdown-student` (user, exclusive to `role-student`): pure HKCU policies —
   **proxy not changeable** (Settings app *and* Internet Options), Connections tab & PAC
   locked, **Registry Editor** locked.
@@ -551,6 +587,11 @@ Stricter is possible via extra HKCU entries in `catalog/15-lockdown-student.yaml
 | Lock Command Prompt | `…\Policies\Microsoft\Windows\System\DisableCMD = 1` |
 | Lock Task Manager | `…\Policies\System\DisableTaskMgr = 1` |
 | Lock wallpaper change | `…\Policies\ActiveDesktop\NoChangingWallPaper = 1` |
+
+`15-lockdown-student` is a **global** pack: it is linked at `OU=SCHOOLS`, the common ancestor
+of the device *and* the user OUs, so it also reaches students without loopback. `15-lockdown-base`
+is still needed for the **per-school** user packs (the role proxy, see
+[Role-based proxy](#role-based-proxy)) and for machine-bound user settings on shared machines.
 
 ## UEFI boot order PXE first
 
@@ -714,6 +755,20 @@ Security-filter prerequisites (from site.yaml):
   ⚠ 12-proxy-student-schule    one   exclude-read  @teachernb  no d_nopxe group in one  → pack held back by apply (fail-closed)
 ```
 
+Since 7.3.2 both commands also check the **loopback prerequisite** of the per-school user packs
+(see [Role-based proxy](#role-based-proxy)) and name the pack, the school and the packs that
+would fix it. This one is a warning, not a hold-back: the GPO is correct, only the deployment
+around it is incomplete — the exit code does not change.
+
+```
+Loopback prerequisite:
+    ⚠ these packs are linked to OU=Devices (address follows the device) and deliver USER settings.
+      Without loopback processing they reach NO user - the GPO is created, linked and filtered,
+      and has no effect:
+        12-proxy-student-schule    default-school   needs a pack with 'loopback:' on this school's devices
+    Fix: add one of these packs to 'packs:' in site.yaml (or drop the 'packs:' list to apply all): ...
+```
+
 `lmn-gpo env` additionally flags any school that has no noPXE group at all. `teachernb` is one
 value for all schools: `nopxe` means each school's own `d_nopxe` group, a CN is looked up
 below each school's OU, so a group of that name is needed in every school that uses the packs.
@@ -738,7 +793,34 @@ powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1
 `-Refresh` runs `gpupdate /force` first (the only non-read-only action). Output: `[OK]`/`[!!]`
 per check + a summary.
 
+> **The user half can only be checked in a real interactive session.** A logon over SSH or
+> WinRM is logon type 8 in session 0, and Windows processes **no** user policy there:
+> `gpresult /r /scope user /user DOMAIN\user` answers "has no RSOP data", and
+> `gpupdate /force /target:user` still prints "completed successfully" and exits 0 while doing
+> nothing at all (the operational log shows one 5321 with `SessionID=0` and no 5311/5312/4016).
+> Check the role proxy, the student lockdown and H: while the user is logged on at the console
+> or over RDP — a remote-shell result is meaningless.
+
 ## Updating the toolkit
+
+> ### Upgrading from 7.3.1 or older: re-apply once
+> 7.3.2 corrects the loopback value. Up to 7.3.1 `loopback: merge` wrote
+> `UserPolicyMode=2`, which is Windows' **Replace** — the inverse of what was meant.
+> **Installing the package changes nothing on a single client:** the value lives in the
+> GPO, so the existing `LMN-C-GLOBAL-15-lockdown-base` / `LMN-C-GLOBAL-12-proxy-base` keeps
+> saying `2` until it is written again.
+>
+> ```bash
+> lmn-gpo doctor        # names the stale value: "its GPO still carries UserPolicyMode=2 (Replace)"
+> lmn-gpo apply --yes   # writes 1 (Merge) and bumps the GPO version
+> ```
+> then `gpupdate /force` + reboot on the clients; event 5311 must then say "Merge".
+>
+> **Be aware of what changes for the clients.** Under Replace, every GPO linked in a
+> *user's* own OU path (`OU=Students`, `OU=Teachers`, a class OU, `OU=Management`, GPOs from
+> other tools) was silently dropped on every managed machine. With Merge they take effect
+> again — that is the correct behaviour and what the README always promised, but if your
+> site unknowingly relied on Replace, check those GPOs before you re-apply.
 
 How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmn-gpo/site.yaml`
 is preserved** (Wi-Fi passwords and all) — so no settings are lost.
@@ -784,6 +866,9 @@ git pull
 | **Boot-order log: "a required privilege is not held"** | old script version. The current package uses a **scheduled task** — re-roll out; check the log for `Worker (Scheduled Task…)` lines. |
 | **Clocks wrong** | apply package `17-ntp-zeit`; on the client `w32tm /resync`. The `MaxPhaseCorrection` fix also corrects battery machines. |
 | GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmn-gpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
+| **A per-school user GPO (`LMN-U-<school>-12-proxy-*`) is missing from `gpresult /scope user`** — not even under "filtered out" | no loopback on that machine. These packs are linked to `OU=Devices` and need `12-proxy-base` or `15-lockdown-base`; `apply`/`doctor` print "Loopback prerequisite". Check on the client: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` must exist and read `0x1`. |
+| **`gpupdate /target:user` over SSH/WinRM reports success, nothing changes** | user policy is only processed in an interactive session (logon type 2/10), never in session 0. See [Checking on the client](#checking-on-the-client). |
+| **`samba-tool gpo listall` shows fewer GPOs than `lmn-gpo list`** | the `12-proxy-*-schule` packs deny **Read** to `@teachernb` (→ `d_nopxe`), and the DC's own machine account is a member of that group. Without `-U administrator` `listall` runs under the machine identity and simply cannot see them — it is not a missing GPO. Use `lmn-gpo list --mine` (reads the directory as root) for inventory and clean-up checks. |
 
 ---
 
@@ -1057,6 +1142,24 @@ lmn-gpo remove --school schule1 --pack 07-admins-schule --yes  # ein Pack, eine 
 Schulen und rührt globale GPOs (`LMN-*-GLOBAL-*`), die alle Schulen teilen, nie an. Ein
 globales Pack entfernt `--pack <id>` ohne `--school`. Ein unbekannter Schulname wird abgelehnt.
 
+**Was `remove` nicht zurücknehmen kann.** Alles, was die Packs unter einen der vier
+`…\Policies\…`-Zweige schreiben, räumt die Registry-CSE von Windows beim nächsten
+`gpupdate`/Anmelden restlos ab — GPO weg, Wert weg. Werte *außerhalb* dieser Zweige
+**tätowieren**: Sie bleiben dauerhaft am Client stehen. In diesem Katalog sind das der
+Rollen-Proxy (`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`:
+`ProxyEnable`, `ProxyServer`, `ProxyOverride` — an einem Windows-11-Client nach einem
+vollständigen `remove` gemessen) und der KMS-Host. Pro Profil bzw. Rechner aufräumen:
+
+```cmd
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyOverride /f
+slmgr.vbs /ckms                  ::  Windows-KMS-Host
+cscript ospp.vbs /remhst         ::  Office-KMS-Host
+```
+Für ein Profil, an dem niemand angemeldet ist: `reg load HKU\tmp C:\Users\<user>\NTUSER.DAT`,
+die Werte unter `HKU\tmp\…` löschen, danach `reg unload HKU\tmp`.
+
 ## Konfiguration (`site.yaml`)
 
 Der Assistent erzeugt die Datei; sie lässt sich auch von Hand pflegen und pro Kunde
@@ -1199,6 +1302,21 @@ ist — und weil der Proxy im echten WinINET-Schlüssel landet (nicht unter `…
 > Tragen diese Notebooks aus einem früheren Rollout schon einen Proxy, räumt das Entfernen der
 > Richtlinie ihn **nicht** weg. Einmalig pro betroffenem Profil zurücksetzen, z. B.
 > `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /f`.
+
+> ### Diese Schul-Packs wirken nur mit Loopback
+> `12-proxy-student-schule`, `12-proxy-teacher-schule` und `12-proxy-staff-schule` werden an
+> `OU=Devices,OU=<schule>` verlinkt — genau dadurch kann die **Adresse dem Gerät folgen**,
+> während der Port der Rolle des Benutzers folgt. `OU=Devices` ist aber ein *Geschwister* von
+> `OU=Students`/`OU=Teachers` und nie ein Vorfahre eines Benutzerobjekts: Ihre HKCU-Werte
+> erreichen einen Benutzer **ausschließlich über Loopback-Verarbeitung**. Auf denselben
+> Rechnern muss deshalb ein Pack aktiv sein, das Loopback einschaltet: `12-proxy-base`
+> (kommt mit `proxy_enabled: true` mit) oder `15-lockdown-base`.
+>
+> Wichtig, sobald `packs:` in der `site.yaml` fest gesetzt ist: Eine Liste nur mit den
+> Schul-Proxy-Packs erzeugt GPOs, die korrekt angelegt, verlinkt und gefiltert sind — **und
+> niemanden erreichen**. Seit 7.3.2 sagen `apply` und `doctor` das („Loopback prerequisite");
+> vorher meldeten sie schlicht Erfolg. Am Client sichtbar als
+> `HKLM\SOFTWARE\Policies\Microsoft\Windows\System!UserPolicyMode = 0x1` (Merge).
 
 ## WLAN: mehrere Netze & Roaming
 
@@ -1359,8 +1477,13 @@ stillschweigend auf verlustfrei zurück. Prüfen mit `veyon-cli config get Core/
 Zwei Pakete sorgen dafür, dass **nur Schüler** (`role-student`) bestimmte Windows-Einstellungen
 nicht ändern können, **Lehrer und Admins aber uneingeschränkt** bleiben (immer aktiv):
 
-- `15-lockdown-base` (Computer): aktiviert **Loopback-Merge** (`UserPolicyMode=2`), damit
+- `15-lockdown-base` (Computer): aktiviert **Loopback-Merge** (`UserPolicyMode=1`), damit
   benutzerbasierte, rollengefilterte Richtlinien auf gemeinsam genutzten Klassenrechnern greifen.
+  Die Werte stammen von Microsoft: **1 = Merge**, **2 = Replace** (der Client nennt den Modus
+  im Ereignis 5311). Merge behält die eigenen GPOs des Benutzers und legt die Benutzer-
+  einstellungen des Rechners darüber; Replace würde jede GPO aus dem OU-Pfad des Benutzers
+  fallen lassen. lmn-gpo schreibt Replace nur, wenn ein Pack ausdrücklich `loopback: replace`
+  deklariert — kein Katalog-Pack tut das.
 - `15-lockdown-student` (User, exklusiv auf `role-student`): reine HKCU-Policies —
   **Proxy nicht änderbar** (Einstellungen-App *und* Internetoptionen), Verbindungen-Tab & PAC
   gesperrt, **Registry-Editor** gesperrt.
@@ -1373,6 +1496,12 @@ Strenger geht per zusätzlicher HKCU-Einträge in `catalog/15-lockdown-student.y
 | Eingabeaufforderung sperren | `…\Policies\Microsoft\Windows\System\DisableCMD = 1` |
 | Task-Manager sperren | `…\Policies\System\DisableTaskMgr = 1` |
 | Hintergrundbild-Wechsel sperren | `…\Policies\ActiveDesktop\NoChangingWallPaper = 1` |
+
+`15-lockdown-student` ist ein **globales** Pack: Es hängt an `OU=SCHOOLS`, dem gemeinsamen
+Vorfahren der Geräte- *und* der Benutzer-OUs, und erreicht Schüler deshalb auch ohne Loopback.
+`15-lockdown-base` wird trotzdem gebraucht — für die **schulbezogenen** Benutzer-Packs
+(Rollen-Proxy, siehe [Rollen-Proxy](#rollen-proxy)) und für gerätegebundene Benutzer-
+einstellungen auf gemeinsam genutzten Rechnern.
 
 ## UEFI-Bootreihenfolge PXE zuerst
 
@@ -1491,6 +1620,20 @@ Security-filter prerequisites (from site.yaml):
   ⚠ 12-proxy-student-schule    one   exclude-read  @teachernb  no d_nopxe group in one  → pack held back by apply (fail-closed)
 ```
 
+Seit 7.3.2 prüfen beide Befehle zusätzlich die **Loopback-Voraussetzung** der schulbezogenen
+Benutzer-Packs (siehe [Rollen-Proxy](#rollen-proxy)) und nennen Pack, Schule und die Packs, die
+das beheben. Das ist eine Warnung, kein Zurückhalten: Die GPO ist korrekt, nur das Drumherum
+unvollständig — der Exit-Code ändert sich nicht.
+
+```
+Loopback prerequisite:
+    ⚠ these packs are linked to OU=Devices (address follows the device) and deliver USER settings.
+      Without loopback processing they reach NO user - the GPO is created, linked and filtered,
+      and has no effect:
+        12-proxy-student-schule    default-school   needs a pack with 'loopback:' on this school's devices
+    Fix: add one of these packs to 'packs:' in site.yaml (or drop the 'packs:' list to apply all): ...
+```
+
 `lmn-gpo env` markiert zusätzlich jede Schule, die gar keine noPXE-Gruppe hat. `teachernb` ist
 ein Wert für alle Schulen: `nopxe` meint die eigene `d_nopxe`-Gruppe jeder Schule, ein CN wird
 unterhalb jeder Schul-OU gesucht — eine gleichnamige Gruppe muss also in jeder Schule
@@ -1516,7 +1659,36 @@ powershell -ExecutionPolicy Bypass -File lmn-gpo-check.ps1
 `-Refresh` macht vorher `gpupdate /force` (einzige nicht-lesende Aktion). Ausgabe: `[OK]`/`[!!]`
 je Prüfung + Summe.
 
+> **Die Benutzerseite lässt sich nur in einer echten interaktiven Sitzung prüfen.** Eine
+> Anmeldung über SSH oder WinRM ist Anmeldetyp 8 in Session 0, und dort verarbeitet Windows
+> **keine** Benutzerrichtlinie: `gpresult /r /scope user /user DOMÄNE\benutzer` antwortet
+> „hat keine RSOP-Daten", und `gpupdate /force /target:user` meldet trotzdem „erfolgreich
+> abgeschlossen" und Exit 0, ohne irgendetwas zu tun (im Betriebsprotokoll steht genau ein
+> 5321 mit `SessionID=0` und kein 5311/5312/4016). Rollen-Proxy, Schüler-Lockdown und H:
+> also prüfen, während der Benutzer an der Konsole oder per RDP angemeldet ist — ein
+> Ergebnis aus einer Remote-Shell ist wertlos.
+
 ## Update des Toolkits
+
+> ### Update von 7.3.1 oder älter: einmal neu anwenden
+> 7.3.2 korrigiert den Loopback-Wert. Bis 7.3.1 schrieb `loopback: merge`
+> `UserPolicyMode=2` — das ist Windows' **Replace**, also das Gegenteil des Gemeinten.
+> **Das Installieren des Pakets ändert an keinem Client etwas:** Der Wert steckt in der GPO,
+> die vorhandene `LMN-C-GLOBAL-15-lockdown-base` / `LMN-C-GLOBAL-12-proxy-base` trägt
+> weiterhin `2`, bis sie neu geschrieben wird.
+>
+> ```bash
+> lmn-gpo doctor        # nennt den veralteten Wert: "its GPO still carries UserPolicyMode=2 (Replace)"
+> lmn-gpo apply --yes   # schreibt 1 (Merge) und zieht die GPO-Version hoch
+> ```
+> danach am Client `gpupdate /force` + Neustart; Ereignis 5311 muss dann „Merge" nennen.
+>
+> **Was sich dadurch für die Clients ändert.** Unter Replace fiel auf jedem verwalteten
+> Rechner jede GPO aus dem OU-Pfad des *Benutzers* (`OU=Students`, `OU=Teachers`, eine
+> Klassen-OU, `OU=Management`, GPOs fremder Werkzeuge) stillschweigend weg. Mit Merge wirken
+> sie wieder — das ist das richtige Verhalten und das, was das README immer versprochen hat.
+> Wer sich unwissentlich auf Replace verlassen hat, sieht sich diese GPOs vor dem erneuten
+> Anwenden besser an.
 
 Wie du aktualisierst, hängt von der Installationsart ab. **In beiden Fällen bleibt
 `/etc/linuxmuster/lmn-gpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine
@@ -1563,6 +1735,9 @@ git pull
 | **Bootorder-Log: „fehlt ein erforderliches Recht"** | alte Skript-Version. Aktuelles Pack nutzt einen **Scheduled Task** — neu ausrollen; Log auf `Worker (Scheduled Task…)`-Zeilen prüfen. |
 | **Uhren falsch** | Pack `17-ntp-zeit` anwenden; am Client `w32tm /resync`. Der `MaxPhaseCorrection`-Fix korrigiert auch Batterie-Rechner. |
 | GPO angeblich nicht angewandt | am Client als Admin `gpresult /r`; mit [`lmn-gpo-check.ps1`](#prüfen-am-client) gegenprüfen; auf `-Refresh` + Neustart achten. |
+| **Eine Schul-Benutzer-GPO (`LMN-U-<schule>-12-proxy-*`) fehlt in `gpresult /scope user`** — auch nicht unter „herausgefiltert" | Auf dem Rechner fehlt Loopback. Diese Packs hängen an `OU=Devices` und brauchen `12-proxy-base` oder `15-lockdown-base`; `apply`/`doctor` melden „Loopback prerequisite". Am Client prüfen: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` muss existieren und `0x1` sein. |
+| **`gpupdate /target:user` über SSH/WinRM meldet Erfolg, es ändert sich nichts** | Benutzerrichtlinie wird nur in einer interaktiven Sitzung verarbeitet (Anmeldetyp 2/10), nie in Session 0. Siehe [Prüfen am Client](#prüfen-am-client). |
+| **`samba-tool gpo listall` zeigt weniger GPOs als `lmn-gpo list`** | Die Packs `12-proxy-*-schule` verweigern `@teachernb` (→ `d_nopxe`) das **Lesen**, und das Maschinenkonto des DC ist Mitglied dieser Gruppe. Ohne `-U administrator` läuft `listall` unter der Maschinenidentität und sieht sie schlicht nicht — die GPO fehlt nicht. Für Bestand und Rückbau `lmn-gpo list --mine` benutzen (liest das Verzeichnis als root). |
 
 ---
 

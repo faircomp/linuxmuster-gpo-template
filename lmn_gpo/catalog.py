@@ -57,13 +57,23 @@ class Pack:
         return "CU" if (u and m) else "U" if u else "C"
 
 
+LOOPBACK_VALUES = ("none", "merge", "replace")
+
+
 def load_packs(catalog_dir: str = CATALOG_DIR) -> list[Pack]:
     packs = []
     for path in sorted(glob.glob(os.path.join(catalog_dir, "*.yaml"))):
         with open(path) as fh:
             data = yaml.safe_load(fh) or {}
         known = Pack.__dataclass_fields__.keys()
-        packs.append(Pack(**{k: v for k, v in data.items() if k in known}))
+        pack = Pack(**{k: v for k, v in data.items() if k in known})
+        # A typo ('mergee') would switch loopback off silently AND still let the per-school
+        # user packs count as needing it - the two things that then look fine and do not
+        # work. Fail loudly at load time instead.
+        if pack.loopback not in LOOPBACK_VALUES:
+            raise ValueError(f"{os.path.basename(path)}: loopback: {pack.loopback!r} is not "
+                             f"one of {', '.join(LOOPBACK_VALUES)}")
+        packs.append(pack)
     return packs
 
 

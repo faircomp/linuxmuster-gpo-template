@@ -12,6 +12,9 @@ filter_deny_read: ['@teachernb']
 description: >
   Per-user WinINET proxy for STAFF: <school-proxy-host>:<staff-port>. Filtered
   exclusively to role-staff, loopback=merge, linked per school. Roaming-capable.
+  NEEDS a loopback pack on the same machines (12-proxy-base, or 15-lockdown-base):
+  the link target OU=Devices is a sibling of the user OUs, so without loopback these
+  USER settings reach nobody. apply/doctor warn when none is active.
 registry:
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyEnable, class: user, type: dword, data: 1 }
   - { key: 'Software\Microsoft\Windows\CurrentVersion\Internet Settings', name: ProxyServer, class: user, type: sz, data: '@proxy-host:@proxy-port-staff' }
