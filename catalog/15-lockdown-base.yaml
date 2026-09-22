@@ -5,7 +5,7 @@ target: computer
 loopback: merge
 description: >
   Foundation for the student lockdown: enables loopback processing (merge,
-  UserPolicyMode=2) on all managed machines so that the role-student-filtered
+  UserPolicyMode=1) on all managed machines so that the role-student-filtered
   user GPOs (15-lockdown-student) take effect on shared classroom machines. Teachers
   and admins are NOT in role-student and therefore remain unrestricted. Sets the same
   loopback value as the proxy base — if both are active this is redundant, but

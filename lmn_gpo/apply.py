@@ -19,7 +19,16 @@ from .scripts_ext import ScriptsExt
 from .secedit import SecEdit
 
 GPO_PREFIX = "LMN-"
-LOOPBACK_MODE = {"merge": 2, "replace": 1}
+# Windows loopback processing, HKLM\Software\Policies\Microsoft\Windows\System!UserPolicyMode
+# ("Configure user Group Policy loopback processing mode", GroupPolicy.admx / CSE_LoopbackMode).
+# The values are Microsoft's, not ours, and the client names them in event 5311:
+#   1 = Merge    user's own GPO list first, then the machine's user settings on top
+#   2 = Replace  ONLY the machine's user settings — every GPO linked in the USER's OU path
+#                (OU=Students, OU=Teachers, a class OU, third-party GPOs) is dropped
+# Do not "tidy" this mapping: up to 7.3.1 it was inverted, so `loopback: merge` put every
+# managed client into Replace and user GPOs outside the device OU path silently vanished.
+# The CI engine check pins it to these two values.
+LOOPBACK_MODE = {"merge": 1, "replace": 2}
 RETIRE_BACKUP_DIR = "/var/backups/lmn-gpo"
 # Preconditions that depend on a FILE rather than on an operator answer. A missing file is
 # usually an accident (wallpaper dir moved, share not mounted, source checkout replaced by
@@ -79,6 +88,12 @@ DEFAULT_ANSWERS = {
 }
 
 
+def gpo_name(pack, school) -> str:
+    """The GPO display name of a pack in a scope: 'LMN-<C|U|CU>-<school|GLOBAL>-<pack-id>'."""
+    return (f"{GPO_PREFIX}{pack.type_letter}-"
+            f"{school.name if pack.scope == 'school' else 'GLOBAL'}-{pack.id}")
+
+
 def _gplink_map() -> dict[str, list[str]]:
     """Map GPO GUID (upper case) -> list of container DNs that link it."""
     out: dict[str, list[str]] = {}
@@ -111,6 +126,10 @@ class Applier:
         # would otherwise delete a working GPO)
         self._file_precondition_failed: set[str] = set()
         self._wp_cache: dict[str, str | None] = {}
+        self._gpo_seen: dict[str, bool] = {}   # cache for "does this GPO already exist?"
+        # (pack id, school name) pairs whose USER settings cannot reach anybody because no
+        # loopback pack is active; filled by run() so apply_pack can say it per GPO.
+        self._loopback_gap: set[tuple[str, str]] = set()
 
     # ------------------------------------------------------------------ #
     # selection
@@ -693,6 +712,104 @@ class Applier:
                   "you use ('skip' = there are no teacher notebooks).")
         return not hard
 
+    # ------------------------------------------------------------------ #
+    # loopback prerequisite of the per-school user packs
+    # ------------------------------------------------------------------ #
+    def _gpo_exists(self, name) -> bool:
+        """Is there already a GPO with this display name? Read-only, cached, dry-run safe."""
+        if name not in self._gpo_seen:
+            try:
+                self._gpo_seen[name] = bool(self.eng.find_by_name(name))
+            except Exception:
+                self._gpo_seen[name] = False   # no directory here (tests): assume 'no'
+        return self._gpo_seen[name]
+
+    @staticmethod
+    def needs_loopback(pack) -> bool:
+        """Does this pack's USER half depend on loopback processing?
+
+        A pack with `scope: school` is linked to `OU=Devices,OU=<school>` — deliberately, so
+        that the proxy host follows the DEVICE while the port follows the user's role. That
+        container is a sibling of OU=Students/OU=Teachers, so it is NOT in the OU path of any
+        user object: without loopback the GPO's user settings reach nobody. A pack that
+        carries `loopback:` itself (e.g. 09-branding-schule) is its own precondition.
+        """
+        return (pack.scope == "school" and pack.has_user
+                and pack.loopback not in LOOPBACK_MODE)
+
+    def _loopback_source(self, providers, selected, school):
+        """Which pack switches loopback on for the machines of <school>?
+
+        Returns (pack_id, how) with how in {'this run', 'already applied'}, or (None, '').
+        """
+        for pack in providers:
+            scope = school if pack.scope == "school" else None
+            if pack in selected and self._applicable(pack, scope):
+                return pack.id, "this run"
+            if self._gpo_exists(gpo_name(pack, scope)):
+                return pack.id, "already applied"
+        return None, ""
+
+    def loopback_gap(self, packs, schools=None):
+        """User packs that are created, linked and filtered correctly — and still reach
+        nobody, because no pack sets UserPolicyMode on their machines.
+
+        One row (pack_id, school_name, candidates) per affected pack and school, where
+        `candidates` are the catalog packs that would switch loopback on.
+        """
+        selected = self.selected_packs(packs)
+        schools = list(schools if schools is not None else self.selected_schools())
+        providers = [p for p in packs if p.enabled and p.loopback in LOOPBACK_MODE]
+        rows = []
+        for pack in selected:
+            if not self.needs_loopback(pack):
+                continue
+            for school in schools:
+                if not self._applicable(pack, school):
+                    continue
+                if self._loopback_source(providers, selected, school)[0]:
+                    continue
+                rows.append((pack.id, school.name, [p.id for p in providers]))
+        return rows
+
+    def loopback_status(self, packs, schools=None):
+        """(school, pack id, how) for every selected school whose devices DO get loopback."""
+        selected = self.selected_packs(packs)
+        schools = list(schools if schools is not None else self.selected_schools())
+        providers = [p for p in packs if p.enabled and p.loopback in LOOPBACK_MODE]
+        out = []
+        for school in schools:
+            pid, how = self._loopback_source(providers, selected, school)
+            if pid:
+                out.append((school.name, pid, how))
+        return out
+
+    def print_loopback_gap(self, packs, schools=None) -> bool:
+        """Print the loopback prerequisite check. True when nothing is missing.
+
+        This never changes the exit code: the GPOs are correct, the deployment around them
+        is incomplete. But it must not stay silent either — before 7.3.2 `apply` happily
+        reported 'Done: 3 GPO(s) applied.' for GPOs that could not possibly do anything.
+        """
+        rows = self.loopback_gap(packs, schools)
+        self._loopback_gap = {(pid, sname) for pid, sname, _ in rows}
+        if not rows:
+            return True
+        print("\nLoopback prerequisite:")
+        print("    ⚠ these packs are linked to OU=Devices (address follows the device) and "
+              "deliver USER settings.\n"
+              "      Without loopback processing they reach NO user — the GPO is created, "
+              "linked and filtered,\n      and has no effect:")
+        for pid, sname, _cands in rows:
+            print(f"        {pid:26} {sname:16} needs a pack with 'loopback:' on this "
+                  f"school's devices")
+        cands = sorted({c for _p, _s, cl in rows for c in cl})
+        print(f"    Fix: add a pack that switches loopback on to 'packs:' in site.yaml (or "
+              f"drop the 'packs:' list to apply every pack): {', '.join(cands)}")
+        print("    Check on a client: 'reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\"
+              "Windows\\System\" /v UserPolicyMode' must be 0x1 (Merge).")
+        return False
+
     def _retire(self, name):
         """Unlink + delete the GPO of a pack whose precondition is no longer met.
 
@@ -759,11 +876,8 @@ class Applier:
         return out
 
     def apply_pack(self, pack, school, schools):
-        if pack.scope == "school":
-            scope_token, container = school.name, school.devices_ou
-        else:
-            scope_token, container = "GLOBAL", self.env.schools_ou
-        name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
+        container = school.devices_ou if pack.scope == "school" else self.env.schools_ou
+        name = gpo_name(pack, school)
         if not self._applicable(pack, school):
             keep = ((pack.requires or "").strip() in NON_RETIRABLE_REQUIRES
                     or pack.id in self._file_precondition_failed)
@@ -815,6 +929,12 @@ class Applier:
                     notes.append(note)
                 denies += [(action, sid) for sid in sids]
         print(f"\n▸ {name}")
+        if school and (pack.id, school.name) in self._loopback_gap:
+            print("    ⚠ no loopback pack active on this school's devices — these USER "
+                  "settings reach NO user.\n"
+                  "      The GPO is written and linked to OU=Devices anyway; it starts working "
+                  "as soon as\n      a pack with 'loopback:' (e.g. 12-proxy-base, "
+                  "15-lockdown-base) is applied.")
         for note in notes:
             print(f"    note: {note}")
         guid, _ = self.eng.ensure(name)
@@ -842,10 +962,12 @@ class Applier:
         self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
 
     def run(self, packs):
-        packs = self.selected_packs(packs)
+        catalog_packs = list(packs)      # the whole catalog: the loopback check names the
+        packs = self.selected_packs(packs)   # packs that would FIX a gap, not just the selected
         schools = self.selected_schools()
         print(f"Applying to {len(schools)} school(s): {', '.join(s.name for s in schools)}")
         self.print_preflight(packs, schools)
+        loopback_ok = self.print_loopback_gap(catalog_packs, schools)
         if self._kmshost():
             print(f"KMS host (Windows): {self._kmshost()}:{self._kms_port()}")
         if self._kms_office_host():
@@ -874,6 +996,9 @@ class Applier:
               + (f" {len(self.skipped)} skipped (feature not enabled)." if self.skipped else "")
               + (f" {len(self.held_back)} held back (exclusion group missing)."
                  if self.held_back else ""))
+        if not loopback_ok:
+            print(f"  ⚠ {len(self._loopback_gap)} of them cannot reach a user until a pack "
+                  f"with 'loopback:' is applied (see 'Loopback prerequisite' above).")
         if self.retired:
             print("  Note: the KMS registry values are outside the Policies branches and are")
             print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")

@@ -52,7 +52,14 @@ Sources: [sophomorix4](https://github.com/linuxmuster/sophomorix4) (`SophomorixS
 - **Per school**: link on `OU=Devices,OU=<schule>` (multi-school: loop over all schools).
 - **Update split & teacher notebooks**: **deny-apply** on the group (`d_nopxe` or teacher group) →
   these devices fall back to the Windows default. (No exclusive filter needed, aclcheck-clean.)
-- **Loopback = Merge** (`UserPolicyMode=2`) for user settings that should follow the machine.
+- **Loopback = Merge** (`UserPolicyMode=1`) for user settings that should follow the machine.
+  Microsoft's values (GroupPolicy.admx, client event 5311): **1 = Merge**, **2 = Replace**.
+  Replace drops every GPO linked in the *user's* own OU path, so Merge is the only safe
+  value here; up to lmn-gpo 7.3.1 the mapping was inverted (measured on a Windows 11 client).
+- A `scope: school` pack is linked to `OU=Devices,OU=<school>`, a **sibling** of `OU=Students`
+  and `OU=Teachers`. Its **user** settings therefore only reach a user via loopback. A
+  `scope: global` pack is linked to `OU=SCHOOLS`, the common ancestor of devices *and* users,
+  and its user settings apply without loopback.
 
 ## 4. Settings & Rationale (Brief)
 

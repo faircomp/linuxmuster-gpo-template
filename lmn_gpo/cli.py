@@ -163,6 +163,37 @@ def cmd_doctor(args) -> int:
     except Exception as exc:
         print(f"  {ui.WARN} could not evaluate: {exc}")
 
+    # Loopback prerequisite. A pack with `scope: school` that carries USER settings is
+    # linked to OU=Devices (so the proxy host follows the device) - a sibling of the user
+    # OUs. Without a pack that sets UserPolicyMode on those machines it reaches nobody,
+    # while apply still reports success. Warning only: the GPOs themselves are correct,
+    # so the exit code is unchanged.
+    print("\nLoopback prerequisite (per-school user packs, from site.yaml):")
+    try:
+        from . import apply as applymod
+        from . import catalog
+        from . import setup as setupmod
+        answers = setupmod.load_site(setupmod.default_site())
+        ap = applymod.Applier(e, answers, dry_run=True)
+        packs = catalog.load_packs()
+        per_school = [p.id for p in ap.selected_packs(packs) if ap.needs_loopback(p)]
+        rows = ap.loopback_gap(packs)
+        if not per_school:
+            print(f"  {ui.OK} no per-school user pack selected - loopback is not required")
+        elif not rows:
+            for sname, pid, how in ap.loopback_status(packs):
+                print(f"  {ui.OK} {sname}: loopback is on ({pid}, {how}) - "
+                      f"{', '.join(per_school)} reach their users")
+        else:
+            for pid, sname, cands in rows:
+                print(f"  {ui.WARN} {pid:26} {sname:16} is linked to OU=Devices and delivers "
+                      f"USER settings,")
+                print(f"       but no pack with 'loopback:' is active on that school's "
+                      f"devices → the GPO reaches NO user.")
+                print(f"       Fix: add one of {', '.join(cands)} to 'packs:' in site.yaml.")
+    except Exception as exc:
+        print(f"  {ui.WARN} could not evaluate: {exc}")
+
     # Existing GPOs
     print("\nExisting GPOs:")
     for name, guid, ver in _iter_gpos(e.basedn):

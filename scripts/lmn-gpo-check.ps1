@@ -135,7 +135,7 @@ $checks = @(
     @{ N="Mobile hotspot prohibited"; P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\Network Connections"; K="NC_ShowSharedAccessUI"; E=0 }
     @{ N="OneDrive sync off";        P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"; K="DisableFileSyncNGSC"; E=1 }
     @{ N="Hibernation off (hib.)";   P="HKLM:\SYSTEM\CurrentControlSet\Control\Power"; K="HibernateEnabled"; E=0 }
-    @{ N="Loopback merge active";    P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=2 }
+    @{ N="Loopback merge active";    P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"; K="UserPolicyMode"; E=1 }
     @{ N="Proxy per-user enforced";  P="HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"; K="ProxySettingsPerUser"; E=1 }
     @{ N="Firefox first-run off";    P="HKLM:\SOFTWARE\Policies\Mozilla\Firefox"; K="DontCheckDefaultBrowser"; E=1 }
     @{ N="KMS host (Windows)";       P="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"; K="KeyManagementServiceName"; E=$null }

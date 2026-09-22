@@ -1,3 +1,36 @@
+lmn-gpo (7.3.2) lmn73; urgency=medium
+
+  * apply: FIX the loopback mode. LOOPBACK_MODE mapped merge to UserPolicyMode=2 and
+    replace to 1 — Windows has it the other way round (GroupPolicy.admx, client event
+    5311: 1 = Merge, 2 = Replace). Every pack in the catalog that carries loopback
+    declares "merge", so with 7.3.1 and earlier all managed clients actually ran in
+    REPLACE mode: GPOs linked only in the user's OU path (OU=Students, OU=Teachers, a
+    class OU, GPOs from other tools) were dropped from the user's GPO list as soon as
+    12-proxy-base or 15-lockdown-base was rolled out, without any error anywhere. In a
+    stock linuxmuster domain this stayed invisible, because sophomorix' only user-effective
+    GPO hangs at OU=<school> and is in the machine chain too. Measured and fixed against a
+    real Windows 11 client (A/B with event 5311 and gpresult /scope user).
+    ACTION: re-run `lmn-gpo apply --yes` once — the clients pick up UserPolicyMode=1 with
+    the next `gpupdate /force` + reboot; event 5311 then says "Merge". No GPO has to be
+    re-created.
+  * apply/doctor: new loopback prerequisite check. A pack with scope: school that carries
+    USER settings (12-proxy-{student,teacher,staff}-schule) is linked to OU=Devices — a
+    sibling of the user OUs — so it only ever reaches a user through loopback. Until now
+    apply reported "Done: N GPO(s) applied." for GPOs that could not work. It now names
+    the pack, the school and the packs that would fix it (12-proxy-base / 15-lockdown-base),
+    per GPO and as a summary; doctor prints the same as a warning. Nothing is held back
+    and no exit code changes — the GPOs themselves are correct.
+  * scripts/lmn-gpo-check.ps1 expects UserPolicyMode=1 for "Loopback merge active".
+  * README (EN + DE), docs/RESEARCH.md and the pack descriptions: the loopback values are
+    Microsoft's (1 = Merge, 2 = Replace); the per-school user packs need a loopback pack;
+    `remove` cannot take back the WinINET proxy values (ProxyEnable/ProxyServer/
+    ProxyOverride) or the KMS host — they tattoo, with the commands to clear them; user
+    policy is only processed in a real interactive session (a gpupdate /target:user over
+    SSH/WinRM reports success and does nothing); `samba-tool gpo listall` without
+    -U administrator hides the GPOs that deny Read to d_nopxe — use `lmn-gpo list --mine`.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Tue, 22 Sep 2026 18:30:00 +0200
+
 lmn-gpo (7.3.1) lmn73; urgency=medium
 
   * apply: an optional pack that is not enabled is no longer skipped silently; its line
