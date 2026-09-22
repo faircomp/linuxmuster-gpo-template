@@ -9,10 +9,13 @@ wallpapers/*.jpeg
 wallpapers/*.png
 wallpapers/*.bmp
 
-# Build artifacts (.deb output)
+# Build artifacts. dpkg-buildpackage writes the .deb, .changes, .buildinfo, .dsc and
+# the source tarball one level ABOVE this tree, so nothing of it lands here; dist/ and
+# build/ stay ignored for leftovers from older builds.
 dist/
 build/
-# generated into the package by packaging/build-deb.sh, never into the checkout
+# Generated into the source tree by debian/rules (override_dh_auto_build) and removed
+# again by debian/clean, so it never belongs to a commit.
 lmn_gpo/_version.py
 
 # Python
