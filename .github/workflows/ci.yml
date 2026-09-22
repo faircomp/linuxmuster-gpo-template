@@ -204,14 +204,15 @@ jobs:
           ap = apply.Applier(env, {**proxy, "teachernb": "d_typo"}, dry_run=True)
           ap._find_group_sid = lambda cn, base: None
           assert ap._exclusion("@teachernb", None, env.schools)[1] == "missing"
-          # preflight rows carry the status apply acts on
+          # preflight rows carry the status apply acts on (the CA path only has to exist here;
+          # this script arrives via stdin, so __file__ would not do)
           ap = apply.Applier(env, {**proxy, "schools": ["one"], "packs": ["12-proxy-student-schule", "12-proxy-base"]}, dry_run=True)
           rows = ap.preflight(list(packs.values()))
           by = {(r[0], r[4]) for r in rows}
           assert ("12-proxy-student-schule", "missing") in by, rows
           assert ("12-proxy-base", "partial") in by, rows
           ap = apply.Applier(env, {**proxy, "teachernb": "skip", "schools": ["one"], "packs": ["12-proxy-student-schule", "13-wlan-enterprise"],
-                                   "wlan_enterprise_networks": [{"ssid": "x", "ca_cert": __file__}]}, dry_run=True)
+                                   "wlan_enterprise_networks": [{"ssid": "x", "ca_cert": "lib/veyon-default-pub.pem"}]}, dry_run=True)
           rows = ap.preflight(list(packs.values()))
           by = {(r[0], r[2], r[4]) for r in rows}
           assert ("12-proxy-student-schule", "exclude-read", "disabled") in by, rows
