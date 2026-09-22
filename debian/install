@@ -1,0 +1,8 @@
+# Python module: source .py only, no __pycache__ (dh_python3 byte-compiles on install).
+lmn_gpo/*.py	usr/lib/python3/dist-packages/lmn_gpo/
+# CLI launcher.
+bin/lmn-gpo	usr/bin/
+# Read-only data shared by the toolkit.
+catalog	usr/share/lmn-gpo/
+scripts	usr/share/lmn-gpo/
+lib	usr/share/lmn-gpo/

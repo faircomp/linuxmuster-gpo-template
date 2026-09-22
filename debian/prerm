@@ -1,0 +1,10 @@
+#!/bin/sh
+# prerm for lmn-gpo
+# Nothing of our own left to do: the py3clean call that used to stand here is
+# dh_python3's snippet now, inserted by debhelper at the token below. It removes the
+# same byte-compiled artefacts, selected by package name instead of by path.
+set -e
+
+#DEBHELPER#
+
+exit 0

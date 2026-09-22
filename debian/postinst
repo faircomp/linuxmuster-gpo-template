@@ -1,17 +1,14 @@
 #!/bin/sh
 # postinst for lmn-gpo
+# The byte-compilation that used to stand here is dh_python3's py3compile snippet
+# now; debhelper inserts it at the token below. (Never write that token inside a
+# comment -- debhelper substitutes every occurrence, comment or not.)
 set -e
 
-MODDIR=/usr/lib/python3/dist-packages/lmn_gpo
 CONF=/etc/linuxmuster/lmn-gpo/site.yaml
 
 case "$1" in
     configure)
-        # Byte-compile the Python module for the system python3.
-        if command -v py3compile >/dev/null 2>&1; then
-            py3compile "$MODDIR" >/dev/null 2>&1 || true
-        fi
-
         # Writable runtime dir for admin-provided per-school wallpapers.
         mkdir -p /var/lib/lmn-gpo/wallpapers
 
@@ -44,5 +41,7 @@ case "$1" in
     abort-upgrade|abort-remove|abort-deconfigure)
         ;;
 esac
+
+#DEBHELPER#
 
 exit 0

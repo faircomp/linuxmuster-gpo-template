@@ -1,14 +1,26 @@
-# From linuxmusterDEV/templates/ci.yml. Three jobs on every push/PR: the fast tier (the
-# sanity checks that used to run only at release time in release.yml), the package build
-# in the same container upstream CI uses, and an install smoke on ubuntu-24.04. The real
-# end-to-end check, `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
+# From linuxmusterDEV/templates/ci.yml. Six jobs on every push to main and every PR: the
+# fast tier (the sanity checks that used to run only at release time in release.yml), the
+# package build in the same container upstream CI uses, the file-tree gate against the last
+# release, an install smoke and an upgrade smoke on ubuntu-24.04. release.yml runs the same
+# gates on a tag and the release job needs every one of them. The real end-to-end check,
+# `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
 name: ci
 
 on:
+  # Only main and tags on push: every other branch is covered by its pull request, so a
+  # topic branch does not run the whole pipeline twice per commit. A tag runs this workflow
+  # as well, but release.yml carries its own copy of every gate, so publishing never depends
+  # on a run this workflow happens to schedule.
   push:
-    branches: ['**']
-    tags: ['v[0-9]*']       # the sanity checks run for releases too (release.yml only gates/builds)
+    branches: [main]
+    tags: ['v[0-9]*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      prev_tag:
+        description: 'upgrade smoke: tag to upgrade from (empty = newest published release)'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -466,21 +478,132 @@ jobs:
       options: --user root
     steps:
       - uses: actions/checkout@v4
-      - name: Build package (make deb wraps packaging/build-deb.sh; dpkg-dev is in the image)
+      - name: Build package (make deb = dpkg-buildpackage; debhelper and dh-python via build-dep)
         run: |
+          apt-get update -qq
+          apt-get build-dep -y -qq .
           make deb
-          mkdir -p output && mv dist/*.deb output/
+          # dpkg-buildpackage writes one level above the source tree.
+          mkdir -p output && mv ../*.deb ../*.changes ../*.buildinfo output/
           dpkg-deb -I output/*.deb
           # DEBIAN/md5sums must cover every shipped file, or `dpkg --verify` is a no-op.
           dpkg-deb --ctrl-tarfile output/*.deb | tar -tf - | grep -qx './md5sums'
           test "$(dpkg-deb -c output/*.deb | grep -c '^-')" = "$(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l)"
           echo "md5sums: $(dpkg-deb --ctrl-tarfile output/*.deb | tar -xOf - ./md5sums | wc -l) files"
+      - name: Lintian (the .deb only)
+        run: |
+          # Never lint the .changes: `lmn73` is not a known distribution, which makes
+          # lintian fail with E: bad-distribution-in-changes-file on every single build.
+          lintian --fail-on error output/*.deb
       - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: output/
           if-no-files-found: error
 
+  # The one failure mode of a packaging change that no other job would notice: a catalog
+  # YAML, a .ps1 or lib/veyon-default-pub.pem quietly falls out of the package because
+  # debian/install matches differently than the old `cp -a`. It would only show up on a
+  # school DC, as a pack that is never applied. So every build is compared, path by path,
+  # against the newest published release: a path that disappears or changes mode/owner
+  # fails the build. This gate is permanent, not just for the debian/ conversion.
+  file-tree:
+    needs: package
+    runs-on: ubuntu-latest        # GitHub-hosted: gh is installed here, not in the container
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages/
+      - name: Fetch the newest published release
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p previous
+          # Prefer the newest real release, fall back to the newest prerelease. Skipping is
+          # only legitimate when the repo has NO release at all: this gate stands between a
+          # silently shrunk package and a school DC.
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                  --json tagName,isDraft,isPrerelease \
+                  --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
+          if [ -z "$tag" ]; then
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                    --json tagName,isDraft --jq '[.[] | select(.isDraft == false)][0].tagName // ""')
+            [ -n "$tag" ] && echo "::warning::no full release yet, comparing against prerelease $tag"
+          fi
+          if [ -z "$tag" ]; then
+            if [ "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq 'length')" != "0" ]; then
+              echo "::error::releases exist but none could be selected - refusing to skip"; exit 1
+            fi
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::first release of this package, nothing to compare against"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir previous && break
+            echo "download attempt $i failed, retrying"; sleep 10
+          done
+          test -n "$(ls previous/*.deb 2>/dev/null)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Compare the file tree with the released package
+        if: steps.prev.outputs.skip != '1'
+        env:
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail          # without pipefail `tee` would swallow the exit code
+          # mode owner path, sorted. Directories are compared too: /var/lib/lmn-gpo/wallpapers
+          # is shipped EMPTY, so losing it would be invisible in a file-only comparison.
+          # A symlink prints "path -> target"; carry the target, so a retargeted link is
+          # drift too. The package has none today -- which is exactly why it must not grow
+          # one unnoticed.
+          norm() { dpkg-deb -c "$1" | awk '{t = ($7 == "->" ? " " $7 " " $8 : ""); print $1, $2, $6 t}' | LC_ALL=C sort; }
+          norm previous/*.deb > old.txt
+          norm packages/*.deb > new.txt
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, sys
+
+          # Paths that may legitimately disappear, with the release that did it. Add an
+          # entry ONLY together with the changelog sentence that explains it to admins.
+          ALLOW_GONE = {
+              # 7.3.3, debhelper conversion: dh_installchangelogs uses the name Debian
+              # policy wants for a NATIVE package.
+              "usr/share/doc/lmn-gpo/changelog.Debian.gz",
+          }
+
+          def read(name):
+              rows = {}
+              for line in open(name):
+                  mode, owner, path = line.rstrip("\n").split(" ", 2)
+                  rows[path.removeprefix("./")] = (mode, owner)
+              return rows
+
+          old, new = read("old.txt"), read("new.txt")
+          gone = sorted(set(old) - set(new))
+          added = sorted(set(new) - set(old))
+          changed = sorted(p for p in set(old) & set(new) if old[p] != new[p])
+
+          print(f"## File tree vs {os.environ['PREV_TAG']}")
+          print()
+          print(f"- released: {len(old)} entries, built: {len(new)} entries")
+          for p in added:
+              print(f"- added: `{p}`")
+          for p in gone:
+              if p in ALLOW_GONE:
+                  print(f"- gone, allowed: `{p}`")
+          bad = [p for p in gone if p not in ALLOW_GONE]
+          for p in bad:
+              print(f"::error::file lost from the package: {p}")
+          for p in changed:
+              print(f"::error::mode or owner changed: {p}: {old[p]} -> {new[p]}")
+          if bad or changed:
+              sys.exit(1)
+          print()
+          print("file tree: nothing lost, no mode or owner change")
+          PY
   install-smoke:
     needs: [resolve, package]
     runs-on: ubuntu-24.04              # the target OS (linuxmuster.net 7.3)
@@ -506,3 +629,258 @@ jobs:
           test -z "$(dpkg --verify lmn-gpo)"
           lmn-gpo --no-color remove --help | grep -q -- '--school'
           # `lmn-gpo doctor` needs a Samba AD DC and is the lab's job, not CI's.
+
+  # Kevin's rule: a release must still install cleanly ON TOP OF the version that is already
+  # running on a school server. Be honest about what a runner can prove here: every lmn-gpo
+  # subcommand (doctor, env, list, setup, apply, remove, selftest) calls env.detect() ->
+  # ad.db() first and exits with rc=2 without /var/lib/samba/private/sam.ldb, even with
+  # --dry-run. So this job proves no GPO behaviour -- that is the lab DC's job. It proves the
+  # three regression classes that DO live in the package: admin state surviving the upgrade,
+  # the config migration branch that is reachable ONLY on an upgrade, and the catalog, which
+  # is plain PyYAML and needs no AD at all.
+  upgrade-smoke:
+    needs: [resolve, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read        # restrictive org defaults
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4          # needed for dpkg-parsechangelog and the fixtures
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages/
+      - name: Fetch the published release to upgrade from
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Through env, never interpolated into the script: a ${{ }} expression in a run
+          # block is substituted before the shell sees it, so its content could inject code.
+          PREV_TAG: ${{ github.event.inputs.prev_tag }}
+        run: |
+          set -eu
+          mkdir -p previous
+          tag="${PREV_TAG:-}"
+          if [ -z "$tag" ]; then
+            # Prefer the newest real release; fall back to the newest prerelease. Skipping is
+            # only legitimate when the repo has NO release at all: this job gates the release
+            # job, so a silent skip would publish a tag whose upgrade path was never tested.
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                    --json tagName,isDraft,isPrerelease \
+                    --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
+            if [ -z "$tag" ]; then
+              tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                      --json tagName,isDraft --jq '[.[] | select(.isDraft == false)][0].tagName // ""')
+              [ -n "$tag" ] && echo "::warning::no full release yet, upgrading from prerelease $tag"
+            fi
+          fi
+          if [ -z "$tag" ]; then
+            if [ "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq 'length')" != "0" ]; then
+              echo "::error::releases exist but none could be selected - refusing to skip"; exit 1
+            fi
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::first release of this package, nothing to upgrade from"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir previous && break
+            echo "download attempt $i failed, retrying"; sleep 10
+          done
+          test -n "$(ls previous/*.deb 2>/dev/null)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # ---- run A: an admin's state on a running server must survive the upgrade ----------
+      - name: Run A - install the release and put a real admin state in place
+        if: steps.prev.outputs.skip != '1'
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq
+          sudo -E apt-get install -y ./previous/*.deb
+          # site.yaml as `lmn-gpo setup` writes it: dir 0700, file 0600, bind password inside.
+          sudo install -d -m 0700 /etc/linuxmuster/lmn-gpo
+          sudo tee /etc/linuxmuster/lmn-gpo/site.yaml >/dev/null <<'YAML'
+          schools: null
+          packs: null
+          kmshost: kms.dev.lmschule.de
+          kms_port: 1688
+          firefox_enabled: true
+          firefox_homepage: https://start.dev.lmschule.de
+          proxy_enabled: true
+          proxy_host: proxy.dev.lmschule.de
+          proxy_port_by_role: {teacher: 3128, student: 3128, staff: 3128}
+          teachernb: nopxe
+          wallpaper_dir: /var/lib/lmn-gpo/wallpapers
+          veyon_binddn: CN=global-binduser,OU=Management,DC=dev,DC=lmschule,DC=de
+          veyon_bindpw_hex: 4d7573746572213132333435
+          wlan_psk_networks:
+            - {ssid: Schueler-Netz, psk: passphrase123}
+          YAML
+          sudo chmod 0600 /etc/linuxmuster/lmn-gpo/site.yaml
+          # an admin-provided wallpaper and an own catalog pack, neither of them ours
+          sudo install -d -m 0755 /var/lib/lmn-gpo/wallpapers
+          printf 'not really a png' | sudo tee /var/lib/lmn-gpo/wallpapers/default-school.png >/dev/null
+          sudo tee /usr/share/lmn-gpo/catalog/99-eigen.yaml >/dev/null <<'YAML'
+          id: 99-eigen
+          title: Site-local pack added by the admin
+          scope: global
+          target: computer
+          registry:
+            - keyname: 'Software\Policies\Example'
+              valuename: Site
+              type: REG_DWORD
+              data: 1
+              class: MACHINE
+          YAML
+          # 0700 config dir: everything that touches it needs root, redirections included.
+          sudo sha256sum /etc/linuxmuster/lmn-gpo/site.yaml \
+                         /var/lib/lmn-gpo/wallpapers/default-school.png \
+                         /usr/share/lmn-gpo/catalog/99-eigen.yaml | sudo tee /tmp/before.sha256
+          sudo stat -c '%a %U:%G %n' /etc/linuxmuster/lmn-gpo \
+                                     /etc/linuxmuster/lmn-gpo/site.yaml | tee /tmp/before.modes
+          # the catalog as the INSTALLED old package sees it (pure PyYAML, no AD). -P keeps
+          # the checkout's own lmn_gpo/ out of sys.path, otherwise this would read the repo.
+          sudo python3 -P - /tmp/catalog-before.json <<'PY'
+          import dataclasses, json, sys
+          from lmn_gpo import apply, catalog
+          packs = catalog.load_packs()
+          json.dump({"loopback_mode": apply.LOOPBACK_MODE,
+                     "packs": {p.id: dataclasses.asdict(p) for p in packs},
+                     "user_policy_mode": {p.id: apply.LOOPBACK_MODE.get(p.loopback)
+                                          for p in packs if p.loopback != "none"}},
+                    open(sys.argv[1], "w"), indent=1, sort_keys=True, default=str)
+          print(len(packs), "packs from", catalog.CATALOG_DIR)
+          PY
+
+      - name: Run A - upgrade to the built package and check nothing was lost
+        if: steps.prev.outputs.skip != '1'
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          # --reinstall --allow-downgrades: on main the build is often version-equal to the
+          # release; a plain install would say "already the newest version" and test nothing.
+          sudo -E apt-get install -y --reinstall --allow-downgrades ./packages/*.deb
+          # admin-owned state: byte-identical AND unchanged permissions
+          sudo sha256sum -c /tmp/before.sha256
+          sudo stat -c '%a %U:%G %n' /etc/linuxmuster/lmn-gpo \
+                                     /etc/linuxmuster/lmn-gpo/site.yaml > /tmp/after.modes
+          diff /tmp/before.modes /tmp/after.modes
+          test "$(sudo stat -c %a /etc/linuxmuster/lmn-gpo/site.yaml)" = 600
+          sudo test -f /var/lib/lmn-gpo/wallpapers/default-school.png
+          sudo test -f /usr/share/lmn-gpo/catalog/99-eigen.yaml
+          # the package itself
+          test "$(lmn-gpo --version)" = "lmn-gpo $VERSION"
+          test "$(dpkg-query -W -f='${Version}' lmn-gpo)" = "$VERSION"
+          test -z "$(dpkg --verify lmn-gpo)"
+          test -z "$(dpkg --audit)"
+          sudo apt-get -f install -s | grep -q '0 newly installed'
+          # py3compile/py3clean across the version change: no .pyc without its .py
+          python3 -P - <<'PY'
+          import pathlib, sys
+          root = pathlib.Path("/usr/lib/python3/dist-packages/lmn_gpo")
+          pycs = sorted(root.rglob("*.pyc"))
+          bad = [p for p in pycs if not (p.parents[1] / (p.name.split(".")[0] + ".py")).exists()]
+          print(f"bytecode: {len(pycs)} .pyc files")
+          for b in bad:
+              print(f"::error::orphaned bytecode without a source file: {b}")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Run A - catalog diff over the upgrade
+        if: steps.prev.outputs.skip != '1'
+        env:
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail
+          sudo python3 -P - /tmp/catalog-after.json <<'PY'
+          import dataclasses, json, sys
+          from lmn_gpo import apply, catalog
+          packs = catalog.load_packs()
+          json.dump({"loopback_mode": apply.LOOPBACK_MODE,
+                     "packs": {p.id: dataclasses.asdict(p) for p in packs},
+                     "user_policy_mode": {p.id: apply.LOOPBACK_MODE.get(p.loopback)
+                                          for p in packs if p.loopback != "none"}},
+                    open(sys.argv[1], "w"), indent=1, sort_keys=True, default=str)
+          PY
+          # The catalog is what actually reaches the clients. The diff is informational -- a
+          # release is allowed to change packs -- and goes into the job summary ...
+          {
+            echo "## Catalog diff $PREV_TAG -> $VERSION"
+            echo
+            echo '```diff'
+            diff -u /tmp/catalog-before.json /tmp/catalog-after.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # ... but the effective UserPolicyMode per pack is asserted hard. 7.3.1 shipped
+          # LOOPBACK_MODE inverted (merge -> 2), which put every managed client into Replace
+          # and silently dropped the GPOs linked in the user's own OU path. Nothing else in
+          # CI would have made that visible.
+          python3 -P - <<'PY'
+          import json, sys
+          before = json.load(open("/tmp/catalog-before.json"))
+          after = json.load(open("/tmp/catalog-after.json"))
+          rc = 0
+          if after["loopback_mode"] != {"merge": 1, "replace": 2}:
+              print(f"::error::LOOPBACK_MODE is {after['loopback_mode']}; Microsoft's values are "
+                    "merge=1, replace=2 (GroupPolicy.admx, client event 5311)")
+              rc = 1
+          if not after["user_policy_mode"]:
+              # An empty set would satisfy every assertion below without checking anything.
+              print("::error::no pack declares loopback any more - the catalog lost its "
+                    "loopback packs, or load_packs() returned nothing")
+              rc = 1
+          for pack in sorted(set(before["user_policy_mode"]) - set(after["user_policy_mode"])):
+              print(f"::error::{pack} declared loopback before the upgrade and does not any "
+                    "more - the per-school user packs would stop reaching users")
+              rc = 1
+          for pack, mode in sorted(after["user_policy_mode"].items()):
+              was = before["user_policy_mode"].get(pack)
+              if mode == 2:
+                  # No pack in the catalog needs Replace, and Replace silently drops every
+                  # GPO linked in the user's own OU path on a managed client.
+                  print(f"::error::{pack}: UserPolicyMode=2 (Replace) drops the user's own GPOs")
+                  rc = 1
+                  continue
+              if was is not None and was != mode:
+                  # Not an error: 7.3.2 legitimately changed 2 -> 1. The value itself is
+                  # checked above, so a change only has to be seen, not blocked.
+                  print(f"::notice::{pack}: UserPolicyMode changed {was} -> {mode} in this upgrade")
+              print(f"loopback ok: {pack} -> UserPolicyMode={mode}")
+          sys.exit(rc)
+          PY
+
+      # ---- run B: the migration branch, reachable ONLY through an upgrade ----------------
+      - name: Run B - the legacy config path is migrated on upgrade
+        if: steps.prev.outputs.skip != '1'
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          # The state from run A is still in place here, so purge is asserted, not just run.
+          # `apt purge` deleting site.yaml would be the most expensive regression for a
+          # school: it holds the bind password and is not backed up by dpkg anywhere.
+          sudo -E apt-get purge -y lmn-gpo
+          sudo test -f /etc/linuxmuster/lmn-gpo/site.yaml
+          test "$(sudo stat -c %a /etc/linuxmuster/lmn-gpo/site.yaml)" = 600
+          sudo test ! -e /var/lib/lmn-gpo
+          sudo test ! -e /usr/lib/python3/dist-packages/lmn_gpo
+          sudo test ! -e /usr/bin/lmn-gpo
+          sudo rm -rf /etc/linuxmuster/lmn-gpo /etc/linuxmuster/lmgpo /var/lib/lmn-gpo
+          sudo -E apt-get install -y ./previous/*.deb
+          # a server that still sits on the pre-rename config path
+          sudo rm -rf /etc/linuxmuster/lmn-gpo
+          sudo install -d -m 0700 /etc/linuxmuster/lmgpo
+          printf 'kmshost: kms.dev.lmschule.de\nveyon_bindpw_hex: 4d757374657221\n' \
+            | sudo tee /etc/linuxmuster/lmgpo/site.yaml >/dev/null
+          sudo chmod 0600 /etc/linuxmuster/lmgpo/site.yaml
+          sudo sha256sum /etc/linuxmuster/lmgpo/site.yaml | sudo tee /tmp/legacy.sha256
+          sudo -E apt-get install -y --reinstall --allow-downgrades ./packages/*.deb
+          # migrated, tightened to 0600, legacy path removed
+          sudo test -f /etc/linuxmuster/lmn-gpo/site.yaml
+          test "$(sudo stat -c %a /etc/linuxmuster/lmn-gpo/site.yaml)" = 600
+          test "$(sudo sha256sum /etc/linuxmuster/lmn-gpo/site.yaml | cut -d' ' -f1)" \
+             = "$(cut -d' ' -f1 /tmp/legacy.sha256)"
+          test ! -e /etc/linuxmuster/lmgpo/site.yaml
+          test ! -d /etc/linuxmuster/lmgpo
+          test -z "$(dpkg --verify lmn-gpo)"
+          test -z "$(dpkg --audit)"

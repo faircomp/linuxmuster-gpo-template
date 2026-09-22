@@ -1,3 +1,40 @@
+lmn-gpo (7.3.3) lmn73; urgency=medium
+
+  * Packaging only. No behaviour change is intended: the catalog, the engine, the
+    PowerShell scripts and the CLI are byte-identical to 7.3.2. Nothing has to be
+    re-applied, no GPO is touched, `lmn-gpo apply` does not have to be run for this
+    release.
+  * The package is built with debhelper 13 (classic debian/, native source format 3.0)
+    instead of the hand-written packaging/build-deb.sh. Measured against the released
+    7.3.2 package, the installed file tree is identical -- same 85 entries, same paths,
+    same modes, same root/root ownership -- with exactly two visible differences:
+    - /usr/share/doc/lmn-gpo/changelog.Debian.gz is now /usr/share/doc/lmn-gpo/changelog.gz.
+      That is the name Debian policy wants for a native package; dpkg removes the old
+      file during the upgrade, nothing is left behind. A script that reads the changelog
+      from its full path has to follow the rename.
+    - /usr/bin/lmn-gpo starts with `#! /usr/bin/python3` instead of
+      `#!/usr/bin/env python3` (dh_python3, policy-conform). The command, its output and
+      its exit codes are unchanged.
+  * /etc/linuxmuster/lmn-gpo/site.yaml is deliberately NOT a conffile and will not
+    become one: the package has never shipped it, it holds the bind password and stays
+    0600, purge keeps it on purpose, and a conffile prompt would stop an unattended
+    `apt upgrade` on a school server. Unchanged behaviour, written down so it stays that
+    way.
+  * Upgrades from 7.3.2 keep site.yaml (content and mode 0600), the wallpapers under
+    /var/lib/lmn-gpo/wallpapers and any own catalog file; `apt purge` still removes
+    /var/lib/lmn-gpo and still leaves /etc/linuxmuster/lmn-gpo alone. The migration of an
+    old /etc/linuxmuster/lmgpo/site.yaml works as before.
+  * Admins who build the package themselves: `make deb` now runs dpkg-buildpackage and
+    needs debhelper and dh-python; the .deb, .changes, .buildinfo, .dsc and the source
+    tarball land one directory ABOVE the checkout, no longer in dist/. The GitHub release
+    now carries the .changes file as well.
+  * CI: every build is compared file by file with the last published release and fails if
+    a path disappears or changes mode, and a new upgrade-smoke job installs the published
+    release, puts a realistic admin state in place, upgrades to the build and checks that
+    nothing was lost.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Tue, 22 Sep 2026 19:30:00 +0200
+
 lmn-gpo (7.3.2) lmn73; urgency=medium
 
   * apply: FIX the loopback mode. LOOPBACK_MODE mapped merge to UserPolicyMode=2 and

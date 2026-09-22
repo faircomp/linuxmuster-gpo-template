@@ -1,0 +1,3 @@
+# Writable runtime dir for the admin-provided per-school wallpapers. The wallpapers
+# themselves are site data and are never shipped, so this stays empty in the package.
+var/lib/lmn-gpo/wallpapers

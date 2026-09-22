@@ -1,11 +1,21 @@
-Package: lmn-gpo
-Version: @VERSION@
+Source: lmn-gpo
 Section: admin
 Priority: optional
-Architecture: all
 Maintainer: Kevin Stenzel <mail@kevin-stenzel.de>
-Depends: python3 (>= 3.10), python3-yaml, python3-samba, samba-common-bin, openssl
+Build-Depends: debhelper-compat (= 13), dh-python
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
 Homepage: https://github.com/faircomp/linuxmuster-gpo-template
+
+Package: lmn-gpo
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3 (>= 3.10),
+         python3-yaml,
+         python3-samba,
+         samba-common-bin,
+         openssl
 Description: Windows Group Policy toolkit for linuxmuster.net (Samba AD DC)
  lmn-gpo builds, links and permissions Windows 11 Group Policy Objects directly
  on the linuxmuster.net 7.x Samba Active Directory domain controller, without the

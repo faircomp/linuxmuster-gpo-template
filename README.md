@@ -126,13 +126,16 @@ cd linuxmuster-gpo-template
 ./lmn-gpo-cli doctor          # environment self-check – must be green
 ```
 
-You can also build the `.deb` yourself from the checkout (needs `make` and `dpkg-dev`, no
-debhelper, no root) and install it — the command is then `lmn-gpo` as above:
+You can also build the `.deb` yourself from the checkout (needs `make`, `dpkg-dev`,
+`debhelper` and `dh-python`, no root) and install it — the command is then `lmn-gpo` as above:
 
 ```bash
-make deb                                 # = sh packaging/build-deb.sh -> dist/lmn-gpo_*_all.deb
-apt install ./dist/lmn-gpo_*_all.deb     # or: dpkg -i dist/lmn-gpo_*_all.deb
+make deb                                 # = dpkg-buildpackage -us -uc -tc -I -I".github"
+apt install ../lmn-gpo_*_all.deb         # or: dpkg -i ../lmn-gpo_*_all.deb
 ```
+
+`dpkg-buildpackage` writes the `.deb`, `.changes`, `.buildinfo`, `.dsc` and the source
+tarball to the directory **above** the checkout.
 
 The version comes from the top entry of `debian/changelog` (`lmn-gpo --version` shows it).
 
@@ -890,9 +893,10 @@ scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagn
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   branding images per school (images not committed)
-debian/       changelog — the single version source (top entry = package version, dist lmn73)
-packaging/    Debian packaging (build-deb.sh, control, copyright, postinst/prerm/postrm)
-Makefile      make deb -> dist/lmn-gpo_<version>_all.deb
+debian/       source package (debhelper 13): changelog — the single version source
+              (top entry = package version, dist lmn73) — control, rules, install, dirs,
+              docs, clean, copyright, postinst/prerm/postrm
+Makefile      make deb -> dpkg-buildpackage -> ../lmn-gpo_<version>_all.deb
 .github/workflows/  GitHub Actions (ci.yml checks, builds and installs on every push;
               release.yml builds the .deb and attaches it on a v* tag that equals the changelog)
 LICENSE       GPL-3.0
@@ -1027,13 +1031,17 @@ cd linuxmuster-gpo-template
 ./lmn-gpo-cli doctor          # Umgebungs-Selbstcheck – muss grün sein
 ```
 
-Optional das `.deb` selbst aus dem Checkout bauen (braucht `make` und `dpkg-dev`, kein
-debhelper, kein root) und installieren — das Kommando ist dann `lmn-gpo` wie oben:
+Optional das `.deb` selbst aus dem Checkout bauen (braucht `make`, `dpkg-dev`,
+`debhelper` und `dh-python`, kein root) und installieren — das Kommando ist dann
+`lmn-gpo` wie oben:
 
 ```bash
-make deb                                 # = sh packaging/build-deb.sh -> dist/lmn-gpo_*_all.deb
-apt install ./dist/lmn-gpo_*_all.deb     # oder: dpkg -i dist/lmn-gpo_*_all.deb
+make deb                                 # = dpkg-buildpackage -us -uc -tc -I -I".github"
+apt install ../lmn-gpo_*_all.deb         # oder: dpkg -i ../lmn-gpo_*_all.deb
 ```
+
+`dpkg-buildpackage` legt `.deb`, `.changes`, `.buildinfo`, `.dsc` und das Quell-Tarball
+**oberhalb** des Checkouts ab.
 
 Die Version stammt aus dem obersten Eintrag von `debian/changelog` (`lmn-gpo --version` zeigt sie).
 
@@ -1760,9 +1768,10 @@ scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagno
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   Branding-Bilder je Schule (Bilder nicht eingecheckt)
-debian/       changelog — die einzige Versionsquelle (oberster Eintrag = Paketversion, Dist lmn73)
-packaging/    Debian-Paketierung (build-deb.sh, control, copyright, postinst/prerm/postrm)
-Makefile      make deb -> dist/lmn-gpo_<version>_all.deb
+debian/       Quellpaket (debhelper 13): changelog — die einzige Versionsquelle
+              (oberster Eintrag = Paketversion, Dist lmn73) — control, rules, install,
+              dirs, docs, clean, copyright, postinst/prerm/postrm
+Makefile      make deb -> dpkg-buildpackage -> ../lmn-gpo_<version>_all.deb
 .github/workflows/  GitHub Actions (ci.yml prüft, baut und installiert bei jedem Push;
               release.yml baut das .deb und hängt es an einen v*-Tag, der dem Changelog entspricht)
 LICENSE       GPL-3.0
