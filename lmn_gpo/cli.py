@@ -1,11 +1,14 @@
 """`lmn-gpo` command-line entry point.
 
-Subcommands implemented so far:
-  doctor   environment self-check (read-only)
-  env      dump the detected environment (text or --json)
-  list     list Group Policy Objects in the directory and their links
-
-The apply/setup/remove subcommands are added as the engine + catalog land.
+Subcommands:
+  doctor    environment self-check (read-only)
+  env       dump the detected environment (text or --json)
+  list      list Group Policy Objects in the directory and their links (--mine)
+  setup     interactive assistant, writes site.yaml
+  apply     apply the catalog (--school/--pack/--dry-run/--yes/--defaults)
+  remove    remove LMN-* GPOs (--school/--pack/--dry-run/--yes)
+  selftest  throwaway-GPO end-to-end test
+  veyon-encrypt-password
 """
 from __future__ import annotations
 
@@ -15,22 +18,11 @@ import os
 import subprocess
 import sys
 
-from . import __version__, ad, env as envmod
+from . import __version__, ad, env as envmod, ui
 
 # Display-name prefix that marks every GPO this toolkit owns. Everything else
 # (sophomorix:*, Default Domain Policy, ...) is left untouched.
 GPO_PREFIX = "LMN-"
-
-OK = "\033[32m✓\033[0m"
-WARN = "\033[33m⚠\033[0m"
-BAD = "\033[31m✗\033[0m"
-
-
-def _color(enabled: bool):
-    global OK, WARN, BAD
-    if not enabled:
-        OK, WARN, BAD = "[ok]", "[warn]", "[FAIL]"
-
 
 def _gpo_load_available() -> bool:
     try:
@@ -68,23 +60,23 @@ def cmd_doctor(args) -> int:
     try:
         e = envmod.detect()
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}")
+        print(f"{ui.BAD} {exc}")
         print("    This tool must run as root on the linuxmuster.net Samba AD DC.")
         return 2
 
     print("linuxmuster-gpo-template — environment check\n")
-    print(f"{OK} Samba AD DC detected: {e.samba_version or 'Samba'}")
-    print(f"{OK} Realm {e.realm}   Base-DN {e.basedn}   NetBIOS {e.netbios}")
+    print(f"{ui.OK} Samba AD DC detected: {e.samba_version or 'Samba'}")
+    print(f"{ui.OK} Realm {e.realm}   Base-DN {e.basedn}   NetBIOS {e.netbios}")
 
     ok = True
 
     def check(cond, good, bad):
         nonlocal ok
-        print(f"{OK if cond else BAD} {good if cond else bad}")
+        print(f"{ui.OK if cond else ui.BAD} {good if cond else bad}")
         ok = ok and cond
 
     def warn(cond, good, bad):
-        print(f"{OK if cond else WARN} {good if cond else bad}")
+        print(f"{ui.OK if cond else ui.WARN} {good if cond else bad}")
 
     check(bool(e.serverip), f"Server IP {e.serverip}   Subnet {e.subnet}",
           "Server IP could not be determined (setup.ini?)")
@@ -108,9 +100,9 @@ def cmd_doctor(args) -> int:
                      ("role-globaladministrator", e.role_globaladmin),
                      ("role-schooladministrator", e.role_schooladmin)):
         if g and g.sid:
-            print(f"  {OK} {label}: {g.sid}")
+            print(f"  {ui.OK} {label}: {g.sid}")
         else:
-            print(f"  {WARN} {label}: not found")
+            print(f"  {ui.WARN} {label}: not found")
 
     # Schools
     print(f"\nSchools ({len(e.schools)}):")
@@ -120,22 +112,22 @@ def cmd_doctor(args) -> int:
         tag = "default-school (empty prefix)" if s.is_default else f"prefix '{s.prefix}'"
         print(f"  • {s.name}  [{tag}]")
         if s.admins and s.admins.sid:
-            print(f"      {OK} admin group: {s.admins.cn}  {s.admins.sid}")
+            print(f"      {ui.OK} admin group: {s.admins.cn}  {s.admins.sid}")
         else:
-            print(f"      {BAD} admin group not found")
+            print(f"      {ui.BAD} admin group not found")
             ok = False
         if s.nopxe and s.nopxe.sid:
-            print(f"      {OK} noPXE group: {s.nopxe.cn}  {s.nopxe.sid}")
+            print(f"      {ui.OK} noPXE group: {s.nopxe.cn}  {s.nopxe.sid}")
         else:
-            print(f"      {WARN} noPXE group (cn=*nopxe*) not found "
+            print(f"      {ui.WARN} noPXE group (cn=*nopxe*) not found "
                   "— without it the update split cannot be targeted")
         print(f"      devices OU: {s.devices_ou}")
         print(f"      rooms: {len(s.rooms)}"
               + (": " + ", ".join(r['name'] for r in s.rooms[:8]) if s.rooms else ""))
 
-    # Security-filter prerequisites, resolved from the real site.yaml. This is the check
-    # that used to be manual: an exclusion group that does not exist means the GPO reaches
-    # exactly the devices it was meant to spare.
+    # Security-filter prerequisites, resolved from the real site.yaml — the same check
+    # `apply` runs before its first change. A pack whose exclusion group does not exist is
+    # held back by apply (fail-closed), so this is a warning here, not a failure.
     print("\nSecurity-filter prerequisites (from site.yaml):")
     try:
         from . import apply as applymod
@@ -149,16 +141,26 @@ def cmd_doctor(args) -> int:
         ap = applymod.Applier(e, answers, dry_run=True)
         rows = ap.preflight(catalog.load_packs())
         if not rows:
-            print(f"  {OK} every security-filter group resolves")
-        else:
-            for pid, label, kind, token in rows:
-                bad = kind != "only"      # a failed 'only' filter is fail-closed (safe)
-                print(f"  {BAD if bad else WARN} {pid:26} {label:16} {kind:13} {token}"
-                      + ("  → applies to them anyway!" if bad else "  → pack skipped"))
-                if bad:
-                    ok = False
+            print(f"  {ui.OK} every security-filter group resolves")
+        disabled = sorted({r[0] for r in rows if r[4] == "disabled" and r[2] != "only"})
+        if disabled:
+            print(f"  {ui.OK} teachernb: skip — @teachernb exclusions are off, these packs "
+                  f"apply to every device: {', '.join(disabled)}")
+        seen = set()
+        for pid, label, kind, token, status, note in rows:
+            if status == "partial":
+                if note not in seen:
+                    seen.add(note)
+                    print(f"  {ui.OK} {note}")
+                continue
+            if status == "disabled" and kind != "only":
+                continue
+            what = "teachernb: skip" if status == "disabled" else note
+            outcome = "pack skipped" if kind == "only" else "pack held back by apply"
+            print(f"  {ui.WARN} {pid:26} {label:16} {kind:13} {token:12} {what}"
+                  f"  → {outcome} (fail-closed)")
     except Exception as exc:
-        print(f"  {WARN} could not evaluate: {exc}")
+        print(f"  {ui.WARN} could not evaluate: {exc}")
 
     # Existing GPOs
     print("\nExisting GPOs:")
@@ -167,7 +169,7 @@ def cmd_doctor(args) -> int:
             "  (sophomorix — do not touch)" if name.startswith("sophomorix:") else "")
         print(f"  • {name}  v{ver}{mark}")
 
-    print(f"\n{'Everything essential is ok.' if ok else 'There are problems (see ' + BAD + ').'}")
+    print(f"\n{'Everything essential is ok.' if ok else 'There are problems (see ' + ui.BAD + ').'}")
     return 0 if ok else 1
 
 
@@ -178,7 +180,7 @@ def cmd_env(args) -> int:
     try:
         e = envmod.detect()
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(e.as_dict(), indent=2, ensure_ascii=False))
@@ -194,7 +196,7 @@ def cmd_env(args) -> int:
                 print(f"  {k:14} {v}")
         print(f"  rooms          {[r['name'] for r in s.rooms]}")
         if not (s.nopxe and s.nopxe.sid):
-            print(f"  {WARN} no noPXE group — device exclusions (@nopxe/@teachernb) "
+            print(f"  {ui.WARN} no noPXE group — device exclusions (@nopxe/@teachernb) "
                   "cannot be targeted in this school")
     return 0
 
@@ -206,7 +208,7 @@ def cmd_list(args) -> int:
     try:
         e = envmod.detect()
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
     links = _gplinks(e.basedn)
     for name, guid, ver in _iter_gpos(e.basedn):
@@ -228,7 +230,7 @@ def cmd_apply(args) -> int:
     try:
         e = envmod.detect()
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
     packs = catalog.load_packs()
     # A missing or empty answers file would make EVERY optional feature read as "off",
@@ -239,7 +241,7 @@ def cmd_apply(args) -> int:
     answers = setupmod.load_site(cfg)
     if not answers and not args.defaults:
         why = "does not exist" if not os.path.exists(cfg) else "is empty"
-        print(f"{BAD} answers file {why}: {cfg}")
+        print(f"{ui.BAD} answers file {why}: {cfg}")
         print("    Every optional package would count as disabled, and apply would REMOVE")
         print("    their GPOs. Run 'lmn-gpo setup', point --config at the right file, or")
         print("    pass --defaults if you really mean 'no optional features'.")
@@ -259,7 +261,7 @@ def cmd_setup(args) -> int:
     try:
         return setupmod.run(args.config or setupmod.DEFAULT_SITE)
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
 
 
@@ -268,12 +270,18 @@ def cmd_remove(args) -> int:
     try:
         e = envmod.detect()
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
+        return 2
+    known = [s.name for s in e.schools]
+    unknown = [s for s in (args.school or []) if s not in known]
+    if unknown:
+        print(f"{ui.BAD} unknown school(s): {', '.join(unknown)} — detected: "
+              f"{', '.join(known) or 'none'}", file=sys.stderr)
         return 2
     if not args.dry_run and not args.yes:
         print("This removes LMN GPOs. Confirm with --yes or use --dry-run.")
         return 1
-    return applymod.remove(e, dry_run=args.dry_run, only_ids=args.pack)
+    return applymod.remove(e, dry_run=args.dry_run, only_ids=args.pack, schools=args.school)
 
 
 def cmd_veyon_encrypt(args) -> int:
@@ -284,7 +292,7 @@ def cmd_veyon_encrypt(args) -> int:
         print(veyon.encrypt_bindpw(pw))
         return 0
     except Exception as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
 
 
@@ -298,7 +306,7 @@ def cmd_selftest(args) -> int:
     try:
         return selftest.run(dry_run=args.dry_run)
     except ad.NotADomainController as exc:
-        print(f"{BAD} {exc}", file=sys.stderr)
+        print(f"{ui.BAD} {exc}", file=sys.stderr)
         return 2
 
 
@@ -338,6 +346,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_apply)
 
     sp = sub.add_parser("remove", help="remove LMN GPOs")
+    sp.add_argument("--school", action="append",
+                    help="only the per-school GPOs of this/these school(s) (repeatable); "
+                         "global GPOs are left in place")
     sp.add_argument("--pack", action="append", help="only remove this/these pack ID(s)")
     sp.add_argument("--dry-run", action="store_true", help="show only, change nothing")
     sp.add_argument("--yes", action="store_true", help="remove without confirmation")
@@ -359,5 +370,5 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    _color(not args.no_color and sys.stdout.isatty())
+    ui.set_color(not args.no_color and sys.stdout.isatty())
     return args.func(args)

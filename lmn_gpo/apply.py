@@ -101,6 +101,8 @@ class Applier:
         self.sc = ScriptsExt(self.eng)
         self.results: list[dict] = []
         self.retired: list[str] = []
+        self.skipped: list[str] = []    # optional packs whose feature is not enabled
+        self.held_back: list[str] = []  # packs whose exclusion group is missing (fail-closed)
         self.warnings: list[str] = []   # non-fatal problems that must still fail the run
         self._links: dict[str, list[str]] | None = None   # gPLink map, built on first retire
         self._warned: set[str] = set()   # de-duplicate per-field validation warnings
@@ -244,13 +246,19 @@ class Applier:
         return self.env.serverip if src == "serverip" else \
             self.env.subnet if src == "subnet" else src
 
-    def _firefox_homepage(self, school):
-        if not self.answers.get("firefox_enabled"):
-            return ""
+    def _firefox_homepage_url(self, school):
+        """The configured homepage URL (per-school override first), ignoring the gate."""
         byschool = self.answers.get("firefox_homepage_by_school") or {}
         if school and byschool.get(school.name):
             return str(byschool[school.name]).strip()
         return (self.answers.get("firefox_homepage") or "").strip()
+
+    def _firefox_homepage(self, school):
+        # The homepage pack is a sub-option of the Firefox packs: without firefox_enabled
+        # the URL is ignored. _skip_reason() tells the operator so.
+        if not self.answers.get("firefox_enabled"):
+            return ""
+        return self._firefox_homepage_url(school)
 
     def _proxy_host(self, school):
         byschool = self.answers.get("proxy_host_by_school") or {}
@@ -357,21 +365,64 @@ class Applier:
             return [g.sid] if g and g.sid else []
         if token == "@admins":
             return [s.admins.sid for s in targets if s.admins and s.admins.sid]
-        if token == "@nopxe":
-            return [s.nopxe.sid for s in targets if s.nopxe and s.nopxe.sid]
-        if token == "@teachernb":
-            tnb = self.answers.get("teachernb", "nopxe")
-            if tnb in (None, "", "skip"):
-                return []
-            if tnb == "nopxe":
-                return [s.nopxe.sid for s in targets if s.nopxe and s.nopxe.sid]
-            return [sid for s in targets if (sid := self._find_group_sid(tnb, s.dn))]
+        if token in ("@nopxe", "@teachernb"):
+            return [sid for _, sid in self._device_group_sids(token, targets) if sid]
         if token in ("@role-teacher", "@role-student", "@role-staff"):
             cn = token[1:]
             msg = ad.find_one(f"(&(objectClass=group)(cn={cn}))", base=self.env.global_ou,
                               scope="sub", attrs=["objectSid"])
             return [ad.sid_of(msg)] if msg else []
         return []
+
+    def _teachernb(self) -> str:
+        """The teachernb answer: 'nopxe' (default), 'skip' (no teacher notebooks) or a CN."""
+        tnb = self.answers.get("teachernb", "nopxe")
+        return "skip" if tnb in (None, "", "skip") else str(tnb).strip()
+
+    def _device_group_label(self, token) -> str:
+        if token == "@teachernb" and self._teachernb() not in ("nopxe", "skip"):
+            return f"'{self._teachernb()}'"
+        return "d_nopxe"
+
+    def _device_group_sids(self, token, targets):
+        """[(school, sid-or-None)] for the device group behind @nopxe / @teachernb.
+
+        Resolved per school (the CN is searched below each school's DN), so a group that
+        exists in one school only is reported as absent for the others.
+        """
+        tnb = self._teachernb() if token == "@teachernb" else "nopxe"
+        if tnb == "skip":
+            return [(s, None) for s in targets]
+        if tnb == "nopxe":
+            return [(s, s.nopxe.sid if s.nopxe and s.nopxe.sid else None) for s in targets]
+        return [(s, self._find_group_sid(tnb, s.dn)) for s in targets]
+
+    def _exclusion(self, token, school, schools):
+        """Resolve one filter_deny / filter_deny_read / filter_apply token for a pack scope.
+
+        Returns (sids, status, note):
+          'ok'        sids to filter with (note names schools of a global pack that have
+                      no such group — nothing is excluded there)
+          'disabled'  teachernb: skip — the operator says there are no teacher notebooks,
+                      the exclusion is dropped and the pack applies to every device
+          'missing'   the group exists nowhere in this scope — the pack is held back
+                      (fail-closed) instead of reaching the devices it was meant to spare
+        """
+        if token == "@teachernb" and self._teachernb() == "skip":
+            return [], "disabled", "teachernb: skip"
+        if token in ("@nopxe", "@teachernb"):
+            targets = [school] if school else schools
+            per = self._device_group_sids(token, targets)
+            sids = [sid for _, sid in per if sid]
+            without = [s.name for s, sid in per if not sid]
+            label = self._device_group_label(token)
+            if not sids:
+                return [], "missing", f"no {label} group in {', '.join(without) or 'any school'}"
+            note = (f"no {label} group in {', '.join(without)} — nothing excluded there"
+                    if without else "")
+            return sids, "ok", note
+        sids = self._group_sids(token, school, schools)
+        return (sids, "ok", "") if sids else ([], "missing", "group not found")
 
     def _admins_members(self, tokens, school, schools):
         out, targets = [], ([school] if school else schools)
@@ -512,6 +563,54 @@ class Applier:
             return bool(self.answers.get("pointandprint_enabled"))
         return True
 
+    def _skip_reason(self, pack, school) -> str:
+        """Why an optional pack is not applicable, in site.yaml terms ('' = applicable).
+
+        Printed on the pack's line, so a half-configured feature (a Firefox homepage URL
+        without firefox_enabled, a proxy host without proxy_enabled) is never a silent
+        no-op again.
+        """
+        req = (pack.requires or "").strip()
+        if not req or self._applicable(pack, school):
+            return ""
+        sname = school.name if school else "<school>"
+        if req == "kmshost":
+            return "kmshost is empty"
+        if req == "kms_office":
+            return "kms_office_host and kmshost are empty"
+        if req == "wallpaper":
+            base = self.answers.get("wallpaper_dir") or WALLPAPER_DIR
+            return f"no wallpaper {base}/{sname}.jpg|png (or default.*)"
+        if req == "veyon":
+            return "veyon_binddn / veyon_bindpw_hex not set"
+        if req == "firefox":
+            return "firefox_enabled is not true"
+        if req == "firefox_homepage":
+            if not self.answers.get("firefox_enabled"):
+                url = self._firefox_homepage_url(school)
+                return ("firefox_enabled is not true"
+                        + (f" (the configured homepage {url!r} is ignored)" if url else ""))
+            return f"no firefox_homepage (or firefox_homepage_by_school[{sname}]) URL"
+        if req == "proxy":
+            return "proxy_enabled is not true"
+        if req == "proxy_school":
+            if not self.answers.get("proxy_enabled"):
+                host = self._proxy_host(school)
+                return ("proxy_enabled is not true"
+                        + (f" (the configured proxy host {host!r} is ignored)" if host else ""))
+            return f"no proxy_host (or proxy_host_by_school[{sname}])"
+        if req == "wlan_psk":
+            return "wlan_psk_networks is empty"
+        if req == "wlan_enterprise":
+            return "wlan_enterprise_networks / wlan_enterprise_ssid not set"
+        if req == "home_drive":
+            return "home_drive_enabled is not true"
+        if req == "bootorder":
+            return "bootorder_pxe_first is not true"
+        if req == "pointandprint":
+            return "pointandprint_enabled is not true"
+        return f"'{req}' precondition not met"
+
     def _backup_before_delete(self, name, guid) -> str | None:
         """samba-tool gpo backup into /var/backups/lmn-gpo/<timestamp>/ before deleting."""
         if self.dry_run:
@@ -529,10 +628,14 @@ class Applier:
     def preflight(self, packs, schools=None):
         """Resolve every security-filter token BEFORE anything is written.
 
-        An exclusion that resolves to no group is the dangerous case: the GPO then reaches
-        exactly the devices or users it was meant to spare, and the per-pack output only
-        says so once the change has already been made. Returns a list of
-        (pack_id, scope_label, kind, token) for every token that matches no group.
+        Returns one row (pack_id, scope_label, kind, token, status, note) per token that
+        does not resolve cleanly:
+          status 'missing'   no group in the pack's scope — the pack is held back
+                             ('exclude'/'exclude-read') or skipped ('only'); fail-closed
+          status 'disabled'  teachernb: skip — the exclusion is dropped, the pack applies
+                             to every device ('only' packs are skipped)
+          status 'partial'   global pack; some schools have no such group, nothing is
+                             excluded there (informational)
         """
         packs = self.selected_packs(packs)
         schools = list(schools if schools is not None else self.selected_schools())
@@ -549,24 +652,40 @@ class Applier:
                                      ("exclude-read", pack.filter_deny_read),
                                      ("only", pack.filter_apply)):
                     for token in tokens:
-                        if not self._group_sids(token, school, pool):
-                            rows.append((pack.id, label, kind, token))
+                        sids, status, note = self._exclusion(token, school, pool)
+                        if status == "ok" and note:
+                            rows.append((pack.id, label, kind, token, "partial", note))
+                        elif status != "ok":
+                            rows.append((pack.id, label, kind, token, status, note))
         return rows
 
     def print_preflight(self, packs, schools=None) -> bool:
-        """Print the prerequisite check. True when everything resolves."""
+        """Print the prerequisite check. True when no pack is held back or skipped."""
         rows = self.preflight(packs, schools)
+        hard = [r for r in rows if r[4] == "missing" or (r[4] == "disabled" and r[2] == "only")]
+        disabled = sorted({r[0] for r in rows if r[4] == "disabled" and r[2] != "only"})
+        partial = {}
+        for pid, _label, _kind, token, status, note in rows:
+            if status == "partial":
+                partial.setdefault(note, set()).add(pid)
         if not rows:
             print("Prerequisite check: all security-filter groups resolve. ✓")
             return True
-        print("\n⚠ Prerequisite check — these filters match NO group:")
-        for pid, label, kind, token in rows:
-            print(f"    {pid:26} {label:16} {kind:13} {token}")
-        print("    'exclude'/'exclude-read': the GPO WILL apply to those devices/users.")
-        print("    'only': the pack is skipped entirely (fail-closed).")
-        print("    Fix: create the group, or set 'teachernb' in site.yaml to the group you "
-              "actually use.")
-        return False
+        print("Prerequisite check:")
+        if disabled:
+            print("    teachernb: skip — @teachernb exclusions are off, these packs apply to "
+                  "every device: " + ", ".join(disabled))
+        for note, pids in sorted(partial.items()):
+            print(f"    note: {note} ({', '.join(sorted(pids))})")
+        if hard:
+            print("    ⚠ these filters match NO group in their scope — the pack is held back "
+                  "(GPO not created, an existing one left untouched):")
+            for pid, label, kind, token, status, note in hard:
+                what = "teachernb: skip" if status == "disabled" else note
+                print(f"        {pid:26} {label:16} {kind:13} {token:12} {what}")
+            print("    Fix: create the group, or set 'teachernb' in site.yaml to the group CN "
+                  "you use ('skip' = there are no teacher notebooks).")
+        return not hard
 
     def _retire(self, name):
         """Unlink + delete the GPO of a pack whose precondition is no longer met.
@@ -579,7 +698,7 @@ class Applier:
         """
         guid = self.eng.find_by_name(name)
         if not guid:
-            return
+            return False
         print(f"\n▸ {name}")
         print("    precondition no longer met → unlinking + deleting this GPO")
         dest = self._backup_before_delete(name, guid)
@@ -591,6 +710,17 @@ class Applier:
             self.eng.unlink(container, guid)
         self.eng.delete(guid)
         self.retired.append(name)
+        return True
+
+    def _hold_back(self, name, pack, reason):
+        """Fail closed: an exclusion that resolves to no group would make the GPO reach
+        exactly the devices it was meant to spare, so the pack is not applied in this scope.
+        One line, no exit-code drama: nothing was changed, and the preflight said why."""
+        existing = self.eng.find_by_name(name)
+        print(f"\n▸ {name}  held back: {reason}"
+              + (f" — existing GPO left untouched (remove it deliberately with "
+                 f"'lmn-gpo remove --pack {pack.id}')" if existing else " — GPO not created"))
+        self.held_back.append(name)
 
     def _drive_items(self, pack, school, schools):
         """Catalog drive entries -> Drives.xml items, group tokens resolved to SIDs."""
@@ -622,32 +752,56 @@ class Applier:
             scope_token, container = "GLOBAL", self.env.schools_ou
         name = f"{GPO_PREFIX}{pack.type_letter}-{scope_token}-{pack.id}"
         if not self._applicable(pack, school):
-            if ((pack.requires or "").strip() in NON_RETIRABLE_REQUIRES
-                    or pack.id in self._file_precondition_failed):
-                if self.eng.find_by_name(name):
-                    print(f"\n▸ {name}")
-                    print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left untouched "
-                          f"(not deleted). Fix the source path, or remove it deliberately "
-                          f"with 'lmn-gpo remove --pack {pack.id}'.")
-                    self.warnings.append(
-                        f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
-                return
-            self._retire(name)
+            keep = ((pack.requires or "").strip() in NON_RETIRABLE_REQUIRES
+                    or pack.id in self._file_precondition_failed)
+            if keep and self.eng.find_by_name(name):
+                print(f"\n▸ {name}")
+                print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left untouched "
+                      f"(not deleted). Fix the source path, or remove it deliberately "
+                      f"with 'lmn-gpo remove --pack {pack.id}'.")
+                self.warnings.append(
+                    f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
+            elif not keep and self._retire(name):
+                pass
+            elif pack.id not in self._file_precondition_failed:   # that case warned already
+                # Not enabled and no GPO to retire: say so in one line instead of vanishing
+                # from the output (a homepage URL without firefox_enabled looked like a bug).
+                print(f"\n▸ {name}  skipped: {self._skip_reason(pack, school)}")
+                self.skipped.append(name)
             return
         # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
         # Users, and set_exclusive_filter only restricts when it gets ≥1 SID. If the
-        # 'only these groups' filter resolves to zero SIDs (e.g. @nopxe but no school has
-        # a d_nopxe group), linking would roll the GPO out to EVERYONE. Skip + warn.
+        # 'only these groups' filter resolves to zero SIDs (e.g. @teachernb but no school
+        # has a d_nopxe group), linking would roll the GPO out to EVERYONE. Skip + say so.
         filter_apply_sids = []
         if pack.filter_apply:
-            filter_apply_sids = [sid for token in pack.filter_apply
-                                 for sid in self._group_sids(token, school, schools)]
+            for token in pack.filter_apply:
+                sids, status, _note = self._exclusion(token, school, schools)
+                filter_apply_sids += sids
             if not filter_apply_sids:
-                print(f"\n▸ {name}")
-                print(f"    ⚠ skipped: exclusive-filter group(s) {pack.filter_apply} "
-                      f"not found — otherwise the GPO would apply to EVERYONE.")
+                why = ("teachernb: skip" if self._teachernb() == "skip"
+                       and "@teachernb" in pack.filter_apply
+                       else f"exclusive-filter group(s) {pack.filter_apply} not found")
+                print(f"\n▸ {name}  skipped: {why} — otherwise the GPO would apply to EVERYONE")
+                self.skipped.append(name)
                 return
+        # Exclusions are resolved BEFORE anything is written. One that matches no group
+        # in this scope holds the pack back (fail-closed) — never "warn, exit 1, but the
+        # GPO is created and reaches the devices it should have spared anyway".
+        denies, notes = [], []
+        for tokens, action in ((pack.filter_deny, self.eng.deny_apply),
+                               (pack.filter_deny_read, self.eng.deny_read)):
+            for token in tokens:
+                sids, status, note = self._exclusion(token, school, schools)
+                if status == "missing":
+                    self._hold_back(name, pack, f"exclusion {token} matches no group ({note})")
+                    return
+                if status == "ok" and note:
+                    notes.append(note)
+                denies += [(action, sid) for sid in sids]
         print(f"\n▸ {name}")
+        for note in notes:
+            print(f"    note: {note}")
         guid, _ = self.eng.ensure(name)
         extra = {"@wallpaper": self._wallpaper_unc(school)} if school else {}
 
@@ -666,25 +820,8 @@ class Applier:
         if pack.wlan:
             self._apply_wlan(pack, guid)
         self.eng.link(container, guid)
-        # Exclusions must never fail silently: an unresolvable group means the GPO reaches
-        # exactly the machines/users it was meant to spare, with nothing in the output to
-        # show for it. (filter_apply already fails closed above; a deny cannot fail closed
-        # without disabling the pack for everyone, so it is reported loudly instead and
-        # makes the run exit non-zero.)
-        def _deny(tokens, action, what):
-            for token in tokens:
-                sids = self._group_sids(token, school, schools)
-                if not sids:
-                    print(f"    ⚠ exclusion {token} matched no group — this GPO is NOT "
-                          f"excluded from those devices/users!")
-                    self.warnings.append(
-                        f"{name}: {what} {token} resolved to no group — nothing excluded")
-                    continue
-                for sid in sids:
-                    action(guid, sid)
-
-        _deny(pack.filter_deny, self.eng.deny_apply, "deny-apply")
-        _deny(pack.filter_deny_read, self.eng.deny_read, "deny-read")
+        for action, sid in denies:
+            action(guid, sid)
         if filter_apply_sids:
             self.eng.set_exclusive_filter(guid, filter_apply_sids)
         self.results.append({"pack": pack.id, "gpo": name, "guid": guid})
@@ -718,7 +855,10 @@ class Applier:
         ok, out = self.eng.aclcheck()
         print(f"\naclcheck: {'ok' if ok else 'MISMATCH — ' + (out.splitlines()[0] if out else '')}")
         print(f"Done: {len(self.results)} GPO(s) applied."
-              + (f" {len(self.retired)} retired (precondition removed)." if self.retired else ""))
+              + (f" {len(self.retired)} retired (precondition removed)." if self.retired else "")
+              + (f" {len(self.skipped)} skipped (feature not enabled)." if self.skipped else "")
+              + (f" {len(self.held_back)} held back (exclusion group missing)."
+                 if self.held_back else ""))
         if self.retired:
             print("  Note: the KMS registry values are outside the Policies branches and are")
             print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")
@@ -741,19 +881,59 @@ class Applier:
         return 0
 
 
-def remove(env, dry_run=False, only_ids=None):
-    """Remove all LMN- GPOs (or a subset by pack id): unlink then delete."""
+def parse_gpo_name(name, scopes):
+    """Split 'LMN-<C|U|CU>-<scope>-<pack-id>' into (type, scope, pack_id); None if not ours.
+
+    School names and pack ids both contain hyphens (default-school, 07-admins-schule), so
+    the scope is matched against the known scope names (school OU names + GLOBAL), longest
+    first — 'one' must not swallow a school called 'one-x'.
+    """
+    if not name.startswith(GPO_PREFIX):
+        return None
+    m = re.match(r"(CU|C|U)-(.*)$", name[len(GPO_PREFIX):])
+    if not m:
+        return None
+    typ, rest = m.group(1), m.group(2)
+    for scope in sorted(scopes, key=len, reverse=True):
+        if rest.startswith(scope + "-") and len(rest) > len(scope) + 1:
+            return typ, scope, rest[len(scope) + 1:]
+    return None
+
+
+def selected_for_removal(name, scopes, only_ids=None, schools=None) -> bool:
+    """Does this GPO fall under `remove --pack ... --school ...`?
+
+    --school limits the removal to that school's per-school GPOs; a global GPO
+    (scope GLOBAL, linked at OU=SCHOOLS) reaches every school and is therefore never
+    removed by a school selection — the same rule `apply --school` follows.
+    """
+    if not name.startswith(GPO_PREFIX):
+        return False
+    parsed = parse_gpo_name(name, scopes)
+    if schools and (parsed is None or parsed[1] not in schools):
+        return False
+    if only_ids:
+        if parsed is not None:
+            return parsed[2] in only_ids
+        return any(name.endswith("-" + pid) for pid in only_ids)   # unknown scope, old rule
+    return True
+
+
+def remove(env, dry_run=False, only_ids=None, schools=None):
+    """Remove LMN- GPOs — all, a subset by pack id and/or by school: unlink then delete."""
     eng = GpoEngine(env, dry_run=dry_run)
     base = f"CN=Policies,CN=System,{env.basedn}"
     gplinks = _gplink_map()
+    scopes = [s.name for s in env.schools] + ["GLOBAL"]
+    if schools:
+        print(f"Removing the per-school GPOs of: {', '.join(schools)} "
+              "(global LMN-*-GLOBAL-* GPOs are left in place)")
 
     removed = 0
     for msg in ad.search(base=base, scope="one", expr="(objectClass=groupPolicyContainer)",
                          attrs=["displayName", "cn"]):
         name, guid = ad.val(msg, "displayName", ""), ad.val(msg, "cn", "")
-        if not name.startswith(GPO_PREFIX):
-            continue
-        if only_ids and not any(name.endswith("-" + pid) for pid in only_ids):
+        if not selected_for_removal(name, scopes, only_ids, schools):
             continue
         print(f"▸ removing {name} {guid}")
         for container in gplinks.get(guid.upper(), []):

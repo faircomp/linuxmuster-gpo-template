@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from . import ad
+from . import ad, ui
 from . import env as envmod
 from .gpo import GpoEngine, APPLY_GROUP_POLICY
 from .regpol import RegPol, firewall_entries
@@ -32,7 +32,7 @@ def run(dry_run: bool = False) -> int:
 
     def step(ok: bool, label: str, detail: str = ""):
         steps.append((ok, label, detail))
-        mark = "\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m"
+        mark = ui.OK if ok else ui.BAD      # honours --no-color like every other command
         print(f"  {mark} {label}" + (f"  — {detail}" if detail else ""))
 
     print(f"Self-test against school '{school.name}' (Devices OU: {school.devices_ou})\n")
