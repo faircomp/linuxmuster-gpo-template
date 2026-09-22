@@ -521,12 +521,23 @@ jobs:
         run: |
           set -eu
           mkdir -p previous
-          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
+          # Prefer the newest real release, fall back to the newest prerelease. Skipping is
+          # only legitimate when the repo has NO release at all: this gate stands between a
+          # silently shrunk package and a school DC.
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
                   --json tagName,isDraft,isPrerelease \
                   --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
           if [ -z "$tag" ]; then
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                    --json tagName,isDraft --jq '[.[] | select(.isDraft == false)][0].tagName // ""')
+            [ -n "$tag" ] && echo "::warning::no full release yet, comparing against prerelease $tag"
+          fi
+          if [ -z "$tag" ]; then
+            if [ "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq 'length')" != "0" ]; then
+              echo "::error::releases exist but none could be selected - refusing to skip"; exit 1
+            fi
             echo "skip=1" >> "$GITHUB_OUTPUT"
-            echo "::notice::no published release yet, file-tree comparison skipped"
+            echo "::notice::first release of this package, nothing to compare against"
             exit 0
           fi
           for i in 1 2 3; do
@@ -638,18 +649,32 @@ jobs:
         id: prev
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through env, never interpolated into the script: a ${{ }} expression in a run
+          # block is substituted before the shell sees it, so its content could inject code.
+          PREV_TAG: ${{ github.event.inputs.prev_tag }}
         run: |
           set -eu
           mkdir -p previous
-          tag="${{ github.event.inputs.prev_tag }}"
+          tag="${PREV_TAG:-}"
           if [ -z "$tag" ]; then
-            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
+            # Prefer the newest real release; fall back to the newest prerelease. Skipping is
+            # only legitimate when the repo has NO release at all: this job gates the release
+            # job, so a silent skip would publish a tag whose upgrade path was never tested.
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
                     --json tagName,isDraft,isPrerelease \
                     --jq '[.[] | select(.isDraft == false and .isPrerelease == false)][0].tagName // ""')
+            if [ -z "$tag" ]; then
+              tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+                      --json tagName,isDraft --jq '[.[] | select(.isDraft == false)][0].tagName // ""')
+              [ -n "$tag" ] && echo "::warning::no full release yet, upgrading from prerelease $tag"
+            fi
           fi
           if [ -z "$tag" ]; then
+            if [ "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq 'length')" != "0" ]; then
+              echo "::error::releases exist but none could be selected - refusing to skip"; exit 1
+            fi
             echo "skip=1" >> "$GITHUB_OUTPUT"
-            echo "::notice::no published release yet, upgrade smoke skipped"
+            echo "::notice::first release of this package, nothing to upgrade from"
             exit 0
           fi
           for i in 1 2 3; do
