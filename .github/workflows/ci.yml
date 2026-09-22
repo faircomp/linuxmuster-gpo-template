@@ -554,7 +554,10 @@ jobs:
           set -euo pipefail          # without pipefail `tee` would swallow the exit code
           # mode owner path, sorted. Directories are compared too: /var/lib/lmn-gpo/wallpapers
           # is shipped EMPTY, so losing it would be invisible in a file-only comparison.
-          norm() { dpkg-deb -c "$1" | awk '{print $1, $2, $6}' | LC_ALL=C sort; }
+          # A symlink prints "path -> target"; carry the target, so a retargeted link is
+          # drift too. The package has none today -- which is exactly why it must not grow
+          # one unnoticed.
+          norm() { dpkg-deb -c "$1" | awk '{t = ($7 == "->" ? " " $7 " " $8 : ""); print $1, $2, $6 t}' | LC_ALL=C sort; }
           norm previous/*.deb > old.txt
           norm packages/*.deb > new.txt
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -818,6 +821,15 @@ jobs:
           if after["loopback_mode"] != {"merge": 1, "replace": 2}:
               print(f"::error::LOOPBACK_MODE is {after['loopback_mode']}; Microsoft's values are "
                     "merge=1, replace=2 (GroupPolicy.admx, client event 5311)")
+              rc = 1
+          if not after["user_policy_mode"]:
+              # An empty set would satisfy every assertion below without checking anything.
+              print("::error::no pack declares loopback any more - the catalog lost its "
+                    "loopback packs, or load_packs() returned nothing")
+              rc = 1
+          for pack in sorted(set(before["user_policy_mode"]) - set(after["user_policy_mode"])):
+              print(f"::error::{pack} declared loopback before the upgrade and does not any "
+                    "more - the per-school user packs would stop reaching users")
               rc = 1
           for pack, mode in sorted(after["user_policy_mode"].items()):
               was = before["user_policy_mode"].get(pack)

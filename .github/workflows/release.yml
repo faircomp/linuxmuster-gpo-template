@@ -279,6 +279,15 @@ jobs:
               print(f"::error::LOOPBACK_MODE is {after['loopback_mode']}; Microsoft's values are "
                     "merge=1, replace=2 (GroupPolicy.admx, client event 5311)")
               rc = 1
+          if not after["user_policy_mode"]:
+              # An empty set would satisfy every assertion below without checking anything.
+              print("::error::no pack declares loopback any more - the catalog lost its "
+                    "loopback packs, or load_packs() returned nothing")
+              rc = 1
+          for pack in sorted(set(before["user_policy_mode"]) - set(after["user_policy_mode"])):
+              print(f"::error::{pack} declared loopback before the upgrade and does not any "
+                    "more - the per-school user packs would stop reaching users")
+              rc = 1
           for pack, mode in sorted(after["user_policy_mode"].items()):
               was = before["user_policy_mode"].get(pack)
               if mode == 2:
