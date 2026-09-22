@@ -15,16 +15,17 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 | Catalog packs | `catalog/*.yaml` (33 packs `NN-name.yaml`; `*-schule` packs are applied per school) | YAML schema documented in `README.md` |
 | Client scripts | `scripts/*.ps1` (startup/shutdown scripts, `lmn-gpo-check.ps1` client diagnostics); `lmn_gpo/wlan.py` and `lmn_gpo/drives.py` generate more at apply time | Windows PowerShell 5.1, **pure ASCII** |
 | Data | `lib/veyon-default-pub.pem`; `wallpapers/` (admin-provided, not committed) | installed to `/usr/share/lmn-gpo`, wallpapers to `/var/lib/lmn-gpo` |
-| Packaging | `debian/changelog` (version source) + `packaging/` (`build-deb.sh`, `control`, `copyright`, postinst/prerm/postrm); `make deb` → `dist/lmn-gpo_<version>_all.deb` | `dpkg-deb`, plain `dist-packages` install; classic `debian/` with `dh --with python3` is a later PR |
+| Packaging | classic `debian/` (debhelper 13, native 3.0): `changelog` (version source), `control`, `rules`, `install`, `dirs`, `docs`, `clean`, `copyright`, postinst/prerm/postrm; `make deb` → `dpkg-buildpackage` → `../lmn-gpo_<version>_all.deb` | `dh $@ --with python3`, plain `dist-packages` install, no venv |
 | Tests | `.github/workflows/ci.yml` fast tier (py_compile, catalog YAML, ASCII-only `.ps1`, generated Wi-Fi scripts, Drives.xml shape, PowerShell parser, `--version` == changelog); `lmn-gpo selftest --yes` on a real DC (throwaway GPO) | GitHub-hosted runner with `pwsh`; the selftest runs in the lab via the hub |
 | Docs | `README.md` (bilingual), `docs/RESEARCH.md` (verified Windows/Samba facts), `docs/VEYON-PLAN.md` | |
 
 ## Constraints (do not violate)
 
 - **Version:** the top entry of `debian/changelog` is the only hand-edited version (`7.3.N`, dist
-  `lmn73`, signature `Kevin Stenzel <mail@kevin-stenzel.de>`). `packaging/build-deb.sh` reads it
-  with `dpkg-parsechangelog`, fills `Version: @VERSION@` in `packaging/control` and generates
-  `lmn_gpo/_version.py` inside the package; a source checkout reads the changelog itself
+  `lmn73`, signature `Kevin Stenzel <mail@kevin-stenzel.de>`). `dpkg-buildpackage` reads it,
+  `debian/rules` (`override_dh_auto_build`) generates `lmn_gpo/_version.py` from
+  `$(DEB_VERSION)` into the source tree and `debian/clean` removes it again; a source
+  checkout without it reads the changelog itself
   (`lmn_gpo/__init__.py`). `lmn-gpo --version` must always equal it (CI asserts). Never bump it
   in a feature PR; Kevin bumps and tags `v7.3.N`, and `release.yml` refuses a mismatching tag.
   The binary package name stays `lmn-gpo`.
@@ -40,6 +41,12 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   (wallpaper, RADIUS CA) skips the pack and keeps its GPO; an operator answer that switches a
   feature off retires the GPO only after `samba-tool gpo backup`. `apply` refuses to run without
   an answers file unless `--defaults` is given.
+- **`/etc/linuxmuster/lmn-gpo/site.yaml` is NOT a conffile and must not become one.** The
+  package has never shipped it — `lmn-gpo setup` or the postinst migration creates it — it
+  carries the bind password and must stay `0600` (`dh_fixperms` would make a conffile 644),
+  purge deliberately keeps it, and any upgrade with a modified conffile would stop an
+  unattended `apt upgrade` on a school server at the dpkg prompt. If a template is wanted,
+  ship `site.yaml.example` via `debian/examples`.
 - **Only `LMN-*` GPOs are ours.** sophomorix' GPOs and the Default Domain Policy are never
   touched. GPT.INI and the AD `versionNumber` are bumped in lockstep and the matching CSE GUID
   registered, or Windows ignores the change.
@@ -62,12 +69,15 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   The PowerShell parser check needs `pwsh`; without a local install use the container:
   `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/powershell:latest pwsh -File <check.ps1>`
   (the check is the `pwsh` step in `ci.yml`).
-- `make deb` builds `dist/lmn-gpo_<version>_all.deb` (needs `dpkg-dev`, no root). CI builds it in
-  `ghcr.io/linuxmuster/lmndev-runner:24.04` and installs it on ubuntu-24.04
-  (`lmn-gpo --help`/`--version`); the same container build locally:
-  `mkdir -p dist && docker run --rm -u root -v "$PWD":/src -w /src ghcr.io/linuxmuster/lmndev-runner:24.04 make deb`.
+- `make deb` runs `dpkg-buildpackage -us -uc -tc -I -I".github"` (needs `dpkg-dev`, `debhelper`
+  and `dh-python`, no root) and writes `../lmn-gpo_<version>_all.deb` plus `.changes`,
+  `.buildinfo`, `.dsc` and the source tarball **next to** the checkout, not into `dist/`. CI
+  builds it in `ghcr.io/linuxmuster/lmndev-runner:24.04` and installs it on ubuntu-24.04
+  (`lmn-gpo --help`/`--version`); the same container build locally needs a writable parent, so
+  mount the checkout one level down:
+  `docker run --rm -u root -v "$PWD":/src/pkg -v /tmp/out:/src -w /src/pkg ghcr.io/linuxmuster/lmndev-runner:24.04 bash -c 'apt-get update -qq && apt-get build-dep -y -qq . && make deb'`.
 - Lab test via the hub: `bin/lab-lock acquire`, `bin/lab-snapshot`, `bin/lab-deploy lmn-test
-  dist/lmn-gpo_*.deb`, then on the DC `lmn-gpo doctor` and `lmn-gpo selftest --yes` (throwaway
+  <built .deb>`, then on the DC `lmn-gpo doctor` and `lmn-gpo selftest --yes` (throwaway
   GPO, non-destructive); `apply --dry-run` before any real apply; journal in `work/gpo-template/`.
 - Changelog entry (`debian/changelog`, top block, `urgency=medium`) in the same PR as the change,
   written for admins: what changes on the clients and what has to be re-rolled.
