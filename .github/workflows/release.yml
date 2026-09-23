@@ -9,6 +9,13 @@
 # three are attached so the .changes describes files that are actually there.
 # No publish job yet (no faircomp/deb archive). Since the debian/ conversion the build also
 # produces a .changes file, which is attached to the release next to the .deb.
+#
+# Supply chain (hub templates/release.yml, stage A): build image by digest and every action by
+# commit SHA (same pins as ci.yml), no third-party release action next to `contents: write`.
+# The release is created as a DRAFT, all assets are uploaded and compared by sha256 with the
+# build, and only then published: GitHub immutable releases freeze tag and assets on publish,
+# so a release published first could not receive its assets afterwards. A failed run leaves
+# a draft that a re-run completes.
 name: release
 
 on:
@@ -488,14 +495,44 @@ jobs:
             echo ""
             echo "\`SHA256: ${SHA}\`"
           } > notes.md
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: lmn-gpo ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
-          body_path: notes.md
-          files: |
-            packages/*.deb
-            packages/*.changes
-            packages/*.dsc
-            packages/*.tar.*
-          generate_release_notes: true      # appended below the notes above
+      # Draft -> assets -> digest check -> publish (why: see the header). The gh CLI ships with
+      # the runner; ids and digests are read through `gh api` so an older gh works as well.
+      - name: Publish the GitHub release (draft first)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}     # through env, never interpolated into the script
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(packages/*.deb packages/*.changes packages/*.dsc packages/*.tar.*)
+          for kind in deb changes dsc tar.; do
+            compgen -G "packages/*.$kind*" > /dev/null || { echo "::error::no *.$kind* to publish"; exit 1; }
+          done
+          pre=(); case "$TAG" in *-rc*) pre=(--prerelease) ;; esac
+          lookup() { gh api "repos/$GH_REPO/releases?per_page=100" \
+                       --jq '.[] | select(.tag_name == env.TAG) | "\(.id) \(.draft)"'; }
+          found=$(lookup)
+          case "$found" in
+            # --notes-file goes first, the generated notes are appended below it
+            "")      gh release create "$TAG" --draft --verify-tag --title "lmn-gpo $TAG" \
+                       --notes-file notes.md --generate-notes "${pre[@]}"
+                     found=$(lookup) ;;
+            *" true") echo "::notice::re-run: completing the draft a failed run left behind" ;;
+            *)       echo "::error::$TAG is already published; its assets are never replaced"; exit 1 ;;
+          esac
+          if [ "$(printf '%s\n' "$found" | wc -l)" != 1 ] || [ "${found#* }" != true ]; then
+            echo "::error::expected exactly one draft for $TAG, got: $found"; exit 1
+          fi
+          rid=${found%% *}
+          gh release upload "$TAG" "${assets[@]}" --clobber
+          # Publish only what was built: GitHub's sha256 of every asset on the draft must equal
+          # the built files, as a set (GitHub may rename files, e.g. `~` in a version).
+          sha256sum "${assets[@]}" | cut -d' ' -f1 | sort > built.sha256
+          gh api "repos/$GH_REPO/releases/$rid/assets?per_page=100" \
+            --jq '.[].digest | ltrimstr("sha256:")' | sort > uploaded.sha256
+          diff built.sha256 uploaded.sha256 \
+            || { echo "::error::assets on the draft differ from the build, not publishing"; exit 1; }
+          gh release edit "$TAG" --draft=false
+          immutable=$(gh api "repos/$GH_REPO/releases/$rid" --jq '.immutable' || true)
+          [ "$immutable" = true ] || echo "::warning::$TAG is published but not immutable (immutable=$immutable)"
