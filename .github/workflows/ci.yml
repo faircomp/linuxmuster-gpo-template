@@ -4,6 +4,11 @@
 # release, an install smoke and an upgrade smoke on ubuntu-24.04. release.yml runs the same
 # gates on a tag and the release job needs every one of them. The real end-to-end check,
 # `lmn-gpo selftest`, needs a Samba AD DC and runs in the lab, not here.
+#
+# Supply chain (hub templates/ci.yml, stage A): the build image is pulled by digest
+# (lmndev-runner:24.04 is a mutable tag of another org, rebuilt weekly, run as root) and every
+# action by commit SHA with a `# vN` comment; ci.yml and release.yml use the same digests.
+# Renovate (renovate.json, .github/workflows/renovate.yml) proposes bumps as PRs, never merges.
 name: ci
 
 on:
@@ -30,7 +35,7 @@ jobs:
   fast:
     runs-on: ubuntu-latest        # GitHub-hosted: ships python3 with PyYAML and pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Sanity check (Python compiles, catalog parses, PowerShell is ASCII)
         run: |
@@ -462,11 +467,14 @@ jobs:
       image: ${{ steps.image.outputs.image }}
       version: ${{ steps.image.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: image
         run: |
           DIST=$(dpkg-parsechangelog -S Distribution); NUM="${DIST#lmn}"
-          if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=ghcr.io/linuxmuster/lmndev-runner:latest; else IMG=ghcr.io/linuxmuster/lmndev-runner:24.04; fi
+          # Pinned by digest (see the header); Renovate bumps both lines here and in release.yml.
+          IMG_LMN73=ghcr.io/linuxmuster/lmndev-runner:24.04@sha256:6b0c8ac994cf1d2da44b0b36ebd7b3b125094886e78293e04b9db5e515b8209e
+          IMG_LMN74=ghcr.io/linuxmuster/lmndev-runner:latest@sha256:d735e6ccc6fd9df71b2552b06ac6f5cb4bf2d03f40e14bafe47213325b7b801b
+          if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=$IMG_LMN74; else IMG=$IMG_LMN73; fi
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
           echo "version=$(dpkg-parsechangelog -S Version)" >> "$GITHUB_OUTPUT"
 
@@ -477,7 +485,7 @@ jobs:
       image: ${{ needs.resolve.outputs.image }}
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build package (make deb = dpkg-buildpackage; debhelper and dh-python via build-dep)
         run: |
           apt-get update -qq
@@ -495,7 +503,7 @@ jobs:
           # Never lint the .changes: `lmn73` is not a known distribution, which makes
           # lintian fail with E: bad-distribution-in-changes-file on every single build.
           lintian --fail-on error output/*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: packages
           path: output/
@@ -513,7 +521,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -608,7 +616,7 @@ jobs:
     needs: [resolve, package]
     runs-on: ubuntu-24.04              # the target OS (linuxmuster.net 7.3)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -646,8 +654,9 @@ jobs:
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
     steps:
-      - uses: actions/checkout@v4          # needed for dpkg-parsechangelog and the fixtures
-      - uses: actions/download-artifact@v4
+      # needed for dpkg-parsechangelog and the fixtures
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
