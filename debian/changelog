@@ -1,3 +1,21 @@
+lmn-gpo (7.3.4) lmn73; urgency=medium
+
+  * Build and release hardening only, no behaviour change: the catalog, the engine, the
+    PowerShell scripts and the CLI are the same as in 7.3.3. Nothing has to be re-applied, no
+    GPO is touched, `lmn-gpo apply` does not have to be run for this release.
+  * The package is built from pinned inputs. The build container
+    ghcr.io/linuxmuster/lmndev-runner:24.04 is pulled by its sha256 digest instead of a tag
+    that upstream rebuilds every week, and every GitHub Action used by CI and the release is
+    pinned to a commit instead of a movable tag. A new container or action version now
+    arrives as a reviewable pull request (Renovate, never merged automatically) instead of
+    silently changing what goes into the package.
+  * The GitHub release no longer uses a third-party action. It is created as a draft, the
+    .deb, .changes, .dsc and source tarball are uploaded and compared by sha256 with the
+    build, and only then is the release published, so it can be made immutable: once
+    published, its tag and files cannot be changed anymore.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Wed, 23 Sep 2026 13:21:42 +0200
+
 lmn-gpo (7.3.3) lmn73; urgency=medium
 
   * Packaging only. No behaviour change is intended: the catalog, the engine, the
