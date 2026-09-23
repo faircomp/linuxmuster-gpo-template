@@ -21,12 +21,12 @@
     },
     {
       "customType": "regex",
-      "description": "The Renovate engine itself, pinned as renovate-version: <version>@sha256:<digest> in renovate.yml (the action's default engine is too old for this config).",
+      "description": "The Renovate engine itself, pinned as RENOVATE_VERSION: <version>@sha256:<digest> in the job env of renovate.yml (the one place it is set; the action's default engine is too old for this config).",
       "managerFilePatterns": [
         "/^\\.github/workflows/renovate\\.ya?ml$/"
       ],
       "matchStrings": [
-        "renovate-version: (?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+        "RENOVATE_VERSION: (?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "depNameTemplate": "ghcr.io/renovatebot/renovate",
       "datasourceTemplate": "docker"
@@ -91,6 +91,13 @@
       ],
       "groupName": "renovate engine",
       "automerge": false
+    },
+    {
+      "description": "PyPI (the pinned CI gate tools such as ruff): propose a release only after 7 days, the window in which a compromised upload is usually noticed. Not for Docker/ghcr.io: it delivers no release timestamps, so an age rule would hold those updates forever and silently; the Thursday schedule in renovate.yml is the brake there.",
+      "matchDatasources": [
+        "pypi"
+      ],
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Runners stay on the Ubuntu of the linuxmuster line (ubuntu-24.04 for lmn73): the install and upgrade smokes must run where the package is installed.",
