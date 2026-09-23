@@ -1,0 +1,69 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "From linuxmusterDEV/templates/renovate.json (supply chain, stage A): keep the SHA-pinned actions, the digest-pinned build image and the pinned Renovate engine current through reviewable PRs. Nothing is automerged.",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "automerge": false,
+  "semanticCommits": "enabled",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Build image pinned as <image>:<tag>@sha256:<digest> in the workflows (IMG_LMN73/IMG_LMN74 in ci.yml and release.yml). The captured tag tells Renovate which tag's digest to follow.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?<depName>ghcr\\.io/linuxmuster/lmndev-runner):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Renovate engine itself, pinned as renovate-version: <version>@sha256:<digest> in renovate.yml (the action's default engine is too old for this config).",
+      "managerFilePatterns": ["/^\\.github/workflows/renovate\\.ya?ml$/"],
+      "matchStrings": [
+        "renovate-version: (?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "ghcr.io/renovatebot/renovate",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Pinned CI gate tools that ci.yml installs with `pip install tool==x.y.z` in the fast tier, so a linter widening its default rules cannot turn CI red on its own.",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.ya?ml$/"],
+      "matchStrings": [
+        "(?<depName>ruff|mypy|pytest|reuse|types-PyYAML)==(?<currentValue>[0-9]+(?:\\.[0-9]+)+)"
+      ],
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Build image: never change the tag (24.04 -> 26.04 would be a new linuxmuster line, not an update), only follow its digest.",
+      "matchPackageNames": ["ghcr.io/linuxmuster/lmndev-runner"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "Build image digests in one PR, so ci.yml and release.yml always build with the same image. A human reviews and merges it.",
+      "matchPackageNames": ["ghcr.io/linuxmuster/lmndev-runner"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "lmndev-runner build image",
+      "automerge": false
+    },
+    {
+      "description": "Actions stay pinned by commit SHA with a # vN comment; a human merges every bump.",
+      "matchManagers": ["github-actions"],
+      "automerge": false
+    },
+    {
+      "description": "setup-python mirrors the target Ubuntu's Python (3.12 on 24.04 for lmn73); it changes with the linuxmuster line, not with Python releases.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "enabled": false
+    },
+    {
+      "description": "Renovate engine: one PR that moves along until it is merged.",
+      "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
+      "groupName": "renovate engine",
+      "automerge": false
+    }
+  ]
+}
