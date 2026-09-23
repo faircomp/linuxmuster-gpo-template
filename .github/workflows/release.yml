@@ -5,10 +5,16 @@
 # version source. The release is gated on the same install AND upgrade smoke as ci.yml, so no
 # tag can be published that does not install on top of the version a school already runs.
 # A manual run (workflow_dispatch) only builds, smokes and uploads the .deb. Since the
-# debian/ conversion the build also produces the .changes, .dsc and source tarball; all
-# three are attached so the .changes describes files that are actually there.
-# No publish job yet (no faircomp/deb archive). Since the debian/ conversion the build also
-# produces a .changes file, which is attached to the release next to the .deb.
+# debian/ conversion the build produces a .changes; the release carries it together with
+# every file it lists (.deb, .dsc, source tarball, .buildinfo), so the .changes never names a
+# file nobody can download. No publish job yet (no faircomp/deb archive).
+#
+# Supply chain (hub templates/release.yml, stage A): build image by digest and every action by
+# commit SHA (same pins as ci.yml), no third-party release action next to `contents: write`.
+# The release is created as a DRAFT, all assets are uploaded and compared by sha256 with the
+# build, and only then published: GitHub immutable releases freeze tag and assets on publish,
+# so a release published first could not receive its assets afterwards. A failed run leaves
+# a draft that a re-run completes.
 name: release
 
 on:
@@ -28,7 +34,7 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
       version: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: meta
         run: |
           VERSION=$(dpkg-parsechangelog -S Version)
@@ -36,7 +42,10 @@ jobs:
           TAGVER="${GITHUB_REF_NAME#v}"; TAGVER="${TAGVER//-rc/~rc}"   # v7.3.1-rc1 -> 7.3.1~rc1
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$TAGVER" != "$VERSION" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match debian/changelog version $VERSION"; exit 1; fi
-          if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=ghcr.io/linuxmuster/lmndev-runner:latest; else IMG=ghcr.io/linuxmuster/lmndev-runner:24.04; fi
+          # Pinned by digest (see the header); Renovate bumps both lines here and in ci.yml.
+          IMG_LMN73=ghcr.io/linuxmuster/lmndev-runner:24.04@sha256:6b0c8ac994cf1d2da44b0b36ebd7b3b125094886e78293e04b9db5e515b8209e
+          IMG_LMN74=ghcr.io/linuxmuster/lmndev-runner:latest@sha256:d735e6ccc6fd9df71b2552b06ac6f5cb4bf2d03f40e14bafe47213325b7b801b
+          if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=$IMG_LMN74; else IMG=$IMG_LMN73; fi
           echo "image=$IMG" >> "$GITHUB_OUTPUT"; echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
@@ -46,7 +55,7 @@ jobs:
       image: ${{ needs.gate.outputs.image }}
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build package (make deb = dpkg-buildpackage; debhelper and dh-python via build-dep)
         run: |
           apt-get update -qq
@@ -63,7 +72,7 @@ jobs:
           # The .deb only: `lmn73` is not a distribution lintian knows, so linting the
           # .changes would fail every build with E: bad-distribution-in-changes-file.
           lintian --fail-on error output/*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: packages
           path: output/
@@ -73,7 +82,7 @@ jobs:
     needs: [gate, build]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -111,8 +120,9 @@ jobs:
     env:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
-      - uses: actions/checkout@v4          # needed for dpkg-parsechangelog and the fixtures
-      - uses: actions/download-artifact@v4
+      # needed for dpkg-parsechangelog and the fixtures
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -362,7 +372,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -461,7 +471,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: packages
           path: packages/
@@ -488,14 +498,50 @@ jobs:
             echo ""
             echo "\`SHA256: ${SHA}\`"
           } > notes.md
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: lmn-gpo ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
-          body_path: notes.md
-          files: |
-            packages/*.deb
-            packages/*.changes
-            packages/*.dsc
-            packages/*.tar.*
-          generate_release_notes: true      # appended below the notes above
+      # Draft -> assets -> digest check -> publish (why: see the header). The gh CLI ships with
+      # the runner; ids and digests are read through `gh api` so an older gh works as well.
+      - name: Publish the GitHub release (draft first)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}     # through env, never interpolated into the script
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Publish the .changes and exactly the files it lists (Files: " md5 size section priority
+          # name"), so the .changes never names a file nobody can download.
+          changes=(packages/*.changes)
+          [ "${#changes[@]}" = 1 ] || { echo "::error::expected one .changes, found ${#changes[@]}"; exit 1; }
+          mapfile -t listed < <(awk '/^Files:/ {f = 1; next} f && /^ / {print "packages/" $5; next} f {exit}' "${changes[0]}")
+          assets=("${changes[0]}" "${listed[@]}")
+          for f in "${assets[@]}"; do
+            [ -f "$f" ] || { echo "::error::$f is listed in the .changes but was not built"; exit 1; }
+          done
+          printf '%s\n' "${listed[@]}" | grep -q '\.deb$' || { echo "::error::the .changes lists no .deb"; exit 1; }
+          pre=(); case "$TAG" in *-rc*) pre=(--prerelease) ;; esac
+          lookup() { gh api "repos/$GH_REPO/releases?per_page=100" \
+                       --jq '.[] | select(.tag_name == env.TAG) | "\(.id) \(.draft)"'; }
+          found=$(lookup)
+          case "$found" in
+            # --notes-file goes first, the generated notes are appended below it
+            "")      gh release create "$TAG" --draft --verify-tag --title "lmn-gpo $TAG" \
+                       --notes-file notes.md --generate-notes "${pre[@]}"
+                     found=$(lookup) ;;
+            *" true") echo "::notice::re-run: completing the draft a failed run left behind" ;;
+            *)       echo "::error::$TAG is already published; its assets are never replaced"; exit 1 ;;
+          esac
+          if [ "$(printf '%s\n' "$found" | wc -l)" != 1 ] || [ "${found#* }" != true ]; then
+            echo "::error::expected exactly one draft for $TAG, got: $found"; exit 1
+          fi
+          rid=${found%% *}
+          gh release upload "$TAG" "${assets[@]}" --clobber
+          # Publish only what was built: GitHub's sha256 of every asset on the draft must equal
+          # the built files, as a set (GitHub may rename files, e.g. `~` in a version).
+          sha256sum "${assets[@]}" | cut -d' ' -f1 | sort > built.sha256
+          gh api "repos/$GH_REPO/releases/$rid/assets?per_page=100" \
+            --jq '.[].digest | ltrimstr("sha256:")' | sort > uploaded.sha256
+          diff built.sha256 uploaded.sha256 \
+            || { echo "::error::assets on the draft differ from the build, not publishing"; exit 1; }
+          gh release edit "$TAG" --draft=false
+          immutable=$(gh api "repos/$GH_REPO/releases/$rid" --jq '.immutable' || true)
+          [ "$immutable" = true ] || echo "::warning::$TAG is published but not immutable (immutable=$immutable)"
