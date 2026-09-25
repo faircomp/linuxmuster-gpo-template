@@ -1,3 +1,21 @@
+lmn-gpo (7.3.5) lmn73; urgency=medium
+
+  * Release only, no behaviour change: the catalog, the engine, the PowerShell scripts and
+    the CLI are the same as in 7.3.4. Nothing has to be re-applied, no GPO is touched,
+    `lmn-gpo apply` does not have to be run for this release.
+  * This release exists so that the version a school installs is an immutable GitHub release:
+    once published, its tag and files cannot be changed anymore. 7.3.4 and every older
+    release were published before immutable releases were switched on for the repository and
+    can still be changed; install 7.3.5 instead.
+  * The release job refuses to publish unless immutable releases are switched on for the
+    repository (checked while the release is still a draft), and fails if the published
+    release does not come out immutable. Until now it only printed a warning and ended green.
+  * Correction to 7.3.4: Renovate is switched off for now, so new container and action
+    versions do not arrive as pull requests; the pins are raised by hand until Renovate
+    returns as a GitHub App.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Fri, 25 Sep 2026 11:16:36 +0200
+
 lmn-gpo (7.3.4) lmn73; urgency=medium
 
   * Build and release hardening only, no behaviour change: the catalog, the engine, the
