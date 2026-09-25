@@ -15,6 +15,16 @@
 # build, and only then published: GitHub immutable releases freeze tag and assets on publish,
 # so a release published first could not receive its assets afterwards. A failed run leaves
 # a draft that a re-run completes.
+# Immutable or not at all: after publishing, the job re-reads the release and fails unless
+# `immutable` is true (readable with GITHUB_TOKEN). The setting only acts on releases published
+# after it was switched on (7.3.4 and older came out mutable while the run stayed green).
+# Checking the setting itself before publishing needs the Administration permission, which no
+# GITHUB_TOKEN can hold (HTTP 403 even with `permissions: write-all`). With the OPTIONAL repo
+# secret IMMUTABLE_CHECK_TOKEN (a fine-grained token for this repo with only "Administration:
+# Read-only") the job also refuses to publish while the setting is off; without it, it says so
+# in a notice and relies on the check after publishing.
+# Pins are raised by hand: the Renovate workflow is disabled (Kevin, 2026-09-25) until Renovate
+# is re-enabled with a GitHub App. Raise a digest here and in ci.yml in the same commit.
 name: release
 
 on:
@@ -42,7 +52,7 @@ jobs:
           TAGVER="${GITHUB_REF_NAME#v}"; TAGVER="${TAGVER//-rc/~rc}"   # v7.3.1-rc1 -> 7.3.1~rc1
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$TAGVER" != "$VERSION" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match debian/changelog version $VERSION"; exit 1; fi
-          # Pinned by digest (see the header); Renovate bumps both lines here and in ci.yml.
+          # Pinned by digest (see the header); raise both lines here and in ci.yml together.
           IMG_LMN73=ghcr.io/linuxmuster/lmndev-runner:24.04@sha256:6b0c8ac994cf1d2da44b0b36ebd7b3b125094886e78293e04b9db5e515b8209e
           IMG_LMN74=ghcr.io/linuxmuster/lmndev-runner:latest@sha256:d735e6ccc6fd9df71b2552b06ac6f5cb4bf2d03f40e14bafe47213325b7b801b
           if [ "${NUM:-0}" -ge 74 ] 2>/dev/null; then IMG=$IMG_LMN74; else IMG=$IMG_LMN73; fi
@@ -509,6 +519,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}     # through env, never interpolated into the script
+          # Optional read-only token for the immutable-releases setting (see the header), used for
+          # that one call only; empty when the secret does not exist.
+          IMMUTABLE_CHECK_TOKEN: ${{ secrets.IMMUTABLE_CHECK_TOKEN }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -595,6 +608,31 @@ jobs:
             | while read -r d n; do printf '%s %s\n' "$d" "$(norm "$n")"; done | sort > uploaded.sha256
           diff built.sha256 uploaded.sha256 \
             || { echo "::error::assets on the draft differ from the build, not publishing"; exit 1; }
+          # Immutable or not at all (why: see the header). In advance, at the last moment the release
+          # is still a draft, but only with the optional token: GITHUB_TOKEN cannot read the setting.
+          # A repo with the setting off answers {"enabled":false}; the docs also name 404. With the
+          # token, anything but enabled == true stops here and leaves the draft unpublished.
+          if [ -z "${IMMUTABLE_CHECK_TOKEN:-}" ]; then
+            echo "::notice::immutable releases could not be checked before publishing: secret IMMUTABLE_CHECK_TOKEN is not set and GITHUB_TOKEN cannot read the setting. Publishing anyway; the check after publishing fails this job if $TAG does not come out immutable."
+          else
+            if ! enabled=$(GH_TOKEN=$IMMUTABLE_CHECK_TOKEN gh api "repos/$GH_REPO/immutable-releases" --jq '.enabled'); then
+              echo "::error::cannot read the immutable-releases setting of $GH_REPO (${enabled//$'\n'/ }); draft $rid stays unpublished"; exit 1
+            fi
+            [ "$enabled" = true ] || {
+              echo "::error::immutable releases are not enabled for $GH_REPO (enabled=$enabled); draft $rid stays unpublished"; exit 1; }
+          fi
           gh api -X PATCH "repos/$GH_REPO/releases/$rid" -F draft=false --jq '"published \(.html_url)"'
-          immutable=$(gh api "repos/$GH_REPO/releases/$rid" --jq '.immutable' || true)
-          [ "$immutable" = true ] || echo "::warning::$TAG is published but not immutable (immutable=$immutable)"
+          # Re-read by id: the published release must be immutable. This check always runs (the
+          # release is readable with GITHUB_TOKEN) and is the one that guarantees a mutable release
+          # is noticed. An error, never a warning, or the run ends green with assets that can still
+          # be replaced. The retry only covers a read that lags behind the publish.
+          immutable=
+          for i in 1 2 3; do
+            immutable=$(gh api "repos/$GH_REPO/releases/$rid" --jq '.immutable') && [ "$immutable" = true ] && break
+            [ "$i" = 3 ] || sleep $((i * 5))
+          done
+          if [ "$immutable" != true ]; then
+            echo "::error::$TAG is published but NOT immutable (immutable=${immutable:-unreadable}), its assets can still be replaced: delete release $rid (the tag stays), turn immutable releases on, re-run this job"
+            exit 1
+          fi
+          echo "$TAG is published and immutable"

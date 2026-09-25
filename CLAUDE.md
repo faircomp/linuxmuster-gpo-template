@@ -28,6 +28,9 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   checkout without it reads the changelog itself
   (`lmn_gpo/__init__.py`). `lmn-gpo --version` must always equal it (CI asserts). Never bump it
   in a feature PR; Kevin bumps and tags `v7.3.N`, and `release.yml` refuses a mismatching tag.
+  The release job fails unless the published release comes out immutable; with the optional
+  repo secret `IMMUTABLE_CHECK_TOKEN` (fine-grained, this repo, Administration: Read-only;
+  GITHUB_TOKEN cannot read that setting) it also refuses to publish while the setting is off.
   The binary package name stays `lmn-gpo`.
 - **Every shipped or generated `.ps1` is pure ASCII.** Windows PowerShell 5.1 reads a BOM-less
   script in the system codepage; a UTF-8 em dash becomes a curly quote and ends the string.
@@ -73,7 +76,7 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   and `dh-python`, no root) and writes `../lmn-gpo_<version>_all.deb` plus `.changes`,
   `.buildinfo`, `.dsc` and the source tarball **next to** the checkout, not into `dist/`. CI
   builds it in `ghcr.io/linuxmuster/lmndev-runner:24.04` pinned by digest (`IMG_LMN73` in
-  `.github/workflows/ci.yml`; Renovate proposes new digests as PRs) and installs it on
+  `.github/workflows/ci.yml`; raised by hand while Renovate is disabled) and installs it on
   ubuntu-24.04 (`lmn-gpo --help`/`--version`). Build locally with the same digest, never the
   bare tag; the container needs a writable parent, so mount the checkout one level down:
   `IMG=$(sed -n 's/^ *IMG_LMN73=//p' .github/workflows/ci.yml)` and then
