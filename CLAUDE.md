@@ -76,7 +76,7 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   and `dh-python`, no root) and writes `../lmn-gpo_<version>_all.deb` plus `.changes`,
   `.buildinfo`, `.dsc` and the source tarball **next to** the checkout, not into `dist/`. CI
   builds it in `ghcr.io/linuxmuster/lmndev-runner:24.04` pinned by digest (`IMG_LMN73` in
-  `.github/workflows/ci.yml`; Renovate proposes new digests as PRs) and installs it on
+  `.github/workflows/ci.yml`; raised by hand while Renovate is disabled) and installs it on
   ubuntu-24.04 (`lmn-gpo --help`/`--version`). Build locally with the same digest, never the
   bare tag; the container needs a writable parent, so mount the checkout one level down:
   `IMG=$(sed -n 's/^ *IMG_LMN73=//p' .github/workflows/ci.yml)` and then
