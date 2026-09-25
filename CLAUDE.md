@@ -28,9 +28,9 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   checkout without it reads the changelog itself
   (`lmn_gpo/__init__.py`). `lmn-gpo --version` must always equal it (CI asserts). Never bump it
   in a feature PR; Kevin bumps and tags `v7.3.N`, and `release.yml` refuses a mismatching tag.
-  It publishes only if the release comes out immutable, which it checks with the repo secret
-  `IMMUTABLE_CHECK_TOKEN` (fine-grained, this repo, Administration: Read-only; GITHUB_TOKEN
-  cannot read that setting). Without the secret the release stays a draft.
+  The release job fails unless the published release comes out immutable; with the optional
+  repo secret `IMMUTABLE_CHECK_TOKEN` (fine-grained, this repo, Administration: Read-only;
+  GITHUB_TOKEN cannot read that setting) it also refuses to publish while the setting is off.
   The binary package name stays `lmn-gpo`.
 - **Every shipped or generated `.ps1` is pure ASCII.** Windows PowerShell 5.1 reads a BOM-less
   script in the system codepage; a UTF-8 em dash becomes a curly quote and ends the string.
