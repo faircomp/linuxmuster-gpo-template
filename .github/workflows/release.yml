@@ -38,7 +38,11 @@ on:
         default: ''
 
 jobs:
+  # Every job carries a display name with the prefix 'release: '. The main ruleset requires the
+  # ci.yml jobs BY NAME; a release run on the same commit (workflow_dispatch on a PR branch)
+  # with a job of the same name could otherwise stand in for a red ci.yml check.
   gate:
+    name: 'release: gate'
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -59,6 +63,7 @@ jobs:
           echo "image=$IMG" >> "$GITHUB_OUTPUT"; echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
+    name: 'release: build'
     needs: gate
     runs-on: ubuntu-latest
     container:
@@ -89,6 +94,7 @@ jobs:
           if-no-files-found: error
 
   install-smoke:
+    name: 'release: install-smoke'
     needs: [gate, build]
     runs-on: ubuntu-24.04
     steps:
@@ -123,6 +129,7 @@ jobs:
   # the config migration branch that is reachable ONLY on an upgrade, and the catalog, which
   # is plain PyYAML and needs no AD at all.
   upgrade-smoke:
+    name: 'release: upgrade-smoke'
     needs: [gate, build]
     runs-on: ubuntu-24.04
     permissions:
@@ -377,6 +384,7 @@ jobs:
   # against the newest published release: a path that disappears or changes mode/owner
   # fails the build. This gate is permanent, not just for the debian/ conversion.
   file-tree:
+    name: 'release: file-tree'
     needs: build
     runs-on: ubuntu-latest        # GitHub-hosted: gh is installed here, not in the container
     permissions:
@@ -475,6 +483,7 @@ jobs:
           PY
 
   release:
+    name: 'release: release'
     needs: [gate, build, install-smoke, upgrade-smoke, file-tree]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
@@ -636,8 +645,10 @@ jobs:
               echo "::error::$TAG is published but NOT immutable, its assets can still be replaced: delete release $rid (the tag stays), turn immutable releases on, re-run this job"
             else
               # Unreadable is not "false": the release may well be immutable (and then cannot be
-              # replaced anyway), so never tell anyone to delete it on a failed read.
-              echo "::error::$TAG is published, but whether it is immutable could not be read (${immutable:-no answer}). Do not delete it: check with gh api repos/$GH_REPO/releases/$rid --jq .immutable; only if that prints false, delete release $rid (the tag stays), turn immutable releases on and re-run this job"
+              # replaced anyway), so never tell anyone to delete it on a failed read. One line, or
+              # the annotation shows only the first line of a multi-line error answer.
+              shown=${immutable//$'\n'/ }
+              echo "::error::$TAG is published, but whether it is immutable could not be read (${shown:-no answer}). Do not delete it: check with gh api repos/$GH_REPO/releases/$rid --jq .immutable; only if that prints false, delete release $rid (the tag stays), turn immutable releases on and re-run this job"
             fi
             exit 1
           fi
