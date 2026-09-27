@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: Kevin Stenzel
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# STATE (Kevin, 2026-09-25): this workflow is disabled in every faircomp repo (gh workflow disable,
+# shown as disabled_manually). Nothing below runs and no Renovate pull requests arrive; pinned
+# versions move only in reviewed pull requests raised by hand, until Renovate returns as a
+# GitHub App, which replaces this workflow. The rest of this header describes it when enabled.
+#
 # From linuxmusterDEV/templates/renovate.yml (config: renovate.json in the repo root). The same
 # self-hosted Renovate as linuxmuster-radius (faircomp has no org-level Renovate app), hardened
 # in stage A so that it can no longer end green while doing nothing (radius did exactly that
