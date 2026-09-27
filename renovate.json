@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "From linuxmusterDEV/templates/renovate.json (supply chain, stage A): keep the SHA-pinned actions, the digest-pinned build image and the pinned Renovate engine current through reviewable PRs. Nothing is automerged.",
+  "description": "Renovate is disabled, see renovate.yml: it raises nothing now, and pins are raised by hand in reviewed PRs. When enabled again, this config (from linuxmusterDEV/templates/renovate.json, supply chain, stage A) keeps the SHA-pinned actions, the digest-pinned build image and the pinned Renovate engine current through reviewable PRs. Nothing is automerged.",
   "extends": [
     "config:recommended",
     "helpers:pinGitHubActionDigests"
@@ -57,7 +57,7 @@
       "enabled": false
     },
     {
-      "description": "Build image digests in one PR, so ci.yml and release.yml always build with the same image. A human reviews and merges it.",
+      "description": "When enabled: build image digests in one PR, so ci.yml and release.yml always build with the same image. A human reviews and merges it.",
       "matchPackageNames": [
         "ghcr.io/linuxmuster/lmndev-runner"
       ],
@@ -68,7 +68,7 @@
       "automerge": false
     },
     {
-      "description": "Actions stay pinned by commit SHA with a # vN comment; a human merges every bump.",
+      "description": "Actions stay pinned by commit SHA with a # vN comment; when enabled, a human merges every bump.",
       "matchManagers": [
         "github-actions"
       ],
@@ -85,7 +85,7 @@
       "enabled": false
     },
     {
-      "description": "Renovate engine: one PR that moves along until it is merged.",
+      "description": "When enabled: one PR for the Renovate engine that moves along until it is merged.",
       "matchPackageNames": [
         "ghcr.io/renovatebot/renovate"
       ],
@@ -93,7 +93,7 @@
       "automerge": false
     },
     {
-      "description": "PyPI (the pinned CI gate tools such as ruff): propose a release only after 7 days, the window in which a compromised upload is usually noticed. Not for Docker/ghcr.io: it delivers no release timestamps, so an age rule would hold those updates forever and silently; the Thursday schedule in renovate.yml is the brake there.",
+      "description": "When enabled, PyPI (the pinned CI gate tools such as ruff): propose a release only after 7 days, the window in which a compromised upload is usually noticed. Not for Docker/ghcr.io: it delivers no release timestamps, so an age rule would hold those updates forever and silently; the Thursday schedule in renovate.yml is the brake there.",
       "matchDatasources": [
         "pypi"
       ],
