@@ -34,6 +34,12 @@ lmn-gpo (7.3.6) lmn73; urgency=medium
     (all items disabled) and switches its test link to enforced and back.
   * Windows clients only: Linux clients keep linuxmuster's default drives. A mapped drive
     grants no rights on the share - set them on the file server.
+  * Measured on a Windows 11 client: a teacher of one school has NO access to another
+    school's share by default; a letter for it shows "Access denied" until the admin adds
+    rights for that group there (lmn-gpo never does; README: add an entry, do not change
+    sophomorix' own ones, re-check after sophomorix-repair). 'action: update' does not
+    re-point a letter the user mapped elsewhere, so 'replace' stays the default. Explorer
+    keeps one label per path: two letters on the same path share a label.
   * Coming from 7.3.1 or older (e.g. 1.13.0): first run 'lmn-gpo apply --yes' once WITHOUT
     drives_enabled and check one client (event 5311 says "Merge"), then enable the drives.
     The loopback fix of 7.3.2 changes on its own which drives a teacher sees at another
