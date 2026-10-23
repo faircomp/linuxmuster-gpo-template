@@ -738,10 +738,10 @@ control or copy it between servers. Like `site.yaml` it is not a package conffil
 | `drives[].letter` | D–Z. **H: only with `home: true`** (sophomorix gives every account `homeDrive H:`) |
 | `drives[].path` | UNC path in **single quotes**, `'\\server\share[\folder]'`. `@server` = this server's NetBIOS name in lower case (what sophomorix writes for its own drives), `@serverfqdn` = its FQDN. `%VARIABLES%` pass through to the client. |
 | `drives[].home: true` | H: = the user's own `homeDirectory`, the exact item of pack `19-home-h` (Update) |
-| `drives[].label` | Explorer label (umlauts are fine) |
+| `drives[].label` | Explorer label (umlauts are fine). Windows stores labels per UNC **path**, not per letter: two letters on the same path show the same label (the one written last), e.g. a T: from sophomorix and your M: both on `\\server\<school>\share`. |
 | `drives[].groups` | sAMAccountNames, **any of** them matches; none = every user. Also `@role-teacher`, `@role-student`, `@role-staff` or a raw SID. |
 | `drives[].devices` | optional device groups (any of): only on those computers |
-| `drives[].action` | `replace` (default: deletes and re-creates, so a letter that sophomorix or the user already holds is taken over) or `update` |
+| `drives[].action` | `replace` (default) or `update`. Replace deletes and re-creates the mapping, so a letter that sophomorix or the user has already mapped somewhere else is pointed at your path. Update does **not** re-point a letter that is already mapped elsewhere — it stays where it was, and the client still logs the item as applied successfully (measured on Windows 11). That is why replace is the default; use update only where an existing mapping must never be touched. |
 | `drives[].reconnect` | `true` = persistent mapping, written with "remove this item when it is no longer applied" |
 
 The **same letter may appear more than once: the first matching entry wins** (later entries
@@ -756,7 +756,13 @@ and `apply` at once.
 `role-teacher`, `role-staff`, `all-teachers`, … and your own (`sophomorix-group --create
 --group verwaltung`). lmn-gpo resolves names by `sAMAccountName`, which is unique in the domain.
 
-### Example
+**Another school's share needs permissions.** lmn-gpo maps drives, it never grants access. By
+default only a school's own groups (`<school>-teachers`, `<school>-students`, the school group)
+can read `\\server\<school>`; a teacher of school A who gets a letter on `\\server\<schoolB>`
+sees the letter, but opening it fails with "Access denied" (Application log: Group Policy Drive
+Maps, 0x80070005) until the admin gives that group rights there — measured in the lab, where
+the drive worked as soon as the cross-school group had read access on the other school's folders.
+Mapping a teacher to the own school, as in the example below, needs nothing extra.
 
 Shipped as `/usr/share/doc/lmn-gpo/examples/drives.yaml.example` — one real layout, **an
 example, not a default**: schools `msg`, `gsg`, `gym` are additional schools,
@@ -829,7 +835,14 @@ persistent and disappear (in a running session they stay until logoff).
   GPO, and `sophomorix-school --gpo-create` resets it.
 - **No permissions.** A mapped drive grants no access: the user needs rights on the share
   (`\\server\gsg` for a msg teacher, `\\verwaltung\verwaltung`). sophomorix sets rights for
-  its own groups only; lmn-gpo sets none.
+  its own groups only; lmn-gpo sets none. For a cross-school letter (M/G/Y for teachers of
+  another school, e.g. via a group `lk-gsg`), set the rights yourself before enabling it. A hint,
+  not a recipe: give the group read (or more, as intended) on the school folder and on the
+  folders below it that it should see, by **adding** an entry — e.g. in the Windows security
+  dialog, connected as `global-admin` — and do not change or remove sophomorix' own entries.
+  The ACLs of the school folders come from sophomorix' templates and `sophomorix-repair` writes
+  them again, so check the extra entry after a repair. Prefer pointing the letter at the folder
+  the group should see (`\\server\gsg\share`) over opening the whole school root.
 - No "hide this drive" (it writes `NoDrives`, which would outlive the GPO).
 - Offline notebooks / 802.1X: like 19-home-h — without a DC at logon there are no drives.
 
@@ -1015,7 +1028,9 @@ git pull
 | **A per-school user GPO (`LMN-U-<school>-12-proxy-*`) is missing from `gpresult /scope user`** — not even under "filtered out" | no loopback on that machine. These packs are linked to `OU=Devices` and need `12-proxy-base` or `15-lockdown-base`; `apply`/`doctor` print "Loopback prerequisite". Check on the client: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` must exist and read `0x1`. |
 | **`gpupdate /target:user` over SSH/WinRM reports success, nothing changes** | user policy is only processed in an interactive session (logon type 2/10), never in session 0. See [Checking on the client](#checking-on-the-client). |
 | **A default drive (K:, T:, …) still appears although `drives.yaml` removes it** | `lmn-gpo doctor`, section "Drive maps": is the link at `OU=SCHOOLS` enforced, does another GPO with drive maps run later, is the entry held back (unknown group)? Is the user in a `for_groups` group (a new membership needs a new logon)? On the client `gpresult /h` shows the winning GPO per drive. |
-| **A drive from `drives.yaml` is missing or says "access denied"** | missing: group membership (new logon), held-back entry (`apply`/`doctor` name it), Linux client (not supported). Access denied: the mapping works, the user has no rights on the share — lmn-gpo sets none. |
+| **A drive from `drives.yaml` is missing or says "access denied"** | missing: group membership (new logon), held-back entry (`apply`/`doctor` name it), Linux client (not supported). Access denied (Application log 0x80070005): the mapping works, the user has no rights on the share — lmn-gpo sets none; a teacher has none on another school's share by default ([Fixed drive letters](#fixed-drive-letters-multi-school)). |
+| **A drive from `drives.yaml` points to an old path** | the user had mapped that letter elsewhere and the entry uses `action: update`, which does not re-point it. Use `replace` (the default). |
+| **Two drives show the same Explorer label** | they point to the same UNC path; Windows keeps one label per path. |
 | **`samba-tool gpo listall` shows fewer GPOs than `lmn-gpo list`** | the `12-proxy-*-schule` packs deny **Read** to `@teachernb` (→ `d_nopxe`), and the DC's own machine account is a member of that group. Without `-U administrator` `listall` runs under the machine identity and simply cannot see them — it is not a missing GPO. Use `lmn-gpo list --mine` (reads the directory as root) for inventory and clean-up checks. |
 
 ---
@@ -1755,10 +1770,10 @@ versioniert oder zwischen Servern kopiert werden. Wie `site.yaml` ist sie keine 
 | `drives[].letter` | D–Z. **H: nur mit `home: true`** (sophomorix gibt jedem Konto `homeDrive H:`) |
 | `drives[].path` | UNC-Pfad in **einfachen Anführungszeichen**, `'\\server\freigabe[\ordner]'`. `@server` = NetBIOS-Name dieses Servers in Kleinbuchstaben (so schreibt sophomorix seine eigenen Laufwerke), `@serverfqdn` = sein FQDN. `%VARIABLEN%` gehen unverändert an den Client. |
 | `drives[].home: true` | H: = das eigene `homeDirectory` des Benutzers, genau der Eintrag aus Pack `19-home-h` (Update) |
-| `drives[].label` | Bezeichnung im Explorer (Umlaute gehen) |
+| `drives[].label` | Bezeichnung im Explorer (Umlaute gehen). Windows speichert Bezeichnungen pro UNC-**Pfad**, nicht pro Buchstabe: Zwei Buchstaben auf denselben Pfad zeigen dieselbe Bezeichnung (die zuletzt geschriebene), z. B. ein T: von sophomorix und euer M:, beide auf `\\server\<schule>\share`. |
 | `drives[].groups` | sAMAccountNames, **eine davon** genügt; keine = alle Benutzer. Auch `@role-teacher`, `@role-student`, `@role-staff` oder eine SID. |
 | `drives[].devices` | optional Gerätegruppen (eine genügt): nur auf diesen Rechnern |
-| `drives[].action` | `replace` (Standard: löschen und neu verbinden, ein von sophomorix oder vom Benutzer belegter Buchstabe wird übernommen) oder `update` |
+| `drives[].action` | `replace` (Standard) oder `update`. Ersetzen löscht die Zuordnung und legt sie neu an; ein Buchstabe, den sophomorix oder der Benutzer schon anders belegt hat, zeigt danach auf euren Pfad. Aktualisieren hängt einen schon anders belegten Buchstaben **nicht** um — er bleibt, wo er war, und der Client protokolliert den Eintrag trotzdem als erfolgreich angewendet (unter Windows 11 gemessen). Deshalb ist `replace` der Standard; `update` nur dort, wo eine bestehende Zuordnung nie angefasst werden darf. |
 | `drives[].reconnect` | `true` = dauerhafte Verbindung, geschrieben mit „Element entfernen, wenn es nicht mehr angewendet wird" |
 
 **Derselbe Buchstabe darf mehrfach vorkommen: Der erste passende Eintrag gewinnt** (spätere
@@ -1773,7 +1788,14 @@ Unbekannte Schlüssel, ein Schlüssel `off:` (YAML liest `off` als false — der
 `role-teacher`, `role-staff`, `all-teachers`, … und eure eigenen (`sophomorix-group --create
 --group verwaltung`). lmn-gpo löst Namen über den `sAMAccountName` auf, der in der Domäne eindeutig ist.
 
-### Beispiel
+**Die Freigabe einer anderen Schule braucht Rechte.** lmn-gpo verbindet Laufwerke, es vergibt nie
+Zugriff. Von Haus aus dürfen nur die Gruppen der eigenen Schule (`<schule>-teachers`,
+`<schule>-students`, die Schulgruppe) `\\server\<schule>` lesen; eine Lehrkraft der Schule A, die
+einen Buchstaben auf `\\server\<schuleB>` bekommt, sieht den Buchstaben, beim Öffnen kommt aber
+„Zugriff verweigert" (Anwendungsprotokoll: Group Policy Drive Maps, 0x80070005), bis der Admin der
+Gruppe dort Rechte gibt — im Lab gemessen: Das Laufwerk ging, sobald die schulübergreifende Gruppe
+Leserechte auf den Ordnern der anderen Schule hatte. Lehrkräfte auf die eigene Schule zu verbinden
+wie im Beispiel unten braucht nichts zusätzlich.
 
 Liegt als `/usr/share/doc/lmn-gpo/examples/drives.yaml.example` bei — ein echtes Layout, **ein
 Beispiel, keine Vorgabe**: Die Schulen `msg`, `gsg`, `gym` sind Zweitschulen, default-school
@@ -1849,7 +1871,15 @@ Laufwerke sind nicht dauerhaft und verschwinden (in einer laufenden Sitzung bis 
   sie ändert die sophomorix-GPO, und `sophomorix-school --gpo-create` setzt das zurück.
 - **Keine Rechte.** Ein verbundenes Laufwerk gibt keinen Zugriff: Der Benutzer braucht Rechte
   auf der Freigabe (`\\server\gsg` für eine msg-Lehrkraft, `\\verwaltung\verwaltung`). sophomorix
-  setzt Rechte nur für seine eigenen Gruppen, lmn-gpo setzt keine.
+  setzt Rechte nur für seine eigenen Gruppen, lmn-gpo setzt keine. Für einen schulübergreifenden
+  Buchstaben (M/G/Y für Lehrkräfte einer anderen Schule, z. B. über eine Gruppe `lk-gsg`) die
+  Rechte vor dem Einschalten selbst setzen. Ein Hinweis, kein Rezept: der Gruppe Lesen (oder mehr,
+  wie gewollt) auf dem Schulordner und den Ordnern darunter geben, die sie sehen soll, durch einen
+  **zusätzlichen** Eintrag — z. B. im Windows-Sicherheitsdialog, verbunden als `global-admin` — und
+  die Einträge von sophomorix weder ändern noch entfernen. Die Rechte der Schulordner kommen aus den
+  Vorlagen von sophomorix, und `sophomorix-repair` schreibt sie neu; den zusätzlichen Eintrag nach
+  einer Reparatur prüfen. Besser den Buchstaben auf den Ordner zeigen lassen, den die Gruppe sehen
+  soll (`\\server\gsg\share`), als die ganze Schulwurzel zu öffnen.
 - Kein „Laufwerk ausblenden" (das schreibt `NoDrives`, das die GPO überdauern würde).
 - Offline-Notebooks / 802.1X: wie bei 19-home-h — ohne DC bei der Anmeldung keine Laufwerke.
 
@@ -2040,7 +2070,9 @@ git pull
 | **Eine Schul-Benutzer-GPO (`LMN-U-<schule>-12-proxy-*`) fehlt in `gpresult /scope user`** — auch nicht unter „herausgefiltert" | Auf dem Rechner fehlt Loopback. Diese Packs hängen an `OU=Devices` und brauchen `12-proxy-base` oder `15-lockdown-base`; `apply`/`doctor` melden „Loopback prerequisite". Am Client prüfen: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` muss existieren und `0x1` sein. |
 | **`gpupdate /target:user` über SSH/WinRM meldet Erfolg, es ändert sich nichts** | Benutzerrichtlinie wird nur in einer interaktiven Sitzung verarbeitet (Anmeldetyp 2/10), nie in Session 0. Siehe [Prüfen am Client](#prüfen-am-client). |
 | **Ein Standardlaufwerk (K:, T:, …) erscheint noch, obwohl `drives.yaml` es abschaltet** | `lmn-gpo doctor`, Abschnitt „Drive maps": Ist der Link an `OU=SCHOOLS` erzwungen, kommt eine andere GPO mit Laufwerkszuordnungen später, ist der Eintrag zurückgehalten (unbekannte Gruppe)? Ist der Benutzer in einer `for_groups`-Gruppe (neue Mitgliedschaft braucht eine neue Anmeldung)? Am Client zeigt `gpresult /h` pro Laufwerk die gewinnende GPO. |
-| **Ein Laufwerk aus `drives.yaml` fehlt oder meldet „Zugriff verweigert"** | fehlt: Gruppenmitgliedschaft (neu anmelden), zurückgehaltener Eintrag (`apply`/`doctor` nennen ihn), Linux-Client (nicht unterstützt). Zugriff verweigert: Die Zuordnung klappt, der Benutzer hat keine Rechte auf der Freigabe — lmn-gpo setzt keine. |
+| **Ein Laufwerk aus `drives.yaml` fehlt oder meldet „Zugriff verweigert"** | fehlt: Gruppenmitgliedschaft (neu anmelden), zurückgehaltener Eintrag (`apply`/`doctor` nennen ihn), Linux-Client (nicht unterstützt). Zugriff verweigert (Anwendungsprotokoll 0x80070005): Die Zuordnung klappt, der Benutzer hat keine Rechte auf der Freigabe — lmn-gpo setzt keine; auf der Freigabe einer anderen Schule hat eine Lehrkraft von Haus aus keine ([Feste Laufwerke](#feste-laufwerke-multischule)). |
+| **Ein Laufwerk aus `drives.yaml` zeigt auf einen alten Pfad** | Der Benutzer hatte den Buchstaben anders belegt, und der Eintrag nutzt `action: update`, das nicht umhängt. `replace` (Standard) verwenden. |
+| **Zwei Laufwerke zeigen dieselbe Bezeichnung im Explorer** | Sie zeigen auf denselben UNC-Pfad; Windows hält eine Bezeichnung pro Pfad. |
 | **`samba-tool gpo listall` zeigt weniger GPOs als `lmn-gpo list`** | Die Packs `12-proxy-*-schule` verweigern `@teachernb` (→ `d_nopxe`) das **Lesen**, und das Maschinenkonto des DC ist Mitglied dieser Gruppe. Ohne `-U administrator` läuft `listall` unter der Maschinenidentität und sieht sie schlicht nicht — die GPO fehlt nicht. Für Bestand und Rückbau `lmn-gpo list --mine` benutzen (liest das Verzeichnis als root). |
 
 ---

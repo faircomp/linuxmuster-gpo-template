@@ -217,6 +217,13 @@ a fixed SID from sophomorix' development domain; `smb_file_rewrite` replaces onl
 `sophomorix-school --gpo-create` rewrites the file, the WebUI (Clients → Drives) edits
 `disabled`/`letter` in place without a version bump. lmn-gpo only reads these files.
 
-**Not yet verified on a Windows client** (lab test planned before the release): a Delete
-item with an empty `path`, a numeric character reference (`&#252;`) in a label, and
-`removePolicy` for `reconnect: true`.
+**Measured on a Windows 11 client** (lab, 2026-10-23): a Delete item with an empty `path` on a
+letter that is not mapped raises no error; `&#252;` in a label shows as "ü" in Explorer;
+`reconnect: true` (R + `removePolicy`) maps persistently and the mapping is gone after the GPO
+is removed. `action: update` does **not** re-point a letter the user already mapped elsewhere,
+although event 4096 reports the item as applied; Replace does — hence Replace is the default.
+Explorer labels are stored per UNC path (`MountPoints2\##server#…\_LabelFromReg`), so two
+letters on one path share a label. A teacher of school A gets "Access denied" (0x80070005) on
+`\\server\<schoolB>` until that group is given rights there: the school folders' NT ACLs come
+from sophomorix' templates (`ntacl/school.ntacl.template`: only the school's own groups) and
+`sophomorix-repair` re-applies them.

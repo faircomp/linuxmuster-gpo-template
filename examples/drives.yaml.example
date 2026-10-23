@@ -19,11 +19,20 @@
 #    other school's groups do (gsg-teachers). Global groups: role-teacher, role-student,
 #    role-staff, all-teachers, or your own (sophomorix-group --create --group <name>).
 #  - devices: optional device groups (any of): the entry applies only on those computers.
-#  - action: replace (default) | update.  reconnect: true = persistent mapping.
+#  - action: replace (default) | update.  replace also re-points a letter the user (or
+#    linuxmuster) already mapped elsewhere; update leaves such a letter where it is, while the
+#    client still reports success - hence replace is the default.
+#    reconnect: true = persistent mapping.
+#  - label: Windows keeps one Explorer label per UNC PATH, not per letter - two letters on the
+#    same path show the same label.
 #  - The same letter may appear more than once: the FIRST matching entry wins.
 #  - A group that does not exist holds its entry back (apply says so); when the GPO
 #    already exists, apply leaves it untouched until every group resolves.
 #  - A drive mapping grants NO permission on the share. Set the rights on the file server.
+#    By default only a school's own groups may read \\server\<school>: a teacher of another
+#    school gets the letter, but "Access denied" when opening it, until you ADD an entry for
+#    that group (e.g. Windows security dialog as global-admin; do not change sophomorix'
+#    own entries, and check it again after sophomorix-repair, which rewrites them).
 
 example: true          # delete this line once the file is adapted to your site
 version: 1
@@ -46,6 +55,9 @@ drives:
 
   # One letter per school share. A teacher who moves to a computer of another school
   # keeps exactly these letters: the targeting follows the USER, not the computer.
+  # Each school's own teachers can read their school share already. If you add teachers
+  # of OTHER schools here (e.g. groups: [msg-teachers, lk-msg]), give that group rights on
+  # the share first - lmn-gpo does not.
   - letter: M
     label: MSG Shares
     path: '\\@server\msg'
