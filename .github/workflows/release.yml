@@ -341,6 +341,29 @@ jobs:
               print(f"loopback ok: {pack} -> UserPolicyMode={mode}")
           sys.exit(rc)
           PY
+          # Opt-in stays opt-in (7.3.6, drive maps): on an upgraded site whose site.yaml never
+          # mentions a pack's switch, a pack that reads an admin file or links ENFORCED must
+          # not apply at all, and the package itself never creates drives.yaml.
+          sudo test ! -e /etc/linuxmuster/lmn-gpo/drives.yaml
+          sudo python3 -P - <<'PY'
+          import yaml
+          from lmn_gpo import apply, catalog
+          from lmn_gpo.env import Env
+          answers = yaml.safe_load(open("/etc/linuxmuster/lmn-gpo/site.yaml")) or {}
+          env = Env(realm="DEV.LMSCHULE.DE", dnsdomain="dev.lmschule.de",
+                    basedn="DC=dev,DC=lmschule,DC=de", netbios="DEV", serverip="10.250.0.10",
+                    subnet="10.250.0.0/24", sysvol_policies="/nonexistent",
+                    schools_ou="OU=SCHOOLS,DC=dev,DC=lmschule,DC=de",
+                    global_ou="OU=GLOBAL,DC=dev,DC=lmschule,DC=de")
+          ap = apply.Applier(env, answers, dry_run=True)
+          special = [p for p in catalog.load_packs()
+                     if getattr(p, "drives_source", "") or getattr(p, "link_enforced", False)]
+          for p in special:
+              assert p.requires, f"{p.id}: links enforced / reads an admin file, but is not opt-in"
+              assert not ap._applicable(p, None), f"{p.id} applies without being switched on"
+              print(f"opt-in ok: {p.id} is skipped ({ap._skip_reason(p, None)})")
+          print(f"{len(special)} opt-in pack(s) checked")
+          PY
 
       # ---- run B: the migration branch, reachable ONLY through an upgrade ----------------
       - name: Run B - the legacy config path is migrated on upgrade

@@ -139,8 +139,51 @@ jobs:
           # KB3091116: useLetter="0" is "delete all, starting at" and wipes every mapping
           # from that letter through Z:. It must never appear.
           assert 'useLetter="0"' not in flat, 'useLetter="0" would wipe drive letters'
-          print("drive maps: ok")
+          print("drive maps 19-home-h: ok")
+
+          # 20-drives: the shipped example (Kevin's multi-school layout), rendered with a
+          # stand-in resolver, must give exactly the shape Windows needs: a USER GPO linked
+          # enforced, Delete items first, Replace for the admin's letters, H: as 19-home-h,
+          # every targeting item with a SID, pure ASCII, never useLetter="0".
+          import yaml, xml.etree.ElementTree as ET
+          from lmn_gpo import drivesconf
+          d = {x.id: x for x in catalog.load_packs()}["20-drives"]
+          assert d.has_user and not d.has_machine and d.type_letter == "U", d.type_letter
+          assert d.link_enforced and d.requires == "drives" and d.scope == "global"
+          data = yaml.safe_load(open("examples/drives.yaml.example"))
+          try:
+              drivesconf.parse(dict(data)); raise SystemExit("the example must refuse to load")
+          except drivesconf.DrivesConfigError:
+              pass                                   # until 'example: true' is removed
+          data.pop("example")
+          class R:
+              def group(self, token, computer=False):
+                  return drivesconf.Resolved(token, "ok", token.lstrip("@"), "S-1-5-21-1-2-3-1234")
+          plan = drivesconf.plan(drivesconf.parse(data), R(), netbios="DEV", server="server")
+          assert plan.complete and plan.remove_letters == ["K", "P", "R", "S", "T"], plan.remove_letters
+          xml = drives.render_managed(plan.items, "{00000000-0000-0000-0000-000000000000}")
+          xml.encode("ascii")
+          flat = xml.replace("\r\n", "\n")
+          md.parseString(flat)
+          assert 'useLetter="0"' not in flat
+          root = ET.fromstring(flat)
+          seq = [(e.find("Properties").get("action"), e.find("Properties").get("letter"))
+                 for e in root.iter("Drive")]
+          assert seq == [("D", "K"), ("D", "P"), ("D", "R"), ("D", "S"), ("D", "T"), ("U", "H"),
+                         ("R", "M"), ("R", "G"), ("R", "Y"), ("R", "V")], seq
+          assert all(e.get("bypassErrors") == "1" for e in root.iter("Drive"))
+          assert all(g.get("sid") for g in root.iter("FilterGroup")), "FilterGroup without SID"
+          print("drive maps 20-drives: ok")
           PY
+
+      - name: Unit tests (pytest, tests/ - no DC needed)
+        run: |
+          # Ubuntu's own pytest, not PyPI: the package has no PyPI dependencies and CI does
+          # not pull any either. tests/ covers drives.yaml validation, group resolution,
+          # Drives.xml rendering, the enforced-link edit and the processing-order check.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pytest
+          python3 -m pytest -q tests
 
       - name: Engine logic (GPO name parser, remove selection, skip reasons, exclusions — no DC needed)
         run: |
@@ -858,6 +901,29 @@ jobs:
                   print(f"::notice::{pack}: UserPolicyMode changed {was} -> {mode} in this upgrade")
               print(f"loopback ok: {pack} -> UserPolicyMode={mode}")
           sys.exit(rc)
+          PY
+          # Opt-in stays opt-in (7.3.6, drive maps): on an upgraded site whose site.yaml never
+          # mentions a pack's switch, a pack that reads an admin file or links ENFORCED must
+          # not apply at all, and the package itself never creates drives.yaml.
+          sudo test ! -e /etc/linuxmuster/lmn-gpo/drives.yaml
+          sudo python3 -P - <<'PY'
+          import yaml
+          from lmn_gpo import apply, catalog
+          from lmn_gpo.env import Env
+          answers = yaml.safe_load(open("/etc/linuxmuster/lmn-gpo/site.yaml")) or {}
+          env = Env(realm="DEV.LMSCHULE.DE", dnsdomain="dev.lmschule.de",
+                    basedn="DC=dev,DC=lmschule,DC=de", netbios="DEV", serverip="10.250.0.10",
+                    subnet="10.250.0.0/24", sysvol_policies="/nonexistent",
+                    schools_ou="OU=SCHOOLS,DC=dev,DC=lmschule,DC=de",
+                    global_ou="OU=GLOBAL,DC=dev,DC=lmschule,DC=de")
+          ap = apply.Applier(env, answers, dry_run=True)
+          special = [p for p in catalog.load_packs()
+                     if getattr(p, "drives_source", "") or getattr(p, "link_enforced", False)]
+          for p in special:
+              assert p.requires, f"{p.id}: links enforced / reads an admin file, but is not opt-in"
+              assert not ap._applicable(p, None), f"{p.id} applies without being switched on"
+              print(f"opt-in ok: {p.id} is skipped ({ap._skip_reason(p, None)})")
+          print(f"{len(special)} opt-in pack(s) checked")
           PY
 
       # ---- run B: the migration branch, reachable ONLY through an upgrade ----------------
