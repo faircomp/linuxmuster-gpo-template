@@ -11,7 +11,7 @@ Policies **directly from the Linux server** – without the Windows GPMC – and
 **multi-school capable** (several schools per server, and identical rollout across many
 customer servers).
 
-> **Status: complete & verified.** 33 policy packs, idempotent, with `--dry-run`.
+> **Status: complete & verified.** 34 policy packs, idempotent, with `--dry-run`.
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
 
@@ -22,9 +22,9 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features](#features) (33 packs)
+- [Features](#features) (34 packs)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
-- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Point and Print](#point-and-print-printer-drivers-for-students)
+- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Fixed drive letters](#fixed-drive-letters-multi-school) · [Point and Print](#point-and-print-printer-drivers-for-students)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
 - [Requirements](#requirements) · [Directory layout](#directory-layout)
 
@@ -54,7 +54,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 
 ## Features
 
-All 33 packs in `catalog/`. **Always active** (no extra parameter needed):
+All 34 packs in `catalog/`. **Always active** (no extra parameter needed):
 
 | Package | Effect |
 |---|---|
@@ -89,6 +89,7 @@ All 33 packs in `catalog/`. **Always active** (no extra parameter needed):
 | **Wi-Fi Enterprise (teachers)** | `wlan_enterprise_ssid` + CA cert | WPA2-Enterprise/PEAP with RADIUS, CA cert installed; **teachers only** (RADIUS enforces the group), exclusive to `d_nopxe` |
 | **UEFI boot order PXE first** | `bootorder_pxe_first: true` | scheduled task (SYSTEM/highest) forces network/PXE to the top (→ LINBO) if Windows pushes itself forward; robust pattern detection, idempotent. **Hardware-dependent — test on 1 machine first** |
 | **Allow Point and Print** | `pointandprint_enabled: true` | lets students auto-install printer drivers from your print server(s) — the printers linuxmuster/sophomorix already connects — which patched Windows 11 otherwise blocks (PrintNightmare). Trusts **only** your servers (auto-detected `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
+| **Fixed drive letters** | `drives_enabled: true` + `drives.yaml` | your own drive letters (letter, UNC path, label, groups) at every school, H: from the home directory, linuxmuster's default drives K: P: S: T: R: switched off for all or for groups; one user GPO linked **enforced**, so it wins over the school GPOs — also for a teacher at another school's computer. [Details](#fixed-drive-letters-multi-school) |
 
 ---
 
@@ -306,6 +307,9 @@ ntp_mode: ntp                 # time sync: ntp (explicit server, default) | nt5d
 
 pointandprint_enabled: false  # true = allow students to install printer drivers from the print server(s) (opt-in)
 printservers_extra: []        # extra/external print-server FQDNs to also trust (the local server is auto-detected)
+
+drives_enabled: false         # true = fixed drive letters from drives_file (pack 20-drives, opt-in)
+drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absolute path)
 ```
 
 > `site.yaml` contains **secrets** (Wi-Fi PSKs, encrypted bind password) and is in
@@ -698,6 +702,137 @@ per-session):
 net use
 ```
 
+## Fixed drive letters (multi-school)
+
+Off by default (pack `20-drives`, new in 7.3.6). It maps the drive letters **you** list in
+`/etc/linuxmuster/lmn-gpo/drives.yaml` — letter, UNC path, label, groups — and can switch off
+linuxmuster's default drives (K: programs, P: projects, S: students, T: shares, R: iso) for
+everyone or for listed groups. It works the same at every school and follows the **user**:
+a teacher who logs on at a computer of another school keeps exactly their letters.
+
+```yaml
+# site.yaml (the assistant asks; if you keep an explicit 'packs:' list, add 20-drives to it)
+drives_enabled: true
+drives_file: /etc/linuxmuster/lmn-gpo/drives.yaml     # optional, this is the default
+```
+
+```bash
+cp /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
+editor /etc/linuxmuster/lmn-gpo/drives.yaml     # paths and groups; delete the line 'example: true'
+lmn-gpo doctor                                  # section "Drive maps": file, groups, shares, order
+lmn-gpo apply --pack 20-drives --dry-run        # the table of letters, the XML, the link
+lmn-gpo apply --pack 20-drives --yes
+```
+
+`drives.yaml` is a file of its own on purpose: lmn-gpo only reads it, so comments and order
+survive (`setup` rewrites `site.yaml`), and it holds no secrets — keep it under version
+control or copy it between servers. Like `site.yaml` it is not a package conffile.
+
+### Schema
+
+| Key | Meaning |
+|---|---|
+| `version: 1` | required |
+| `linuxmuster_defaults.remove` | `all` · a list such as `[K, P, R]` · `[]` (default: keep them). `all` = every letter a `sophomorix:school:<school>` GPO maps — read at apply time, so letters moved in the WebUI count — plus K P R S T. H: can never be removed. |
+| `linuxmuster_defaults.for_groups` | remove them only for members of these groups (any of); `[]` = for every user |
+| `drives[].letter` | D–Z. **H: only with `home: true`** (sophomorix gives every account `homeDrive H:`) |
+| `drives[].path` | UNC path in **single quotes**, `'\\server\share[\folder]'`. `@server` = this server's NetBIOS name in lower case (what sophomorix writes for its own drives), `@serverfqdn` = its FQDN. `%VARIABLES%` pass through to the client. |
+| `drives[].home: true` | H: = the user's own `homeDirectory`, the exact item of pack `19-home-h` (Update) |
+| `drives[].label` | Explorer label (umlauts are fine) |
+| `drives[].groups` | sAMAccountNames, **any of** them matches; none = every user. Also `@role-teacher`, `@role-student`, `@role-staff` or a raw SID. |
+| `drives[].devices` | optional device groups (any of): only on those computers |
+| `drives[].action` | `replace` (default: deletes and re-creates, so a letter that sophomorix or the user already holds is taken over) or `update` |
+| `drives[].reconnect` | `true` = persistent mapping, written with "remove this item when it is no longer applied" |
+
+The **same letter may appear more than once: the first matching entry wins** (later entries
+carry "and not an earlier entry" targeting). An entry without groups and devices therefore
+has to be the last one for its letter — the file is refused otherwise. Unknown keys, an
+`off:` key (YAML reads `off` as false — the key is `remove`), a path that is not UNC, `C:`,
+H: without `home` are all errors with their position (`entry 3 (V:)`), reported by `doctor`
+and `apply` at once.
+
+**Group names in a multi-school domain:** default-school's groups have no prefix
+(`teachers`), every other school's have one (`gsg-teachers`); global groups are
+`role-teacher`, `role-staff`, `all-teachers`, … and your own (`sophomorix-group --create
+--group verwaltung`). lmn-gpo resolves names by `sAMAccountName`, which is unique in the domain.
+
+### Example
+
+Shipped as `/usr/share/doc/lmn-gpo/examples/drives.yaml.example` — one real layout, **an
+example, not a default**: schools `msg`, `gsg`, `gym` are additional schools,
+default-school exists too, the administration has its own file server.
+
+```yaml
+version: 1
+linuxmuster_defaults:
+  remove: all                              # K: P: S: T: R: (and letters moved in the WebUI)
+  for_groups: [role-teacher, role-staff]   # students keep them
+drives:
+  - {letter: H, label: Home, home: true}
+  - {letter: M, label: MSG Shares, path: '\\@server\msg', groups: [msg-teachers]}
+  - {letter: G, label: GSG Shares, path: '\\@server\gsg', groups: [gsg-teachers]}
+  - {letter: Y, label: GYM Shares, path: '\\@server\gym', groups: [gym-teachers]}
+  - {letter: V, label: Verwaltung, path: '\\verwaltung\verwaltung', groups: [verwaltung]}
+```
+
+### What happens on the clients
+
+- **One user GPO for all schools**, `LMN-U-GLOBAL-20-drives`, linked **enforced** at
+  `OU=SCHOOLS`. An enforced link is processed after every non-enforced one below it
+  ([MS-GPOL] 3.2.5.1.5), so it runs after `sophomorix:school:<school>` without loopback,
+  with loopback Merge, with Replace, and for a teacher of one school at a computer of
+  another (Merge: the teacher's school first, then the computer's school, then this GPO).
+- **sophomorix' GPOs are never touched.** The default letters are removed by Group Policy
+  Preferences **Delete** items in this GPO, written first (Windows ignores a Delete on a
+  letter that is not mapped, without an error). A Delete also removes a mapping the user
+  made on that letter himself.
+- Then H: (`home: true`, Update), then your entries in file order with **Replace**. Every
+  entry is targeted per item to its groups by **SID** (Windows evaluates the SID, the name
+  is only for display). New group membership takes effect at the next logon (the logon token).
+- Drive Maps is user policy: it applies at logon and with `gpupdate`. After a change, a
+  background refresh briefly disconnects and reconnects Replace drives in running sessions.
+- `apply` sets the enforced link again on every run, **in place**: `samba-tool gpo setlink`
+  refuses an existing link, so lmn-gpo edits only this GPO's entry in the `gPLink` of
+  `OU=SCHOOLS` (position and every other entry unchanged). Someone who switches enforcement
+  off in the GPMC gets it back with the next `apply`, and `doctor` warns until then.
+- `doctor` recomputes the processing order for every school (every user OU without
+  loopback, users of every school on every computer OU with Merge, every computer OU with
+  Replace) and warns if any other GPO with drive maps runs later — e.g. an enforced GPO at
+  the domain — naming the GPO, its link and its letters. It also checks group resolution,
+  SIDs drift (a group deleted and re-created), the deployed file against `drives.yaml`, the
+  shares on this server and the sophomorix school GPOs (incl. the S: of the sophomorix
+  template, whose fixed SID exists in no school domain — on Windows S: is never connected).
+
+### Fail closed
+
+- A group that does not resolve (or resolves only partly) **holds its entry back** — never
+  widened to everyone. When the GPO already exists, **nothing is written at all** ("existing
+  GPO left untouched", exit 0, same rule as 7.3.1), so a typo can never remove a working
+  drive. A new GPO gets the entries that resolve. An unknown `for_groups` group keeps every
+  default drive.
+- `drives_enabled: true` with a missing or invalid file: the pack is skipped, an existing
+  GPO stays as it is, `apply` exits 1 and says why. The unedited example (`example: true`)
+  is refused the same way.
+
+### Removing it
+
+`drives_enabled: false` + `lmn-gpo apply --yes` retires the GPO after a `samba-tool gpo
+backup` (`/var/backups/lmn-gpo`), or `lmn-gpo remove --pack 20-drives --yes`. At the next
+logon the Delete items are gone and sophomorix maps K: P: T: R: again; your letters are not
+persistent and disappear (in a running session they stay until logoff).
+
+### Limits
+
+- **Windows clients only.** Linux clients (linuxclient7) read only `sophomorix:school:<own
+  school>`: they keep the default drives and do not get these letters (not yet supported).
+  The WebUI (Clients → Drives) can disable default drives for both — it edits the sophomorix
+  GPO, and `sophomorix-school --gpo-create` resets it.
+- **No permissions.** A mapped drive grants no access: the user needs rights on the share
+  (`\\server\gsg` for a msg teacher, `\\verwaltung\verwaltung`). sophomorix sets rights for
+  its own groups only; lmn-gpo sets none.
+- No "hide this drive" (it writes `NoDrives`, which would outlive the GPO).
+- Offline notebooks / 802.1X: like 19-home-h — without a DC at logon there are no drives.
+
 ## Point and Print (printer drivers for students)
 
 linuxmuster already **connects** the printers itself (sophomorix writes the school GPO's
@@ -825,6 +960,14 @@ per check + a summary.
 > again — that is the correct behaviour and what the README always promised, but if your
 > site unknowingly relied on Replace, check those GPOs before you re-apply.
 
+> ### Fixed drive letters on a server that comes from 7.3.1 or older (1.13.0): two steps
+> Upgrade and run `lmn-gpo apply --yes` **once without** `drives_enabled` first — that writes
+> the loopback fix of 7.3.2 — and check one client (`gpupdate /force`, reboot, event 5311
+> says "Merge"). Only then enable [fixed drive letters](#fixed-drive-letters-multi-school).
+> The switch from Replace to Merge changes on its own which drives a teacher sees at a
+> computer of another school (Merge: their own school's defaults first); doing both at once
+> makes the two effects impossible to tell apart.
+
 How you upgrade depends on how you installed. **Either way `/etc/linuxmuster/lmn-gpo/site.yaml`
 is preserved** (Wi-Fi passwords and all) — so no settings are lost.
 
@@ -871,6 +1014,8 @@ git pull
 | GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmn-gpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
 | **A per-school user GPO (`LMN-U-<school>-12-proxy-*`) is missing from `gpresult /scope user`** — not even under "filtered out" | no loopback on that machine. These packs are linked to `OU=Devices` and need `12-proxy-base` or `15-lockdown-base`; `apply`/`doctor` print "Loopback prerequisite". Check on the client: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` must exist and read `0x1`. |
 | **`gpupdate /target:user` over SSH/WinRM reports success, nothing changes** | user policy is only processed in an interactive session (logon type 2/10), never in session 0. See [Checking on the client](#checking-on-the-client). |
+| **A default drive (K:, T:, …) still appears although `drives.yaml` removes it** | `lmn-gpo doctor`, section "Drive maps": is the link at `OU=SCHOOLS` enforced, does another GPO with drive maps run later, is the entry held back (unknown group)? Is the user in a `for_groups` group (a new membership needs a new logon)? On the client `gpresult /h` shows the winning GPO per drive. |
+| **A drive from `drives.yaml` is missing or says "access denied"** | missing: group membership (new logon), held-back entry (`apply`/`doctor` name it), Linux client (not supported). Access denied: the mapping works, the user has no rights on the share — lmn-gpo sets none. |
 | **`samba-tool gpo listall` shows fewer GPOs than `lmn-gpo list`** | the `12-proxy-*-schule` packs deny **Read** to `@teachernb` (→ `d_nopxe`), and the DC's own machine account is a member of that group. Without `-U administrator` `listall` runs under the machine identity and simply cannot see them — it is not a missing GPO. Use `lmn-gpo list --mine` (reads the directory as root) for inventory and clean-up checks. |
 
 ---
@@ -888,8 +1033,10 @@ any machine, not just the DC. Installing the ready-made `.deb` from a release ne
 
 ```
 lmn_gpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      33 YAML policy packs
+catalog/      34 YAML policy packs
+examples/     drives.yaml.example (installed to /usr/share/doc/lmn-gpo/examples/)
 scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagnostics)
+tests/        pytest unit tests (no DC needed; run in CI)
 lib/          veyon-default-pub.pem (Veyon's public key)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   branding images per school (images not committed)
@@ -917,7 +1064,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 33 Policy-Packs, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 34 Policy-Packs, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -928,9 +1075,9 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features](#features-1) (33 Packs)
+- [Features](#features-1) (34 Packs)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
-- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
+- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Feste Laufwerke](#feste-laufwerke-multischule) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
 - [Anforderungen](#anforderungen) · [Verzeichnisstruktur](#verzeichnisstruktur)
 
@@ -959,7 +1106,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 
 ## Features
 
-Alle 33 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nötig):
+Alle 34 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
 | Paket | Wirkung |
 |---|---|
@@ -994,6 +1141,7 @@ Alle 33 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nöti
 | **WLAN Enterprise (Lehrer)** | `wlan_enterprise_ssid` + CA-Cert | WPA2-Enterprise/PEAP mit RADIUS, CA-Zertifikat wird installiert; **nur Lehrer** (RADIUS erzwingt Gruppe), exklusiv auf `d_nopxe` |
 | **UEFI-Bootreihenfolge PXE zuerst** | `bootorder_pxe_first: true` | Scheduled Task (SYSTEM/höchste Rechte) zwingt Netzwerk/PXE an die erste Stelle (→ LINBO), falls Windows sich vordrängt; robuste Muster-Erkennung, idempotent. **Hardwareabhängig — erst auf 1 Gerät testen** |
 | **Point and Print erlauben** | `pointandprint_enabled: true` | lässt Schüler Druckertreiber von euren Druckservern automatisch installieren — die Drucker, die linuxmuster/sophomorix ohnehin verbindet — was gepatchtes Windows 11 sonst blockiert (PrintNightmare). Vertraut **nur** euren Servern (auto-erkannt `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
+| **Feste Laufwerke** | `drives_enabled: true` + `drives.yaml` | eigene Laufwerke (Buchstabe, UNC-Pfad, Bezeichnung, Gruppen) an jeder Schule, H: aus dem Home-Verzeichnis, linuxmuster-Standardlaufwerke K: P: S: T: R: für alle oder für Gruppen abgeschaltet; eine Benutzer-GPO, **erzwungen** verlinkt, damit sie gegen die Schul-GPOs gewinnt — auch für eine Lehrkraft am Rechner einer anderen Schule. [Details](#feste-laufwerke-multischule) |
 
 ---
 
@@ -1214,6 +1362,9 @@ ntp_mode: ntp                 # Zeitsync: ntp (expliziter Server, Standard) | nt
 
 pointandprint_enabled: false  # true = Schüler dürfen Druckertreiber von den Druckservern installieren (opt-in)
 printservers_extra: []        # zusätzliche/externe Druckserver-FQDNs (der lokale Server wird automatisch erkannt)
+
+drives_enabled: false         # true = feste Laufwerke aus drives_file (Pack 20-drives, opt-in)
+drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absoluter Pfad)
 ```
 
 > Die `site.yaml` enthält **Geheimnisse** (WLAN-PSKs, verschlüsseltes Bind-Passwort) und ist
@@ -1567,6 +1718,141 @@ bei leeren BIOS/CMOS-Batterien); ohne das holt ein weit abgedrifteter Client nie
 Nur für Clients (an `OU=SCHOOLS`); der DC bleibt unberührt.
 Am Client prüfen: `w32tm /query /source` und `w32tm /query /status`.
 
+## Feste Laufwerke (Multischule)
+
+Standardmäßig aus (Pack `20-drives`, neu in 7.3.6). Es verbindet die Laufwerke, die **ihr**
+in `/etc/linuxmuster/lmn-gpo/drives.yaml` eintragt — Buchstabe, UNC-Pfad, Bezeichnung,
+Gruppen — und kann die linuxmuster-Standardlaufwerke (K: Programme, P: Projekte, S: Schüler,
+T: Tauschen, R: ISO) für alle oder für bestimmte Gruppen abschalten. Das wirkt an jeder Schule
+gleich und folgt dem **Benutzer**: Eine Lehrkraft, die sich an einem Rechner einer anderen
+Schule anmeldet, behält genau ihre Laufwerke.
+
+```yaml
+# site.yaml (der Assistent fragt; wer eine feste 'packs:'-Liste hat, nimmt 20-drives dort auf)
+drives_enabled: true
+drives_file: /etc/linuxmuster/lmn-gpo/drives.yaml     # optional, das ist der Standard
+```
+
+```bash
+cp /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
+editor /etc/linuxmuster/lmn-gpo/drives.yaml     # Pfade und Gruppen; Zeile 'example: true' löschen
+lmn-gpo doctor                                  # Abschnitt "Drive maps": Datei, Gruppen, Freigaben, Reihenfolge
+lmn-gpo apply --pack 20-drives --dry-run        # Tabelle der Laufwerke, das XML, der Link
+lmn-gpo apply --pack 20-drives --yes
+```
+
+`drives.yaml` ist bewusst eine eigene Datei: lmn-gpo liest sie nur, Kommentare und Reihenfolge
+bleiben erhalten (`setup` schreibt `site.yaml` neu), und sie enthält keine Geheimnisse — sie darf
+versioniert oder zwischen Servern kopiert werden. Wie `site.yaml` ist sie keine Conffile des Pakets.
+
+### Schema
+
+| Schlüssel | Bedeutung |
+|---|---|
+| `version: 1` | Pflicht |
+| `linuxmuster_defaults.remove` | `all` · eine Liste wie `[K, P, R]` · `[]` (Standard: behalten). `all` = jeder Buchstabe, den eine `sophomorix:school:<schule>`-GPO verbindet — beim apply gelesen, also auch in der WebUI umgestellte Buchstaben — plus K P R S T. H: lässt sich nie abschalten. |
+| `linuxmuster_defaults.for_groups` | nur für Mitglieder dieser Gruppen abschalten (eine genügt); `[]` = für alle |
+| `drives[].letter` | D–Z. **H: nur mit `home: true`** (sophomorix gibt jedem Konto `homeDrive H:`) |
+| `drives[].path` | UNC-Pfad in **einfachen Anführungszeichen**, `'\\server\freigabe[\ordner]'`. `@server` = NetBIOS-Name dieses Servers in Kleinbuchstaben (so schreibt sophomorix seine eigenen Laufwerke), `@serverfqdn` = sein FQDN. `%VARIABLEN%` gehen unverändert an den Client. |
+| `drives[].home: true` | H: = das eigene `homeDirectory` des Benutzers, genau der Eintrag aus Pack `19-home-h` (Update) |
+| `drives[].label` | Bezeichnung im Explorer (Umlaute gehen) |
+| `drives[].groups` | sAMAccountNames, **eine davon** genügt; keine = alle Benutzer. Auch `@role-teacher`, `@role-student`, `@role-staff` oder eine SID. |
+| `drives[].devices` | optional Gerätegruppen (eine genügt): nur auf diesen Rechnern |
+| `drives[].action` | `replace` (Standard: löschen und neu verbinden, ein von sophomorix oder vom Benutzer belegter Buchstabe wird übernommen) oder `update` |
+| `drives[].reconnect` | `true` = dauerhafte Verbindung, geschrieben mit „Element entfernen, wenn es nicht mehr angewendet wird" |
+
+**Derselbe Buchstabe darf mehrfach vorkommen: Der erste passende Eintrag gewinnt** (spätere
+Einträge tragen „und nicht ein früherer Eintrag" im Targeting). Ein Eintrag ohne Gruppen und
+Geräte muss deshalb der letzte für seinen Buchstaben sein, sonst wird die Datei abgelehnt.
+Unbekannte Schlüssel, ein Schlüssel `off:` (YAML liest `off` als false — der Schlüssel heißt
+`remove`), ein Pfad, der kein UNC-Pfad ist, `C:`, H: ohne `home` sind Fehler mit Position
+(`entry 3 (V:)`); `doctor` und `apply` melden alle auf einmal.
+
+**Gruppennamen in der Multischule:** Die Gruppen von default-school haben kein Präfix
+(`teachers`), die jeder anderen Schule eines (`gsg-teachers`); globale Gruppen sind
+`role-teacher`, `role-staff`, `all-teachers`, … und eure eigenen (`sophomorix-group --create
+--group verwaltung`). lmn-gpo löst Namen über den `sAMAccountName` auf, der in der Domäne eindeutig ist.
+
+### Beispiel
+
+Liegt als `/usr/share/doc/lmn-gpo/examples/drives.yaml.example` bei — ein echtes Layout, **ein
+Beispiel, keine Vorgabe**: Die Schulen `msg`, `gsg`, `gym` sind Zweitschulen, default-school
+gibt es zusätzlich, die Verwaltung hat einen eigenen Fileserver.
+
+```yaml
+version: 1
+linuxmuster_defaults:
+  remove: all                              # K: P: S: T: R: (und in der WebUI umgestellte)
+  for_groups: [role-teacher, role-staff]   # Schüler behalten sie
+drives:
+  - {letter: H, label: Home, home: true}
+  - {letter: M, label: MSG Shares, path: '\\@server\msg', groups: [msg-teachers]}
+  - {letter: G, label: GSG Shares, path: '\\@server\gsg', groups: [gsg-teachers]}
+  - {letter: Y, label: GYM Shares, path: '\\@server\gym', groups: [gym-teachers]}
+  - {letter: V, label: Verwaltung, path: '\\verwaltung\verwaltung', groups: [verwaltung]}
+```
+
+### Was auf den Clients passiert
+
+- **Eine Benutzer-GPO für alle Schulen**, `LMN-U-GLOBAL-20-drives`, **erzwungen** (Enforced)
+  an `OU=SCHOOLS` verlinkt. Ein erzwungener Link wird nach jedem nicht erzwungenen darunter
+  verarbeitet ([MS-GPOL] 3.2.5.1.5): ohne Loopback, mit Loopback Merge, mit Replace und für
+  eine Lehrkraft der einen Schule an einem Rechner der anderen (Merge: erst die Schule der
+  Lehrkraft, dann die des Rechners, dann diese GPO) kommt sie nach `sophomorix:school:<schule>`.
+- **Die sophomorix-GPOs werden nie angefasst.** Die Standardbuchstaben entfernen
+  Gruppenrichtlinien-Einstellungen mit der Aktion **Löschen** in dieser GPO, ganz am Anfang
+  (Windows übergeht ein Löschen auf einem nicht belegten Buchstaben ohne Fehler). Ein Löschen
+  entfernt auch eine Verbindung, die der Benutzer selbst auf diesem Buchstaben angelegt hat.
+- Danach H: (`home: true`, Update), danach eure Einträge in Dateireihenfolge mit **Ersetzen**.
+  Jeder Eintrag ist per Zielgruppenadressierung auf seine Gruppen beschränkt, über die **SID**
+  (Windows wertet die SID aus, der Name dient nur der Anzeige). Eine neue Gruppenmitgliedschaft
+  wirkt ab der nächsten Anmeldung (Anmelde-Token).
+- Laufwerkszuordnungen sind Benutzerrichtlinie: Sie wirken bei der Anmeldung und mit
+  `gpupdate`. Nach einer Änderung trennt eine Hintergrundaktualisierung die Ersetzen-Laufwerke
+  laufender Sitzungen kurz und verbindet sie neu.
+- `apply` setzt den erzwungenen Link bei jedem Lauf neu, **an Ort und Stelle**: `samba-tool gpo
+  setlink` lehnt einen bestehenden Link ab, also ändert lmn-gpo im `gPLink` von `OU=SCHOOLS`
+  nur den Eintrag dieser GPO (Position und alle anderen Einträge bleiben). Wer die Erzwingung in
+  der GPMC abschaltet, bekommt sie mit dem nächsten `apply` zurück; `doctor` warnt bis dahin.
+- `doctor` rechnet die Verarbeitungsreihenfolge für jede Schule nach (jede Benutzer-OU ohne
+  Loopback, Benutzer jeder Schule auf jeder Geräte-OU mit Merge, jede Geräte-OU mit Replace)
+  und warnt, wenn irgendeine andere GPO mit Laufwerkszuordnungen später kommt — z. B. eine
+  erzwungene GPO an der Domäne — mit GPO, Link und Buchstaben. Außerdem prüft er die
+  Gruppenauflösung, SID-Drift (Gruppe gelöscht und neu angelegt), die ausgerollte Datei gegen
+  `drives.yaml`, die Freigaben dieses Servers und die sophomorix-Schul-GPOs (auch das S: der
+  sophomorix-Vorlage, dessen feste SID in keiner Schuldomäne existiert — unter Windows wird S:
+  nie verbunden).
+
+### Fail closed
+
+- Eine Gruppe, die sich nicht (oder nur teilweise) auflösen lässt, **hält ihren Eintrag
+  zurück** — er wird nie auf alle ausgeweitet. Gibt es die GPO schon, wird **gar nichts
+  geschrieben** („existing GPO left untouched", Exit 0, dieselbe Regel wie seit 7.3.1); ein
+  Tippfehler entfernt also nie ein funktionierendes Laufwerk. Eine neue GPO bekommt die
+  auflösbaren Einträge. Eine unbekannte Gruppe in `for_groups` lässt alle Standardlaufwerke stehen.
+- `drives_enabled: true`, aber die Datei fehlt oder ist ungültig: Das Pack wird übersprungen,
+  eine vorhandene GPO bleibt, wie sie ist, `apply` endet mit Exit 1 und sagt warum. Das
+  unveränderte Beispiel (`example: true`) wird genauso abgelehnt.
+
+### Entfernen
+
+`drives_enabled: false` + `lmn-gpo apply --yes` zieht die GPO nach einem `samba-tool gpo
+backup` (`/var/backups/lmn-gpo`) zurück, oder `lmn-gpo remove --pack 20-drives --yes`. Bei der
+nächsten Anmeldung fehlen die Löschen-Einträge, sophomorix verbindet K: P: T: R: wieder; eure
+Laufwerke sind nicht dauerhaft und verschwinden (in einer laufenden Sitzung bis zur Abmeldung).
+
+### Grenzen
+
+- **Nur Windows-Clients.** Linux-Clients (linuxclient7) lesen nur `sophomorix:school:<eigene
+  Schule>`: Sie behalten die Standardlaufwerke und bekommen diese Laufwerke nicht (noch nicht
+  unterstützt). Die WebUI (Clients → Laufwerke) kann Standardlaufwerke für beide deaktivieren —
+  sie ändert die sophomorix-GPO, und `sophomorix-school --gpo-create` setzt das zurück.
+- **Keine Rechte.** Ein verbundenes Laufwerk gibt keinen Zugriff: Der Benutzer braucht Rechte
+  auf der Freigabe (`\\server\gsg` für eine msg-Lehrkraft, `\\verwaltung\verwaltung`). sophomorix
+  setzt Rechte nur für seine eigenen Gruppen, lmn-gpo setzt keine.
+- Kein „Laufwerk ausblenden" (das schreibt `NoDrives`, das die GPO überdauern würde).
+- Offline-Notebooks / 802.1X: wie bei 19-home-h — ohne DC bei der Anmeldung keine Laufwerke.
+
 ## Point and Print (Druckertreiber für Schüler)
 
 linuxmuster **verbindet** die Drucker schon selbst (sophomorix schreibt die `Printers.xml`
@@ -1698,6 +1984,14 @@ je Prüfung + Summe.
 > Wer sich unwissentlich auf Replace verlassen hat, sieht sich diese GPOs vor dem erneuten
 > Anwenden besser an.
 
+> ### Feste Laufwerke auf einem Server, der von 7.3.1 oder älter (1.13.0) kommt: zwei Schritte
+> Erst aktualisieren und **einmal ohne** `drives_enabled` `lmn-gpo apply --yes` ausführen — das
+> schreibt den Loopback-Fix aus 7.3.2 — und an einem Client prüfen (`gpupdate /force`, Neustart,
+> Ereignis 5311 nennt „Merge"). Erst danach die [festen Laufwerke](#feste-laufwerke-multischule)
+> einschalten. Der Wechsel von Replace auf Merge ändert schon für sich, welche Laufwerke eine
+> Lehrkraft am Rechner einer anderen Schule sieht (Merge: erst die Standardlaufwerke der eigenen
+> Schule); beides auf einmal lässt die zwei Effekte nicht mehr auseinanderhalten.
+
 Wie du aktualisierst, hängt von der Installationsart ab. **In beiden Fällen bleibt
 `/etc/linuxmuster/lmn-gpo/site.yaml` erhalten** (inkl. WLAN-Passwörter) — es gehen keine
 Einstellungen verloren.
@@ -1745,6 +2039,8 @@ git pull
 | GPO angeblich nicht angewandt | am Client als Admin `gpresult /r`; mit [`lmn-gpo-check.ps1`](#prüfen-am-client) gegenprüfen; auf `-Refresh` + Neustart achten. |
 | **Eine Schul-Benutzer-GPO (`LMN-U-<schule>-12-proxy-*`) fehlt in `gpresult /scope user`** — auch nicht unter „herausgefiltert" | Auf dem Rechner fehlt Loopback. Diese Packs hängen an `OU=Devices` und brauchen `12-proxy-base` oder `15-lockdown-base`; `apply`/`doctor` melden „Loopback prerequisite". Am Client prüfen: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` muss existieren und `0x1` sein. |
 | **`gpupdate /target:user` über SSH/WinRM meldet Erfolg, es ändert sich nichts** | Benutzerrichtlinie wird nur in einer interaktiven Sitzung verarbeitet (Anmeldetyp 2/10), nie in Session 0. Siehe [Prüfen am Client](#prüfen-am-client). |
+| **Ein Standardlaufwerk (K:, T:, …) erscheint noch, obwohl `drives.yaml` es abschaltet** | `lmn-gpo doctor`, Abschnitt „Drive maps": Ist der Link an `OU=SCHOOLS` erzwungen, kommt eine andere GPO mit Laufwerkszuordnungen später, ist der Eintrag zurückgehalten (unbekannte Gruppe)? Ist der Benutzer in einer `for_groups`-Gruppe (neue Mitgliedschaft braucht eine neue Anmeldung)? Am Client zeigt `gpresult /h` pro Laufwerk die gewinnende GPO. |
+| **Ein Laufwerk aus `drives.yaml` fehlt oder meldet „Zugriff verweigert"** | fehlt: Gruppenmitgliedschaft (neu anmelden), zurückgehaltener Eintrag (`apply`/`doctor` nennen ihn), Linux-Client (nicht unterstützt). Zugriff verweigert: Die Zuordnung klappt, der Benutzer hat keine Rechte auf der Freigabe — lmn-gpo setzt keine. |
 | **`samba-tool gpo listall` zeigt weniger GPOs als `lmn-gpo list`** | Die Packs `12-proxy-*-schule` verweigern `@teachernb` (→ `d_nopxe`) das **Lesen**, und das Maschinenkonto des DC ist Mitglied dieser Gruppe. Ohne `-U administrator` läuft `listall` unter der Maschinenidentität und sieht sie schlicht nicht — die GPO fehlt nicht. Für Bestand und Rückbau `lmn-gpo list --mine` benutzen (liest das Verzeichnis als root). |
 
 ---
@@ -1763,8 +2059,10 @@ ist nichts Zusätzliches nötig.
 
 ```
 lmn_gpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      33 YAML-Policy-Packs
+catalog/      34 YAML-Policy-Packs
+examples/     drives.yaml.example (installiert nach /usr/share/doc/lmn-gpo/examples/)
 scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagnose)
+tests/        pytest-Unit-Tests (ohne DC; laufen in CI)
 lib/          veyon-default-pub.pem (öffentlicher Veyon-Schlüssel)
 docs/         RESEARCH.md, VEYON-PLAN.md
 wallpapers/   Branding-Bilder je Schule (Bilder nicht eingecheckt)
