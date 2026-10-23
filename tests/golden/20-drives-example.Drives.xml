@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}">
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="K:" status="K:" image="3" changed="2024-01-01 00:00:00" uid="{E21D4BAE-E5BD-5D50-8442-E7BDF6D0C32A}" bypassErrors="1">
+    <Properties action="D" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="" label="" persistent="0" useLetter="1" letter="K"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\role-teacher" sid="S-1-5-21-111-222-333-1103" userContext="1" primaryGroup="0" localGroup="0"/>
+        <FilterGroup bool="OR" not="0" name="DEV\role-staff" sid="S-1-5-21-111-222-333-1108" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="P:" status="P:" image="3" changed="2024-01-01 00:00:00" uid="{4ACFBDD3-0E96-591B-9E29-4D2D7A60BADC}" bypassErrors="1">
+    <Properties action="D" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="" label="" persistent="0" useLetter="1" letter="P"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\role-teacher" sid="S-1-5-21-111-222-333-1103" userContext="1" primaryGroup="0" localGroup="0"/>
+        <FilterGroup bool="OR" not="0" name="DEV\role-staff" sid="S-1-5-21-111-222-333-1108" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="R:" status="R:" image="3" changed="2024-01-01 00:00:00" uid="{FABC86EC-84A9-59AB-83F6-6CA2852E911A}" bypassErrors="1">
+    <Properties action="D" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="" label="" persistent="0" useLetter="1" letter="R"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\role-teacher" sid="S-1-5-21-111-222-333-1103" userContext="1" primaryGroup="0" localGroup="0"/>
+        <FilterGroup bool="OR" not="0" name="DEV\role-staff" sid="S-1-5-21-111-222-333-1108" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="S:" status="S:" image="3" changed="2024-01-01 00:00:00" uid="{CF5CF5ED-B55B-57D6-9CBD-2C3C11644C0C}" bypassErrors="1">
+    <Properties action="D" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="" label="" persistent="0" useLetter="1" letter="S"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\role-teacher" sid="S-1-5-21-111-222-333-1103" userContext="1" primaryGroup="0" localGroup="0"/>
+        <FilterGroup bool="OR" not="0" name="DEV\role-staff" sid="S-1-5-21-111-222-333-1108" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="T:" status="T:" image="3" changed="2024-01-01 00:00:00" uid="{46BB9A76-AE33-5210-9E7F-238CE5CE30D7}" bypassErrors="1">
+    <Properties action="D" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="" label="" persistent="0" useLetter="1" letter="T"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\role-teacher" sid="S-1-5-21-111-222-333-1103" userContext="1" primaryGroup="0" localGroup="0"/>
+        <FilterGroup bool="OR" not="0" name="DEV\role-staff" sid="S-1-5-21-111-222-333-1108" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="H:" status="H:" image="2" changed="2024-01-01 00:00:00" uid="{79E8F9A0-1A07-5800-9EDF-4DE63807CCD3}" bypassErrors="1">
+    <Properties action="U" thisDrive="SHOW" allDrives="NOCHANGE" userName="" path="%lmnHomeDirectory%" label="Home" persistent="0" useLetter="1" letter="H"/>
+    <Filters>
+      <FilterLdap bool="AND" not="0" binding="LDAP:" searchFilter="(&amp;(objectClass=user)(sAMAccountName=%LogonUser%))" attribute="homeDirectory" variableName="lmnHomeDirectory"/>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="M:" status="M:" image="1" changed="2024-01-01 00:00:00" uid="{1464E3D5-2C0C-5454-A2CA-386D191CC00C}" bypassErrors="1">
+    <Properties action="R" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\server\msg" label="MSG Shares" persistent="0" useLetter="1" letter="M"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\msg-teachers" sid="S-1-5-21-111-222-333-1205" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="G:" status="G:" image="1" changed="2024-01-01 00:00:00" uid="{ED436843-EF2F-5B17-9A3E-1E170E4D8B35}" bypassErrors="1">
+    <Properties action="R" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\server\gsg" label="GSG Shares" persistent="0" useLetter="1" letter="G"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\gsg-teachers" sid="S-1-5-21-111-222-333-1305" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="Y:" status="Y:" image="1" changed="2024-01-01 00:00:00" uid="{04BF14AB-CDB9-5735-BDB0-4D61B7FE1D30}" bypassErrors="1">
+    <Properties action="R" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\server\gym" label="GYM Shares" persistent="0" useLetter="1" letter="Y"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\gym-teachers" sid="S-1-5-21-111-222-333-1405" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="V:" status="V:" image="1" changed="2024-01-01 00:00:00" uid="{2E6AB21A-D8A9-52F3-ADF4-868E68D63B35}" bypassErrors="1">
+    <Properties action="R" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\verwaltung\verwaltung" label="Verwaltung" persistent="0" useLetter="1" letter="V"/>
+    <Filters>
+      <FilterCollection bool="AND" not="0">
+        <FilterGroup bool="AND" not="0" name="DEV\verwaltung" sid="S-1-5-21-111-222-333-1500" userContext="1" primaryGroup="0" localGroup="0"/>
+      </FilterCollection>
+    </Filters>
+  </Drive>
+</Drives>

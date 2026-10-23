@@ -43,13 +43,20 @@ def _iter_gpos(basedn: str):
 
 
 def _gplinks(basedn: str) -> dict[str, list[str]]:
-    """Map GPO GUID -> list of container DNs that link it."""
+    """Map GPO GUID -> list of container DNs that link it ('<dn> (enforced)' etc.)."""
+    from . import gplink
     out: dict[str, list[str]] = {}
-    import re
     for m in ad.search(expr="(gPLink=*)", attrs=["gPLink"]):
-        gplink = ad.val(m, "gPLink", "")
-        for guid in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", gplink, re.IGNORECASE):
-            out.setdefault(guid.upper(), []).append(str(m.dn))
+        value = ad.val(m, "gPLink", "")
+        try:
+            links = [(lk.guid, lk.options) for lk in gplink.parse(value) if lk.guid]
+        except ValueError:
+            links = [(g, 0) for g in gplink.guids(value)]
+        for guid, opts in links:
+            flags = [w for bit, w in ((gplink.GPLINK_ENFORCE, "enforced"),
+                                      (gplink.GPLINK_DISABLE, "disabled")) if opts & bit]
+            out.setdefault(guid.upper(), []).append(
+                str(m.dn) + (f" ({', '.join(flags)})" if flags else ""))
     return out
 
 
@@ -206,6 +213,16 @@ def cmd_doctor(args) -> int:
                 print(f"       Fix: add one of {', '.join(cands)} to 'packs:' in site.yaml.")
     except Exception as exc:
         print(f"  {ui.WARN} could not evaluate: {exc}")
+
+    # Fixed drive letters (pack 20-drives): file, groups, link, order, sophomorix GPOs.
+    # Warnings only, like the loopback section.
+    try:
+        if ap is None:
+            raise RuntimeError("site.yaml could not be evaluated (see above)")
+        from . import drivescheck
+        drivescheck.run(e, answers, ap, all_packs)
+    except Exception as exc:
+        print(f"\nDrive maps (20-drives, drives.yaml):\n  {ui.WARN} could not evaluate: {exc}")
 
     # Existing GPOs
     print("\nExisting GPOs:")

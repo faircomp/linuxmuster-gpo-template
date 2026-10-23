@@ -1,0 +1,27 @@
+id: "20-drives"
+title: "Fixed drive letters from drives.yaml (GPP Drive Maps, all schools, enforced)"
+scope: global
+target: user
+requires: drives
+description: >
+  OPT-IN (drives_enabled: true in site.yaml). Maps the drive letters the admin lists in
+  /etc/linuxmuster/lmn-gpo/drives.yaml - letter, UNC path, label, groups (any of), optional
+  device groups, H: from the user's homeDirectory - and can switch off linuxmuster's
+  default drives (K P S T R, or whatever letters the school GPOs map) for everyone or for
+  listed groups.
+
+  One user GPO for every school, LMN-U-GLOBAL-20-drives, linked ENFORCED at OU=SCHOOLS.
+  An enforced link is processed after every non-enforced link below it ([MS-GPOL]
+  3.2.5.1.5), so this GPO runs after sophomorix:school:<school> in every case - without
+  loopback, with loopback Merge or Replace, and for a teacher who logs on at a computer of
+  another school. sophomorix' GPOs are never touched: the default letters are removed by
+  Group Policy Preferences Delete items in THIS GPO, the admin's own letters are written
+  with Replace, H: with Update exactly like 19-home-h.
+
+  Targeting per entry (item-level targeting with the group's SID, resolved at apply time).
+  Several entries for one letter: the first matching entry in the file wins. A group that
+  does not resolve holds its entry back; when the GPO already exists, it is left untouched
+  as a whole. Assigning a drive grants no file permissions on the share. Windows clients
+  only - linuxclient7 reads only the sophomorix school GPO.
+link_enforced: true
+drives_source: drives.yaml

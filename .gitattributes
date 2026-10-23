@@ -1,0 +1,3 @@
+# Byte-exact fixtures (CRLF line ends are part of the expected output)
+tests/golden/** -text
+tests/fixtures/** -text

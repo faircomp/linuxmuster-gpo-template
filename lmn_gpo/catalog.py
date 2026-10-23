@@ -36,10 +36,17 @@ class Pack:
     # filter_deny for user settings delivered via loopback: Apply is evaluated against the
     # user, so a device-group deny-Apply never matches (see GpoEngine.deny_read).
     filter_deny_read: list = field(default_factory=list)
+    # Link at the pack's container with the Enforced flag (gPLinkOptions 2), so it is
+    # processed after every non-enforced link below it (20-drives: after the sophomorix
+    # school GPOs). apply sets it on a new link and restores it on an existing one.
+    link_enforced: bool = False
+    # Drive Maps items come from an admin file instead of `drives:` (20-drives:
+    # "drives.yaml" = site.yaml's drives_file, default /etc/linuxmuster/lmn-gpo/drives.yaml).
+    drives_source: str = ""
 
     @property
     def has_user(self) -> bool:
-        if self.drives:          # Drive Maps is user policy and carries no registry entries
+        if self.drives or self.drives_source:   # Drive Maps: user policy, no registry
             return True
         return any(str(e.get("class", "machine")).lower() in ("user", "both") for e in self.registry)
 
@@ -58,6 +65,7 @@ class Pack:
 
 
 LOOPBACK_VALUES = ("none", "merge", "replace")
+DRIVES_SOURCES = ("", "drives.yaml")
 
 
 def load_packs(catalog_dir: str = CATALOG_DIR) -> list[Pack]:
@@ -73,6 +81,11 @@ def load_packs(catalog_dir: str = CATALOG_DIR) -> list[Pack]:
         if pack.loopback not in LOOPBACK_VALUES:
             raise ValueError(f"{os.path.basename(path)}: loopback: {pack.loopback!r} is not "
                              f"one of {', '.join(LOOPBACK_VALUES)}")
+        if pack.drives_source not in DRIVES_SOURCES:
+            raise ValueError(f"{os.path.basename(path)}: drives_source: {pack.drives_source!r} "
+                             f"is not one of {', '.join(repr(x) for x in DRIVES_SOURCES)}")
+        if not isinstance(pack.link_enforced, bool):
+            raise ValueError(f"{os.path.basename(path)}: link_enforced must be true or false")
         packs.append(pack)
     return packs
 

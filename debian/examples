@@ -1,0 +1,3 @@
+# Installed to /usr/share/doc/lmn-gpo/examples/ (dh_installexamples). lmn-gpo setup offers
+# to copy drives.yaml.example to /etc/linuxmuster/lmn-gpo/drives.yaml; it is never a conffile.
+examples/drives.yaml.example

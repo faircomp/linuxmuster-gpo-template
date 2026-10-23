@@ -10,9 +10,9 @@ import os
 import re
 import shutil
 
-from . import ad, catalog
+from . import ad, catalog, drivesconf, gporder, sophodrives
 from .gpo import GpoEngine
-from .drives import GppDrives
+from .drives import GppDrives, render_managed
 from .gpp import GppGroups
 from . import regpol as regpol_mod
 from .regpol import RegPol, firewall_entries
@@ -88,7 +88,13 @@ DEFAULT_ANSWERS = {
     "ntp_mode": "ntp",                 # ntp (explicit server, works out of the box) | nt5ds (signed, needs a working ntp_signd)
     "pointandprint_enabled": False,    # opt-in: allow non-admin Point-and-Print driver install
     "printservers_extra": [],          # extra/external print server FQDNs to also trust
+    # Fixed drive letters (pack 20-drives), opt-in. The list itself lives in its own file,
+    # which lmn-gpo only reads (comments survive, no secrets in it).
+    "drives_enabled": False,           # true = manage the drive letters from drives_file
+    "drives_file": "",                 # "" = /etc/linuxmuster/lmn-gpo/drives.yaml
 }
+# Stand-in GUID for 20-drives in an order check before its GPO exists (dry-run, doctor).
+PLANNED_GUID = "{00000000-0000-0000-0000-00000000D21E}"
 
 
 def _loopback_word(mode) -> str:
@@ -138,6 +144,11 @@ class Applier:
         # (pack id, school name) pairs whose USER settings cannot reach anybody because no
         # loopback pack is active; filled by run() so apply_pack can say it per GPO.
         self._loopback_gap: set[tuple[str, str]] = set()
+        # drives.yaml (pack 20-drives): loaded once per run, on first use
+        self._drives_loaded = False
+        self._drives_cfg = None
+        self._drives_error: drivesconf.DrivesConfigError | None = None
+        self._drives_res = None
 
     # ------------------------------------------------------------------ #
     # selection
@@ -590,6 +601,19 @@ class Applier:
             return True
         if req == "home_drive":
             return bool(self.answers.get("home_drive_enabled"))
+        if req == "drives":
+            if not self.answers.get("drives_enabled"):
+                return False
+            if self.drives_config() is None:
+                # The operator switched it ON and the FILE is missing or wrong: never a
+                # reason to delete working drive mappings. Skipped, GPO kept, run fails.
+                self._file_precondition_failed.add(pack.id)
+                if pack.id not in self._warned:
+                    self._warned.add(pack.id)
+                    self.warnings.append(f"{pack.id}: {self._drives_error} - pack skipped, an "
+                                         f"existing GPO is left untouched")
+                return False
+            return True
         if req == "bootorder":
             return bool(self.answers.get("bootorder_pxe_first"))
         if req == "pointandprint":
@@ -638,6 +662,10 @@ class Applier:
             return "wlan_enterprise_networks / wlan_enterprise_ssid not set"
         if req == "home_drive":
             return "home_drive_enabled is not true"
+        if req == "drives":
+            if not self.answers.get("drives_enabled"):
+                return "drives_enabled is not true"
+            return str(self._drives_error)
         if req == "bootorder":
             return "bootorder_pxe_first is not true"
         if req == "pointandprint":
@@ -976,6 +1004,127 @@ class Applier:
             out.append(item)
         return out
 
+    # ------------------------------------------------------------------ #
+    # pack 20-drives: drive letters from drives.yaml
+    # ------------------------------------------------------------------ #
+    def drives_file(self) -> str:
+        return (str(self.answers.get("drives_file") or "").strip()
+                or drivesconf.DEFAULT_FILE)
+
+    def drives_config(self):
+        """The validated drives.yaml, or None (the reason is in _drives_error). Read once."""
+        if not self._drives_loaded:
+            self._drives_loaded = True
+            try:
+                self._drives_cfg = drivesconf.load(self.drives_file())
+            except drivesconf.DrivesConfigError as exc:
+                self._drives_error = exc
+        return self._drives_cfg
+
+    def _print_drives_error(self):
+        exc = self._drives_error
+        if exc is None:
+            return
+        print(f"    \u26a0 {exc.source}:")
+        for problem in exc.problems:
+            print(f"        - {problem}")
+
+    def drives_resolver(self):
+        if self._drives_res is None:
+            self._drives_res = drivesconf.AdResolver()
+        return self._drives_res
+
+    def drives_plan(self, cfg=None):
+        """Resolve drives.yaml against the directory (read-only): a drivesconf.DrivesPlan."""
+        cfg = cfg or self.drives_config()
+        letters, source = set(), ""
+        if cfg.remove == "all":
+            try:
+                letters, source = sophodrives.letters_of_schools(
+                    sophodrives.school_gpos(self.env.basedn, self.env.sysvol_policies))
+            except Exception as exc:
+                source = f"sophomorix template (school GPOs not readable: {exc})"
+        return drivesconf.plan(cfg, self.drives_resolver(), netbios=self.env.netbios,
+                               server=(self.env.server_netbios or "").lower(),
+                               serverfqdn=self.env.serverfqdn,
+                               sopho_letters=letters, sopho_source=source)
+
+    @staticmethod
+    def _drives_header(cfg, plan) -> list[str]:
+        n = len(cfg.drives)
+        lines = [f"    {cfg.source}: {n} entr{'y' if n == 1 else 'ies'}"]
+        if plan.remove_letters:
+            lines.append(f"    linuxmuster default letters removed: "
+                         f"{' '.join(plan.remove_letters)}  ({plan.remove_source})")
+        return lines + ["      " + line for line in plan.lines()]
+
+    def drives_order(self, name, guid=None, planned=False):
+        """(ok lines, warning lines) of the processing-order check for 20-drives.
+
+        `planned`: evaluate the state apply is about to create (link enforced at
+        OU=SCHOOLS) instead of the current one - for a dry-run and for doctor before the
+        first apply."""
+        soms, gpos, layouts, sites = gporder.load(self.env)
+        ours = (guid or "").upper()
+        if not ours or ours not in gpos:
+            ours = PLANNED_GUID
+            gpos[ours] = gporder.GpoInfo(ours, name, True)
+            planned = True
+        if planned:
+            soms = gporder.with_planned_link(soms, self.env.schools_ou, ours)
+
+        def letters_of(g):
+            return sophodrives.mapped_letters(
+                sophodrives.read_drives_file(self.eng.sysvol_path(g)) or [])
+
+        findings, counts = gporder.check(soms, gpos, ours, layouts, self.env.basedn, sites)
+        return gporder.report(findings, counts, gpos, soms, name, letters_of)
+
+    def _apply_drives(self, pack, name, container):
+        """20-drives: render drives.yaml, write it, link it ENFORCED at OU=SCHOOLS.
+
+        Fail closed like 7.3.1: when the GPO already exists and any entry cannot be
+        resolved, nothing is written at all - a typo or a group that is briefly gone must
+        never remove a working drive. A NEW GPO is written with the entries that resolve
+        (one notice per held-back entry), or not created if none does.
+        """
+        cfg = self.drives_config()
+        plan = self.drives_plan(cfg)
+        existing = self.eng.find_by_name(name)
+        if plan.held and (existing or not plan.items):
+            n = len(plan.held)
+            self._hold_back(name, pack, None,
+                            f"{n} drives.yaml entr{'y' if n == 1 else 'ies'} cannot be resolved"
+                            if existing else "no drives.yaml entry can be resolved")
+            for line in self._drives_header(cfg, plan):
+                print(line)
+            print("    Fix the group names (or create the groups) and run apply again.")
+            return
+        print(f"\n▸ {name}")
+        for line in self._drives_header(cfg, plan):
+            print(line)
+        if plan.held:
+            print("    note: the GPO is new, so the entries that resolve are written now; the "
+                  "held-back ones follow once their groups exist (apply again).")
+        if not plan.items:
+            print("    nothing to write")
+            return
+        guid, _ = self.eng.ensure(name)
+        self.dm.set_content(guid, render_managed(plan.items, guid))
+        self.eng.link(container, guid, enforce=pack.link_enforced)
+        self.results.append({"pack": pack.id, "gpo": name, "guid": guid, "school": "GLOBAL"})
+        try:
+            ok, warn = self.drives_order(name, guid, planned=self.dry_run)
+            for line in ok:
+                print(f"    order: {line} \u2713")
+            for line in warn:
+                print(f"    \u26a0 order: {line}")
+            if warn:
+                print("      Run 'lmn-gpo doctor' for the full picture; the GPO itself is "
+                      "written correctly.")
+        except Exception as exc:          # a read-only check never stops an apply
+            print(f"    note: order check skipped ({exc})")
+
     def apply_pack(self, pack, school, schools):
         container = school.devices_ou if pack.scope == "school" else self.env.schools_ou
         name = gpo_name(pack, school)
@@ -984,13 +1133,22 @@ class Applier:
                     or pack.id in self._file_precondition_failed)
             if keep and self.eng.find_by_name(name):
                 print(f"\n▸ {name}")
-                print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left untouched "
-                      f"(not deleted). Fix the source path, or remove it deliberately "
-                      f"with '{self._remove_hint(pack, school)}'.")
-                self.warnings.append(
-                    f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
+                if pack.drives_source:
+                    self._print_drives_error()
+                    print(f"    GPO left untouched (not deleted). Fix the file, or remove the "
+                          f"GPO deliberately with '{self._remove_hint(pack, school)}'.")
+                else:
+                    print(f"    ⚠ '{pack.requires}' precondition file missing — GPO left "
+                          f"untouched (not deleted). Fix the source path, or remove it "
+                          f"deliberately with '{self._remove_hint(pack, school)}'.")
+                    self.warnings.append(
+                        f"{name}: precondition '{pack.requires}' missing — GPO kept, not updated")
             elif not keep and self._retire(name):
                 pass
+            elif pack.drives_source and pack.id in self._file_precondition_failed:
+                print(f"\n▸ {name}  skipped:")
+                self._print_drives_error()
+                self.skipped.append(name)
             elif pack.id not in self._file_precondition_failed:   # that case warned already
                 # Not enabled and no GPO to retire: say so in one line instead of vanishing
                 # from the output (a homepage URL without firefox_enabled looked like a bug).
@@ -1029,6 +1187,9 @@ class Applier:
                 if status == "ok" and note:
                     notes.append(note)
                 denies += [(action, sid) for sid in sids]
+        if pack.drives_source:
+            self._apply_drives(pack, name, container)
+            return
         print(f"\n▸ {name}")
         if school and (pack.id, school.name) in self._loopback_gap:
             print("    ⚠ no loopback pack active on this school's devices — these USER "
@@ -1100,7 +1261,7 @@ class Applier:
         print(f"Done: {len(self.results)} GPO(s) applied."
               + (f" {len(self.retired)} retired (precondition removed)." if self.retired else "")
               + (f" {len(self.skipped)} skipped (feature not enabled)." if self.skipped else "")
-              + (f" {len(self.held_back)} held back (exclusion group missing)."
+              + (f" {len(self.held_back)} held back (a filter group is missing)."
                  if self.held_back else ""))
         # only count what was really written: a pack held back or skipped never got a GPO
         blind = [r for r in self.results if (r["pack"], r["school"]) in self._loopback_gap]

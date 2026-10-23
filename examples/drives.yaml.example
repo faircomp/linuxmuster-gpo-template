@@ -1,0 +1,88 @@
+# drives.yaml - fixed drive letters for lmn-gpo pack 20-drives
+#
+# EXAMPLE. Built from one real multi-school layout: the schools msg, gsg and gym are
+# additional schools (their groups carry the school prefix: msg-teachers, gsg-teachers,
+# gym-teachers), default-school exists as well (groups without prefix: teachers), and the
+# administration has its own file server. Paths, groups and server names below are
+# EXAMPLES - adapt them to your site, then delete the line 'example: true'.
+#
+# Copy to /etc/linuxmuster/lmn-gpo/drives.yaml, set 'drives_enabled: true' in site.yaml,
+# then:   lmn-gpo doctor     (checks file, groups, shares, processing order)
+#         lmn-gpo apply --pack 20-drives --dry-run     and then --yes
+#
+# Rules (lmn-gpo README, "Fixed drive letters"):
+#  - letter: one of D-Z. H: only with 'home: true' (it is every account's home drive).
+#  - path: a UNC path in SINGLE quotes. @server = this server's NetBIOS name in lower case,
+#    exactly what linuxmuster itself writes for its default drives (@serverfqdn = its FQDN).
+#  - groups: sAMAccountNames, ANY of them matches. No groups = every user.
+#    In a multi-school domain: default-school groups have no prefix (teachers), every
+#    other school's groups do (gsg-teachers). Global groups: role-teacher, role-student,
+#    role-staff, all-teachers, or your own (sophomorix-group --create --group <name>).
+#  - devices: optional device groups (any of): the entry applies only on those computers.
+#  - action: replace (default) | update.  reconnect: true = persistent mapping.
+#  - The same letter may appear more than once: the FIRST matching entry wins.
+#  - A group that does not exist holds its entry back (apply says so); when the GPO
+#    already exists, apply leaves it untouched until every group resolves.
+#  - A drive mapping grants NO permission on the share. Set the rights on the file server.
+
+example: true          # delete this line once the file is adapted to your site
+version: 1
+
+linuxmuster_defaults:
+  # linuxmuster's own drives come from the school GPOs (K: programs, P: projects,
+  # S: students, T: shares, R: iso). remove: all | [K, P, S, T, R] (any subset) | []
+  #   all = every letter a sophomorix school GPO maps (read at apply time, including
+  #         letters moved in the WebUI) plus K P R S T.
+  remove: all
+  # Remove them only for these groups (any of). [] = for every user.
+  # Here: teachers and staff lose K: P: S: T: R:, students keep them.
+  for_groups: [role-teacher, role-staff]
+
+drives:
+  # H: the user's own home directory (homeDirectory), at whatever school they log on.
+  - letter: H
+    label: Home
+    home: true
+
+  # One letter per school share. A teacher who moves to a computer of another school
+  # keeps exactly these letters: the targeting follows the USER, not the computer.
+  - letter: M
+    label: MSG Shares
+    path: '\\@server\msg'
+    groups: [msg-teachers]
+
+  - letter: G
+    label: GSG Shares
+    path: '\\@server\gsg'
+    groups: [gsg-teachers]
+
+  - letter: Y
+    label: GYM Shares
+    path: '\\@server\gym'
+    groups: [gym-teachers]
+
+  # Administration on its own server. The group exists:
+  #   sophomorix-group --create --group verwaltung
+  #   sophomorix-group --addmembers <user>,<user> --group verwaltung
+  - letter: V
+    label: Verwaltung
+    path: '\\verwaltung\verwaltung'
+    groups: [verwaltung]
+    # devices: [verwaltung-pcs]   # optional: only on these computers (a device group)
+
+  # default-school (groups without prefix), if it is used as well:
+  # - letter: D
+  #   label: Default School
+  #   path: '\\@server\default-school\share'
+  #   groups: [teachers]
+
+  # Same letter twice - the first matching entry wins (a teacher of two schools gets
+  # the msg students here, the others their own school's):
+  # - letter: S
+  #   label: Students MSG
+  #   path: '\\@server\msg\students'
+  #   groups: [msg-teachers]
+  # - letter: S
+  #   label: Students GSG
+  #   path: '\\@server\gsg\students'
+  #   groups: [gsg-teachers]
