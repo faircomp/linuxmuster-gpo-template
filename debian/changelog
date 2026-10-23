@@ -1,3 +1,46 @@
+lmn-gpo (7.3.6) lmn73; urgency=medium
+
+  * New OPT-IN pack 20-drives: fixed drive letters for every school. The list lives in
+    /etc/linuxmuster/lmn-gpo/drives.yaml (letter, UNC path, label, groups - any of them -,
+    optional device groups; H: from the user's own home directory) and can switch off
+    linuxmuster's default drives (K: P: S: T: R:, or every letter the school GPOs map) for
+    everyone or only for listed groups. The drives follow the USER: a teacher who logs on at
+    a computer of another school keeps exactly their letters.
+  * Nothing changes on upgrade. Without 'drives_enabled: true' in site.yaml the pack is
+    skipped ("drives_enabled is not true"), no GPO is created, no file is written, no client
+    sees a difference; the package does not install a drives.yaml.
+  * To enable: copy /usr/share/doc/lmn-gpo/examples/drives.yaml.example to
+    /etc/linuxmuster/lmn-gpo/drives.yaml, adapt paths and groups and delete the line
+    'example: true' (the unedited example is refused), set 'drives_enabled: true' (lmn-gpo
+    setup asks; add 20-drives to an explicit 'packs:' list), then 'lmn-gpo doctor' and
+    'lmn-gpo apply --pack 20-drives --dry-run' / '--yes'. On the clients: next logon or
+    'gpupdate /force'. To disable: 'drives_enabled: false' + 'lmn-gpo apply --yes' (GPO
+    backed up to /var/backups/lmn-gpo, then removed) or 'lmn-gpo remove --pack 20-drives
+    --yes'; at the next logon linuxmuster's default drives are back.
+  * One user GPO, LMN-U-GLOBAL-20-drives, linked ENFORCED at OU=SCHOOLS, so it is processed
+    after every sophomorix school GPO - without loopback, with loopback Merge or Replace,
+    and for a teacher at another school's computer. sophomorix' GPOs are never touched: the
+    default letters are removed by Group Policy Preferences Delete items in this GPO, your
+    own letters are written with Replace. apply restores the enforced link in place on
+    every run if it was switched off in the GPMC (samba-tool cannot change an existing link,
+    lmn-gpo now edits only its own gPLink entry).
+  * Fail closed, as in 7.3.1: a group that does not resolve holds its entry back; when the
+    GPO already exists, nothing is written ("existing GPO left untouched"). A missing or
+    invalid drives.yaml skips the pack, keeps the GPO and makes apply exit 1.
+  * lmn-gpo doctor has a new section "Drive maps": file and groups, the link (enforced?),
+    drift of the deployed file and of group SIDs, and the processing order recomputed for
+    every school - it warns when any other GPO with drive maps runs after ours.
+    'lmn-gpo list' marks enforced and disabled links. selftest also writes a Drive Maps file
+    (all items disabled) and switches its test link to enforced and back.
+  * Windows clients only: Linux clients keep linuxmuster's default drives. A mapped drive
+    grants no rights on the share - set them on the file server.
+  * Coming from 7.3.1 or older (e.g. 1.13.0): first run 'lmn-gpo apply --yes' once WITHOUT
+    drives_enabled and check one client (event 5311 says "Merge"), then enable the drives.
+    The loopback fix of 7.3.2 changes on its own which drives a teacher sees at another
+    school's computer; doing both at once mixes the two effects.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Fri, 23 Oct 2026 09:41:36 +0200
+
 lmn-gpo (7.3.5) lmn73; urgency=medium
 
   * Release only, no behaviour change: the catalog, the engine, the PowerShell scripts and
