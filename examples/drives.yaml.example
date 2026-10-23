@@ -22,17 +22,22 @@
 #  - action: replace (default) | update.  replace also re-points a letter the user (or
 #    linuxmuster) already mapped elsewhere; update leaves such a letter where it is, while the
 #    client still reports success - hence replace is the default.
-#    reconnect: true = persistent mapping.
+#    reconnect: true = persistent mapping (HKCU\Network); Windows removes it again once
+#    the GPO no longer applies. Without it a drive is gone at the next logon.
+#  - Switch the drives off with 'drives_enabled: false' + 'lmn-gpo apply --yes';
+#    'lmn-gpo remove --pack 20-drives' alone is undone by the next apply.
 #  - label: Windows keeps one Explorer label per UNC PATH, not per letter - two letters on the
 #    same path show the same label.
 #  - The same letter may appear more than once: the FIRST matching entry wins.
 #  - A group that does not exist holds its entry back (apply says so); when the GPO
 #    already exists, apply leaves it untouched until every group resolves.
 #  - A drive mapping grants NO permission on the share. Set the rights on the file server.
-#    By default only a school's own groups may read \\server\<school>: a teacher of another
-#    school gets the letter, but "Access denied" when opening it, until you ADD an entry for
-#    that group (e.g. Windows security dialog as global-admin; do not change sophomorix'
-#    own entries, and check it again after sophomorix-repair, which rewrites them).
+#    By default only a school's own groups may read \\server\<school>: for a teacher of
+#    another school the letter is then NOT MAPPED at all; the client's Application log,
+#    source "Group Policy Drive Maps", shows warnings 4117 "Access denied" and 4098
+#    (0x80070005). Fix: ADD an entry for that group on the share (e.g. Windows security
+#    dialog as global-admin; do not change sophomorix' own entries, and check it again
+#    after sophomorix-repair, which rewrites them).
 
 example: true          # delete this line once the file is adapted to your site
 version: 1

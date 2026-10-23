@@ -223,7 +223,9 @@ letter that is not mapped raises no error; `&#252;` in a label shows as "ü" in 
 is removed. `action: update` does **not** re-point a letter the user already mapped elsewhere,
 although event 4096 reports the item as applied; Replace does — hence Replace is the default.
 Explorer labels are stored per UNC path (`MountPoints2\##server#…\_LabelFromReg`), so two
-letters on one path share a label. A teacher of school A gets "Access denied" (0x80070005) on
-`\\server\<schoolB>` until that group is given rights there: the school folders' NT ACLs come
+letters on one path share a label. For a teacher of school A, a letter on `\\server\<schoolB>` is
+not mapped at all (Application log, source "Group Policy Drive Maps": 4117 "Access denied", 4098
+0x80070005; `net use` does not list it) until that group is given rights there: the school
+folders' NT ACLs come
 from sophomorix' templates (`ntacl/school.ntacl.template`: only the school's own groups) and
 `sophomorix-repair` re-applies them.
