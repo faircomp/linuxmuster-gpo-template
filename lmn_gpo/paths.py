@@ -30,6 +30,10 @@ DATA_ROOT = data_root()
 CATALOG_DIR = os.path.join(DATA_ROOT, "catalog")
 SCRIPTS_DIR = os.path.join(DATA_ROOT, "scripts")
 LIB_DIR = os.path.join(DATA_ROOT, "lib")
+# Example files (drives.yaml.example): repo examples/ from source, else where
+# dh_installexamples puts them (debian/examples).
+EXAMPLES_DIR = (os.path.join(_SRC_ROOT, "examples")
+                if _is_source() else "/usr/share/doc/lmn-gpo/examples")
 # Wallpapers are admin-provided content, not shipped data: repo wallpapers/ when running
 # from source, else a writable admin dir created by the package.
 WALLPAPER_DIR = (os.path.join(_SRC_ROOT, "wallpapers")

@@ -1,16 +1,18 @@
 """Non-destructive end-to-end self-test of the GPO engine.
 
 Creates a throwaway GPO ("LMN-SELFTEST-DELETEME"), loads a benign registry
-value + a firewall rule, briefly links it to the first school's Devices OU,
-applies grant/deny security-filter ACEs, verifies every side effect
-(Registry.pol, versionNumber, CSE GUID, gPLink, DACL, aclcheck), then removes
+value + a firewall rule, writes a Drives.xml whose items are all DISABLED (a Delete and
+a Replace with targeting, the shapes pack 20-drives writes), briefly links it to the
+first school's Devices OU, switches that link to enforced and back IN PLACE (the gPLink
+edit 20-drives relies on), applies grant/deny security-filter ACEs, verifies every side
+effect (Registry.pol, versionNumber, CSE GUIDs, gPLink, DACL, aclcheck), then removes
 everything and confirms it is gone. Safe to run on a test instance.
 """
 from __future__ import annotations
 
 import os
 
-from . import ad, ui
+from . import ad, gplink, ui
 from . import env as envmod
 from .gpo import GpoEngine, APPLY_GROUP_POLICY
 from .regpol import RegPol, firewall_entries
@@ -98,9 +100,60 @@ def run(dry_run: bool = False) -> int:
         step(int(ad.val(msg2, "versionNumber", "0")) >= 3, "versionNumber bumped further",
              f"v{ad.val(msg2, 'versionNumber', '0')}")
 
+        # --- Drives.xml in the 20-drives shape, every item disabled="1" -------------
+        # Linked for a few seconds to OU=Devices it could only reach users via loopback,
+        # and disabled items are never processed: a real logon in this window loses nothing.
+        from .drives import GppDrives, render_managed, DRIVES_REL
+        from .sophodrives import parse_drives_xml
+        grp = [{"name": (f"{e.netbios}\\{school.admins.cn}" if school.admins
+                         else "BUILTIN\\Administrators"), "sid": admin_sid}]
+        server = (e.server_netbios or "server").lower()
+        ditems = [
+            {"kind": "del", "letter": "Q", "action": "D", "index": 0, "groups": grp,
+             "disabled": True},
+            {"kind": "map", "letter": "Q", "action": "R", "index": 0, "groups": grp,
+             "path": f"\\\\{server}\\netlogon", "label": "lmn-gpo selftest",
+             "exclude": [{"groups": grp}], "disabled": True},
+        ]
+        GppDrives(eng).set_content(guid, render_managed(ditems, guid))
+        dpath = os.path.join(gpo_dir, DRIVES_REL)
+        try:
+            parsed = parse_drives_xml(open(dpath, encoding="utf-8").read())
+        except (OSError, ValueError):
+            parsed = []
+        step(len(parsed) == 2 and all(i.disabled for i in parsed)
+             and [i.action for i in parsed] == ["D", "R"],
+             "Drives.xml written (Delete + Replace, all disabled)", dpath)
+        msg3 = ad.find_one(f"(cn={guid})", base=pol_base, scope="one",
+                           attrs=["versionNumber", "gPCUserExtensionNames"])
+        step("5794DAFD" in (ad.val(msg3, "gPCUserExtensionNames", "") or "").upper()
+             and int(ad.val(msg3, "versionNumber", "0")) >> 16 >= 1,
+             "Drive Maps CSE on the user side + user version bumped",
+             f"v{ad.val(msg3, 'versionNumber', '0')}")
+
         eng.link(school.devices_ou, guid)
         step(guid.upper() in eng._linked_guids(school.devices_ou),
              "linked to Devices OU", school.devices_ou)
+
+        # --- enforce the EXISTING link in place, then take it back -----------------
+        # samba-tool setlink refuses an existing link; set_link_options edits the gPLink.
+        def others(value):
+            return [lk.raw for lk in gplink.parse(value) if lk.guid != guid.upper()]
+
+        def position(value):
+            return [lk.guid for lk in gplink.parse(value)].index(guid.upper())
+
+        before = eng.gplink_value(school.devices_ou)
+        eng.link(school.devices_ou, guid, enforce=True)
+        mid = eng.gplink_value(school.devices_ou)
+        step(eng.link_options(school.devices_ou, guid) == gplink.GPLINK_ENFORCE,
+             "existing link enforced in place (options 2)")
+        step(others(mid) == others(before) and position(mid) == position(before),
+             "other links byte-identical, link order unchanged",
+             f"position {position(mid) + 1} of {len(gplink.parse(mid))}")
+        eng.set_link_options(school.devices_ou, guid, 0)
+        step(eng.gplink_value(school.devices_ou) == before,
+             "link options restored (gPLink byte-identical to before)")
 
         ok0, _ = eng.aclcheck()
         step(ok0, "aclcheck clean (baseline after link)")

@@ -12,11 +12,11 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 | Component | Path | Stack |
 |---|---|---|
 | CLI + engine | `lmn_gpo/` (`cli.py` argparse entry; `./lmn-gpo-cli` launcher for a source checkout, `/usr/bin/lmn-gpo` when installed) | Python 3.12 (Ubuntu 24.04), `python3-samba` (`samba`/`ldb` bindings, `samba-tool gpo load`), `python3-yaml`; no PyPI deps, no venv |
-| Catalog packs | `catalog/*.yaml` (33 packs `NN-name.yaml`; `*-schule` packs are applied per school) | YAML schema documented in `README.md` |
+| Catalog packs | `catalog/*.yaml` (34 packs `NN-name.yaml`; `*-schule` packs are applied per school; `20-drives` reads the admin's `drives.yaml`, example in `examples/`) | YAML schema documented in `README.md` |
 | Client scripts | `scripts/*.ps1` (startup/shutdown scripts, `lmn-gpo-check.ps1` client diagnostics); `lmn_gpo/wlan.py` and `lmn_gpo/drives.py` generate more at apply time | Windows PowerShell 5.1, **pure ASCII** |
 | Data | `lib/veyon-default-pub.pem`; `wallpapers/` (admin-provided, not committed) | installed to `/usr/share/lmn-gpo`, wallpapers to `/var/lib/lmn-gpo` |
 | Packaging | classic `debian/` (debhelper 13, native 3.0): `changelog` (version source), `control`, `rules`, `install`, `dirs`, `docs`, `clean`, `copyright`, postinst/prerm/postrm; `make deb` → `dpkg-buildpackage` → `../lmn-gpo_<version>_all.deb` | `dh $@ --with python3`, plain `dist-packages` install, no venv |
-| Tests | `.github/workflows/ci.yml` fast tier (py_compile, catalog YAML, ASCII-only `.ps1`, generated Wi-Fi scripts, Drives.xml shape, PowerShell parser, `--version` == changelog); `lmn-gpo selftest --yes` on a real DC (throwaway GPO) | GitHub-hosted runner with `pwsh`; the selftest runs in the lab via the hub |
+| Tests | `tests/` (pytest, no DC: a fake sam.ldb `tests/fakead.py` and a fake samba-tool `tests/fakesamba.py` run apply/doctor end to end) and `.github/workflows/ci.yml` fast tier (py_compile, catalog YAML, ASCII-only `.ps1`, generated Wi-Fi scripts, Drives.xml shape, pytest, PowerShell parser, `--version` == changelog); `lmn-gpo selftest --yes` on a real DC (throwaway GPO) | GitHub-hosted runner with `pwsh`; the selftest runs in the lab via the hub |
 | Docs | `README.md` (bilingual), `docs/RESEARCH.md` (verified Windows/Samba facts), `docs/VEYON-PLAN.md` | |
 
 ## Constraints (do not violate)
@@ -37,8 +37,16 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   Non-ASCII payloads (SSIDs, XML) travel base64-encoded. `\"` is not an escape in PowerShell.
   CI parses every script, including the generated ones, with the real parser.
 - **Drive Maps:** never emit `useLetter="0"` (KB3091116: deletes every mapping from that letter
-  to Z:); keep `action="U"` and `bypassErrors="1"`. Drive Maps is USER policy: CSE on
-  `gPCUserExtensionNames`, user half of `versionNumber`.
+  to Z:); always `bypassErrors="1"`. 19-home-h keeps `action="U"` and its Drives.xml is pinned
+  byte for byte (`tests/golden/`). 20-drives writes Delete items for linuxmuster's default
+  letters, then H: as 19-home-h, then the admin's entries with Replace, each targeted by
+  group SID; a group that does not resolve holds the entry back and leaves an existing GPO
+  untouched. Drive Maps is USER policy: CSE on `gPCUserExtensionNames`, user half of
+  `versionNumber`.
+- **Enforced link (20-drives):** linked enforced at `OU=SCHOOLS` so it is processed after the
+  sophomorix school GPOs ([MS-GPOL] 3.2.5.1.5, `lmn_gpo/gporder.py`). `samba-tool gpo setlink`
+  refuses an existing link; `GpoEngine.set_link_options()` edits only our gPLink entry in
+  place (compare-and-swap). sophomorix GPOs are only READ (letters for `remove: all`, doctor).
 - **Idempotent, fail closed.** An exclusion group that resolves to nothing (`filter_deny`,
   `filter_deny_read`) is an error, not a silent no-op. A precondition that depends on a FILE
   (wallpaper, RADIUS CA) skips the pack and keeps its GPO; an operator answer that switches a
@@ -68,7 +76,8 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
   `type(scope): subject` (from September 2026 on; the older history is sentence style).
 - Fast tier locally before every commit (what `ci.yml` runs): `python3 -m py_compile lmn_gpo/*.py`,
   `python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('catalog/*.yaml')]"`,
-  the ASCII check of `scripts/*.ps1`, and `test "$(./lmn-gpo-cli --version)" = "lmn-gpo $(dpkg-parsechangelog -S Version)"`.
+  the ASCII check of `scripts/*.ps1`, `python3 -m pytest -q tests` (Ubuntu's python3-pytest in
+  CI), and `test "$(./lmn-gpo-cli --version)" = "lmn-gpo $(dpkg-parsechangelog -S Version)"`.
   The PowerShell parser check needs `pwsh`; without a local install use the container:
   `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/powershell:latest pwsh -File <check.ps1>`
   (the check is the `pwsh` step in `ci.yml`).

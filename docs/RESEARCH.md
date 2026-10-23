@@ -178,3 +178,54 @@ Sources: [DSK resolution Windows 10 (PDF)](https://www.datenschutzkonferenz-onli
 
 > Note: Every setting is documented in the catalog (`catalog/*.yaml`) with plain-text names and
 > can be inspected before rollout with `lmn-gpo apply --dry-run`.
+
+## 8. Drive Maps and the processing order (pack 20-drives)
+
+**Processing order** ([MS-GPOL] 3.2.5.1.5 GPO Search): the SOM list starts at the object's OU
+and walks up to the domain, the site last. For every SOM and every gPLink entry in stored
+order, a link with option bit 1 (disabled) is ignored, a non-enforced link is *prepended* to
+the non-enforced list, an enforced one *appended* to the enforced list; `gPOptions=1` (block
+inheritance) drops the non-enforced links of the parents only. Result = non-enforced +
+enforced, processed in that order, the last one wins. Hence: inside one SOM the **first**
+gPLink entry is processed **last**, and Samba's `setlink` inserts a new link at the front
+(`gplist.insert(0, …)`, netcmd/gpo.py `cmd_setlink`, 4.19 and 4.22) — the newest link wins
+there. An **enforced link at `OU=SCHOOLS`** comes after every non-enforced link below it,
+i.e. after `sophomorix:school:<school>` (linked at `OU=<school>`). Loopback Merge = the
+user's list followed by the computer's list (the lab measured both halves, duplicates
+included, in event 5312), Replace = the computer's list only. `lmn_gpo/gporder.py` is this
+algorithm; `tests/test_gporder.py` reproduces the lab's 5312 list.
+
+**samba-tool cannot change a link**: `gpo setlink` raises "already linked to this container"
+for a GPO that is linked, and there is no command for the options of an existing link.
+`GpoEngine.set_link_options()` rewrites the gPLink in sam.ldb instead — only the own entry,
+position kept — as a compare-and-swap (delete old value + add new value in one modify).
+
+**Drive Maps semantics** ([Drive Map item](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/dn581924(v=ws.11))):
+Replace = delete and create, overwriting an existing mapping; Update changes only the
+configured settings; Delete with `useLetter=1` removes the mapping of that letter and
+"ignores the instruction and does not report an error" when the letter is not mapped;
+`useLetter=0` deletes from that letter through Z: (KB3091116, never written); `removePolicy`
+requires action R. **Item-level targeting** ([MS-GPPREF] Targeting): items in order, each
+combined by its `bool` (AND/OR), `not` inverts, `FilterCollection` is a parenthesised group;
+security-group items are evaluated by SID, not by the display name.
+
+**sophomorix' default drives** (template
+`sophomorix-samba/config-devel/gpo/school/User/Preferences/Drives/Drives.xml`): K: program,
+P: share\projects, S: students (teachers only), T: share, R: iso, all action U. S: carries
+a fixed SID from sophomorix' development domain; `smb_file_rewrite` replaces only the name
+(`@@TEACHERGROUP@@`), so on Windows S: never matches (linuxclient7 filters by name and maps it).
+`sophomorix-school --gpo-create` rewrites the file, the WebUI (Clients → Drives) edits
+`disabled`/`letter` in place without a version bump. lmn-gpo only reads these files.
+
+**Measured on a Windows 11 client** (lab, 2026-10-23): a Delete item with an empty `path` on a
+letter that is not mapped raises no error; `&#252;` in a label shows as "ü" in Explorer;
+`reconnect: true` (R + `removePolicy`) maps persistently and the mapping is gone after the GPO
+is removed. `action: update` does **not** re-point a letter the user already mapped elsewhere,
+although event 4096 reports the item as applied; Replace does — hence Replace is the default.
+Explorer labels are stored per UNC path (`MountPoints2\##server#…\_LabelFromReg`), so two
+letters on one path share a label. For a teacher of school A, a letter on `\\server\<schoolB>` is
+not mapped at all (Application log, source "Group Policy Drive Maps": 4117 "Access denied", 4098
+0x80070005; `net use` does not list it) until that group is given rights there: the school
+folders' NT ACLs come
+from sophomorix' templates (`ntacl/school.ntacl.template`: only the school's own groups) and
+`sophomorix-repair` re-applies them.

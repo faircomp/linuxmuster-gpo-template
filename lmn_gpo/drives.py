@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import textwrap
 import uuid
-from xml.sax.saxutils import quoteattr
+from xml.sax.saxutils import escape, quoteattr
 
 from . import version
 
@@ -114,6 +114,140 @@ def render(items: list[dict], guid: str) -> str:
     )
 
 
+
+# --------------------------------------------------------------------------- #
+# Pack 20-drives: the admin's own drive letters from drives.yaml
+# --------------------------------------------------------------------------- #
+# Item kinds, in the order they are written (GPP processes a file top to bottom):
+#   "del"   Delete one of linuxmuster's default letters (action D, useLetter 1)
+#   "home"  H: from the user's homeDirectory, exactly the 19-home-h item (action U)
+#   "map"   the admin's own path (action R by default, U on request)
+# The image index is the one GPMC shows for each action.
+_IMAGE = {"C": "0", "R": "1", "U": "2", "D": "3"}
+
+
+def _uid_managed(guid: str, kind: str, letter: str, index: int) -> str:
+    """One UID per item. Two entries for the same letter must not share one, so the
+    kind and the position among the items of that letter and kind are part of the name."""
+    return ("{%s}" % uuid.uuid5(uuid.NAMESPACE_DNS,
+                                f"lmn-gpo-drive:{guid}:{kind}:{letter}:{index}")).upper()
+
+
+def _attr(value) -> str:
+    """A double-quoted XML attribute value, then every non-ASCII character as a numeric
+    character reference: sysvol XML stays pure ASCII (CI checks it), and a label with an
+    umlaut survives intact (&#252;)."""
+    text = escape(str(value), {'"': "&quot;", "\n": "&#10;", "\r": "&#13;", "\t": "&#9;"})
+    return '"' + text.encode("ascii", "xmlcharrefreplace").decode("ascii") + '"'
+
+
+def _group_items(groups: list[dict], indent: str, user: bool) -> list[str]:
+    """FilterGroup items, any-of: the first one AND (with the collection's start value),
+    every further one OR. Only items with a SID are ever written - Windows evaluates the
+    SID, not the name, and a name-only item would match nobody (or, negated, everybody)."""
+    out = []
+    for i, grp in enumerate(g for g in groups if g.get("sid")):
+        out.append(
+            f'{indent}<FilterGroup bool="{"AND" if i == 0 else "OR"}" not="0" '
+            f'name={_attr(grp.get("name", ""))} sid={_attr(grp["sid"])} '
+            f'userContext="{1 if user else 0}" primaryGroup="0" localGroup="0"/>'
+        )
+    return out
+
+
+def _condition(cond: dict, indent: str) -> list[str]:
+    """One condition = (any of its user groups) AND (any of its device groups), each as
+    its own FilterCollection, so the AND/OR of the items can never bleed into each other."""
+    out = []
+    for key, user in (("groups", True), ("devices", False)):
+        items = _group_items(cond.get(key) or [], indent + "  ", user)
+        if items:
+            out.append(f'{indent}<FilterCollection bool="AND" not="0">')
+            out.extend(items)
+            out.append(f'{indent}</FilterCollection>')
+    return out
+
+
+def _managed_filters(item: dict) -> str:
+    lines = []
+    if item.get("kind") == "home":
+        # exactly the 19-home-h producer of %lmnHomeDirectory% (proven on Windows 11 24H2)
+        lines.append(
+            '      <FilterLdap bool="AND" not="0" binding="LDAP:" '
+            'searchFilter="(&amp;(objectClass=user)(sAMAccountName=%LogonUser%))" '
+            f'attribute={quoteattr("homeDirectory")} '
+            f'variableName={quoteattr(_var_name("homeDirectory"))}/>'
+        )
+    lines += _condition(item, "      ")
+    # "the first matching entry wins": every earlier entry for the same letter is
+    # excluded explicitly, so the result does not depend on how Replace and Update
+    # interact on a letter that an earlier item has just mapped.
+    for earlier in item.get("exclude") or []:
+        inner = _condition(earlier, "        ")
+        if not inner:
+            continue
+        lines.append('      <FilterCollection bool="AND" not="1">')
+        lines.extend(inner)
+        lines.append('      </FilterCollection>')
+    if not lines:
+        return ""
+    return "    <Filters>\r\n" + "\r\n".join(lines) + "\r\n    </Filters>\r\n"
+
+
+def render_managed(items: list[dict], guid: str) -> str:
+    """Drives.xml for pack 20-drives, from resolved items (drivesconf.plan()).
+
+    Each item: kind (del|home|map), letter, action (D|R|U), path, label, persistent,
+    remove_policy, index, groups/devices [{name, sid}], exclude [{groups, devices}],
+    disabled. Byte-stable for the same input: fixed timestamp, deterministic UIDs.
+    """
+    body = []
+    for it in items:
+        letter = str(it["letter"]).strip().upper()[:1]
+        kind = it.get("kind", "map")
+        action = str(it.get("action") or "R").strip().upper()[:1]
+        if kind == "home":
+            action = "U"
+        elif kind == "del":
+            action = "D"
+        if kind == "home":
+            path = "%" + _var_name("homeDirectory") + "%"
+            this_drive = "SHOW"
+            label = it.get("label") or "Home"
+        elif kind == "del":
+            path, this_drive, label = "", "NOCHANGE", ""
+        else:
+            path, this_drive, label = it.get("path") or "", "NOCHANGE", it.get("label") or ""
+        persistent = "1" if (it.get("persistent") and kind == "map") else "0"
+        extra = ""
+        if it.get("remove_policy") and kind == "map" and action == "R":
+            extra += ' removePolicy="1"'
+        if it.get("disabled"):
+            extra += ' disabled="1"'
+        # NEVER useLetter="0": "delete all, starting at" wipes every mapping from this
+        # letter through Z: (KB3091116). A Delete item names exactly one letter.
+        props = (
+            f'    <Properties action="{action}" thisDrive="{this_drive}" '
+            f'allDrives="NOCHANGE" userName="" path={_attr(path)} '
+            f'label={_attr(label)} persistent="{persistent}" '
+            f'useLetter="1" letter="{letter}"/>\r\n'
+        )
+        body.append(
+            f'  <Drive clsid="{_DRIVE_CLSID}" name="{letter}:" status="{letter}:" '
+            f'image="{_IMAGE[action]}" changed="{_CHANGED}" '
+            f'uid="{_uid_managed(guid, kind, letter, int(it.get("index", 0)))}"'
+            f'{extra} bypassErrors="1">\r\n'
+            + props + _managed_filters(it) +
+            '  </Drive>\r\n'
+        )
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\r\n'
+        f'<Drives clsid="{_DRIVES_CLSID}">\r\n'
+        + "".join(body) +
+        '</Drives>\r\n'
+    )
+
+
 class GppDrives:
     def __init__(self, engine):
         self.engine = engine
@@ -122,7 +256,10 @@ class GppDrives:
         items = [i for i in items if i and i.get("letter")]
         if not items:
             return False
-        content = render(items, guid)
+        return self.set_content(guid, render(items, guid))
+
+    def set_content(self, guid: str, content: str) -> bool:
+        """Write a rendered Drives.xml. Unchanged content = no write, no version bump."""
         path = os.path.join(self.engine.sysvol_path(guid), DRIVES_REL)
         if not self.engine.dry_run and os.path.exists(path):
             try:
@@ -137,6 +274,13 @@ class GppDrives:
             except Exception:
                 pass
         if self.engine.dry_run:
+            try:
+                if open(path, encoding="utf-8").read().replace("\r\n", "\n") == \
+                        content.replace("\r\n", "\n"):
+                    self.engine._log("    [dry-run] Drives.xml unchanged")
+                    return False
+            except OSError:
+                pass
             self.engine._log(f"    [dry-run] Drives.xml → {path}:")
             self.engine._log(textwrap.indent(content.replace('\r\n', '\n').rstrip(), "        "))
             self.engine._log("    [dry-run] register GPP-Drives-CSE + bump user version")

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}">
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="H:" status="H:" image="2" changed="2024-01-01 00:00:00" uid="{73BBA624-FC41-59C5-A2C5-F6B612A678F2}" bypassErrors="1">
+    <Properties action="U" thisDrive="SHOW" allDrives="NOCHANGE" userName="" path="%lmnHomeDirectory%" label="Home" persistent="0" useLetter="1" letter="H"/>
+    <Filters>
+      <FilterLdap bool="AND" not="0" binding="LDAP:" searchFilter="(&amp;(objectClass=user)(sAMAccountName=%LogonUser%))" attribute="homeDirectory" variableName="lmnHomeDirectory"/>
+    </Filters>
+  </Drive>
+</Drives>

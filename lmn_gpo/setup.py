@@ -7,6 +7,7 @@ run unattended later / be reused per customer), then applies.
 from __future__ import annotations
 
 import os
+import shutil
 
 import yaml
 
@@ -256,6 +257,37 @@ def _ask_pointandprint(answers: dict, e) -> None:
     answers["printservers_extra"] = [x.strip() for x in extra.split(",") if x.strip()]
 
 
+def _ask_drives(answers: dict) -> None:
+    """Fixed drive letters (pack 20-drives). Only the switch is asked here; the list lives
+    in drives.yaml, which the admin edits (site.yaml is rewritten by this assistant and
+    would lose comments)."""
+    from .drivesconf import DEFAULT_FILE
+    from .paths import EXAMPLES_DIR
+    path = (answers.get("drives_file") or "").strip() or DEFAULT_FILE
+    print("\n  Fixed drive letters (optional): maps the drive letters listed in")
+    print(f"    {path} (letter, UNC path, label, groups) for every school,")
+    print("    and can switch off linuxmuster's default drives K: P: S: T: R:. One user GPO,")
+    print("    LMN-U-GLOBAL-20-drives, linked ENFORCED at OU=SCHOOLS, so it is processed after")
+    print("    the school GPOs - also for a teacher at a computer of another school.")
+    print("    The list itself is edited in that file, not here. Windows clients only.")
+    answers["drives_enabled"] = _ask_yesno("    Enable?", bool(answers.get("drives_enabled")))
+    if not answers["drives_enabled"]:
+        return
+    if os.path.exists(path):
+        print(f"    using {path} - 'lmn-gpo doctor' checks it")
+        return
+    example = os.path.join(EXAMPLES_DIR, "drives.yaml.example")
+    if os.path.exists(example) and _ask_yesno(
+            f"    {path} does not exist. Copy the example there to edit it?", True):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.copyfile(example, path)
+        os.chmod(path, 0o644)
+        print(f"    copied. EDIT it (paths, groups) and delete the line 'example: true' -")
+        print("    until then apply skips the pack and says why.")
+    else:
+        print(f"    create {path} before the next apply; until then apply skips the pack.")
+
+
 def run(site_path: str = DEFAULT_SITE) -> int:
     e = envmod.detect()
     packs = catalog.load_packs()
@@ -390,6 +422,9 @@ def run(site_path: str = DEFAULT_SITE) -> int:
     print("    H: already works, and removing it restores today's behaviour exactly.")
     answers["home_drive_enabled"] = _ask_yesno(
         "    Enable?", bool(answers.get("home_drive_enabled")))
+
+    # Fixed drive letters (optional): pack 20-drives, list in drives.yaml
+    _ask_drives(answers)
 
     # Point and Print (optional): allow non-admin driver install from the print server
     _ask_pointandprint(answers, e)
