@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-from . import ad
+from . import ad, gplink
 
 # "Apply Group Policy" control-access right (MS-GPOL).
 APPLY_GROUP_POLICY = "edacfd8f-ffb3-11d1-b41d-00a0c968f939"
@@ -114,17 +114,81 @@ class GpoEngine:
     # ------------------------------------------------------------------ #
     # linking (idempotent)
     # ------------------------------------------------------------------ #
-    def _linked_guids(self, container_dn: str) -> set[str]:
+    def gplink_value(self, container_dn: str) -> str:
+        """The container's gPLink as stored ('' if it has none). Read-only."""
         msg = ad.find_one("(gPLink=*)", base=container_dn, scope="base", attrs=["gPLink"])
-        gplink = ad.val(msg, "gPLink", "") if msg else ""
-        return {g.upper() for g in re.findall(r"CN=(\{[0-9A-Fa-f-]+\})", gplink)}
+        return ad.val(msg, "gPLink", "") if msg else ""
+
+    def _linked_guids(self, container_dn: str) -> set[str]:
+        # case-insensitive: GPMC writes "cn={GUID},cn=policies,..." where Samba writes CN=
+        return set(gplink.guids(self.gplink_value(container_dn)))
+
+    def link_options(self, container_dn: str, guid: str) -> int | None:
+        """Options of the link to this GPO (bit 1 disabled, bit 2 enforced), None if the
+        GPO is not linked here."""
+        return gplink.options_of(self.gplink_value(container_dn), guid)
+
+    def set_link_options(self, container_dn: str, guid: str, options: int) -> bool:
+        """Change the options of an EXISTING link in place. Returns True if changed.
+
+        `samba-tool gpo setlink` refuses a GPO that is already linked, and there is no
+        samba-tool command to change a link's options. So the gPLink is rewritten
+        directly in sam.ldb: only this GPO's entry changes, its position in the link
+        order stays, every other entry is copied byte for byte (gplink.set_options).
+        The write is a compare-and-swap - delete the old value, add the new one in one
+        modify - so a gPLink that changed since it was read makes it fail instead of
+        silently dropping someone else's link.
+        """
+        old = self.gplink_value(container_dn)
+        cur = gplink.options_of(old, guid)
+        if cur is None:
+            raise GpoError(f"{guid} is not linked to {container_dn}")
+        if cur == options:
+            return False
+        new = gplink.set_options(old, guid, options)
+        what = (f"{guid} at {container_dn}: {gplink.describe(cur)} -> "
+                f"{gplink.describe(options)} (link order unchanged)")
+        if self.dry_run:
+            self._log(f"    [dry-run] link options {what}")
+            return True
+        try:
+            self._replace_gplink(container_dn, old, new)
+        except Exception as exc:
+            raise GpoError(f"could not update the link options of {what}: {exc}") from exc
+        self._log(f"    link options {what}")
+        return True
+
+    def _replace_gplink(self, container_dn: str, old: str, new: str) -> None:
+        import ldb
+
+        d = ad.db()
+        m = ldb.Message()
+        m.dn = ldb.Dn(d, container_dn)
+        m["old"] = ldb.MessageElement(old, ldb.FLAG_MOD_DELETE, "gPLink")
+        m["new"] = ldb.MessageElement(new, ldb.FLAG_MOD_ADD, "gPLink")
+        d.modify(m)
 
     def link(self, container_dn: str, guid: str, *, enforce: bool = False,
              disable: bool = False) -> bool:
-        """Link GPO to a container. Returns True if a change was made."""
-        if guid.upper() in self._linked_guids(container_dn) and not (enforce or disable):
-            self._log(f"    Link present: {guid} → {container_dn}")
-            return False
+        """Link GPO to a container. Returns True if a change was made.
+
+        A new link goes through `samba-tool gpo setlink` (which puts it first in the
+        container's link order). For an EXISTING link nothing changes unless enforce or
+        disable is asked for; then its options are set to exactly that, in place
+        (set_link_options) - which also re-enables a link someone disabled or turns
+        enforcement back on after it was switched off in the GPMC.
+        """
+        want = (gplink.GPLINK_ENFORCE if enforce else 0) | \
+            (gplink.GPLINK_DISABLE if disable else 0)
+        if guid.upper() in self._linked_guids(container_dn):
+            if not (enforce or disable):
+                self._log(f"    Link present: {guid} → {container_dn}")
+                return False
+            if not self.set_link_options(container_dn, guid, want):
+                self._log(f"    Link present: {guid} → {container_dn} "
+                          f"({gplink.describe(want)})")
+                return False
+            return True
         args = ["samba-tool", "gpo", "setlink", container_dn, guid]
         if enforce:
             args.append("--enforce")
