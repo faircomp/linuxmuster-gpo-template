@@ -466,6 +466,22 @@ if ($hMap) {
     $skip++
 }
 
+Write-Head "Drive letters (pack 20-drives)"
+# Informational: which network drives this session has, and whether the drive-maps GPO
+# reached the user. Like H:, only meaningful as the logged-on user, not elevated.
+if ($uapplied | Where-Object { $_ -like "LMN-U-GLOBAL-20-drives*" }) {
+    Write-Host "  [OK] LMN-U-GLOBAL-20-drives applied (user scope)" -ForegroundColor Green
+} else {
+    Write-Host "  [--] LMN-U-GLOBAL-20-drives not among the applied user GPOs (pack not enabled, or not run as the user)" -ForegroundColor DarkGray
+}
+$netDrives = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=4" -ErrorAction SilentlyContinue)
+if ($netDrives) {
+    foreach ($d in $netDrives) { Write-Host ("       {0} -> {1}" -f $d.DeviceID, $d.ProviderName) }
+} else {
+    Write-Host "  [--] no network drive in this session" -ForegroundColor DarkGray
+}
+Write-Host "       Which GPO won a letter: gpresult /h (Drive Maps). Errors: Application log, source 'Group Policy Drive Maps'." -ForegroundColor DarkGray
+
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {
     Write-Head "Full GPO report"
