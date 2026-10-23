@@ -23,7 +23,8 @@
 #    linuxmuster) already mapped elsewhere; update leaves such a letter where it is, while the
 #    client still reports success - hence replace is the default.
 #    reconnect: true = persistent mapping (HKCU\Network); Windows removes it again once
-#    the GPO no longer applies. Without it a drive is gone at the next logon.
+#    the GPO no longer applies. Without reconnect nothing is stored on the client: the
+#    drive is mapped at every logon while the GPO applies, and not any more after that.
 #  - Switch the drives off with 'drives_enabled: false' + 'lmn-gpo apply --yes';
 #    'lmn-gpo remove --pack 20-drives' alone is undone by the next apply.
 #  - label: Windows keeps one Explorer label per UNC PATH, not per letter - two letters on the

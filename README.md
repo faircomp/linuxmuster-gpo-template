@@ -717,7 +717,9 @@ drives_file: /etc/linuxmuster/lmn-gpo/drives.yaml     # optional, this is the de
 ```
 
 ```bash
-cp /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
+mkdir -p -m 0700 /etc/linuxmuster/lmn-gpo      # exists already once 'lmn-gpo setup' has run
+# --update=none: never overwrites an existing drives.yaml
+cp --update=none /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
 editor /etc/linuxmuster/lmn-gpo/drives.yaml     # paths and groups; delete the line 'example: true'
 lmn-gpo doctor                                  # section "Drive maps": file, groups, shares, order
 lmn-gpo apply --pack 20-drives --dry-run        # the table of letters, the XML, the link
@@ -725,16 +727,24 @@ lmn-gpo apply --pack 20-drives --yes
 ```
 
 **No example under `/usr/share/doc`?** Minimized Ubuntu installations exclude `/usr/share/doc`
-(`/etc/dpkg/dpkg.cfg.d/excludes`), so the directory stays empty there. Take the example from the
-`.deb` you installed, or from GitHub at the tag of your version (`lmn-gpo --version`):
+(`/etc/dpkg/dpkg.cfg.d/excludes`): of `/usr/share/doc/lmn-gpo` only `copyright` and
+`changelog.gz` are installed, the example file is missing. Get it into a **new** file — this never
+touches an existing `drives.yaml`. Either from the `.deb` you installed, named exactly (run it in
+the directory of that file; replace `7.3.6` by your version, `lmn-gpo --version`):
 
 ```bash
-dpkg-deb --fsys-tarfile lmn-gpo_*_all.deb \
-  | tar -xO ./usr/share/doc/lmn-gpo/examples/drives.yaml.example > /etc/linuxmuster/lmn-gpo/drives.yaml
-# or: https://github.com/faircomp/linuxmuster-gpo-template/blob/v<version>/examples/drives.yaml.example
+dpkg-deb --fsys-tarfile ./lmn-gpo_7.3.6_all.deb \
+  | tar -xO ./usr/share/doc/lmn-gpo/examples/drives.yaml.example > /root/drives.yaml.example
 ```
 
-(`unminimize` brings `/usr/share/doc` back for the whole system.)
+or from GitHub, at the tag of your version (it exists once that version is released):
+
+```bash
+curl -fsSLo /root/drives.yaml.example https://raw.githubusercontent.com/faircomp/linuxmuster-gpo-template/v7.3.6/examples/drives.yaml.example
+```
+
+Then copy it to `drives.yaml` yourself, as above with `/root/drives.yaml.example` as the source:
+`cp --update=none /root/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml`.
 
 `drives.yaml` is a file of its own on purpose: lmn-gpo only reads it, so comments and order
 survive (`setup` rewrites `site.yaml`), and it holds no secrets — keep it under version
@@ -847,8 +857,8 @@ deliberately after a held-back entry, so that the next `apply` writes a new GPO 
 that resolve.
 
 At the next logon the Delete items are gone and sophomorix maps K: P: T: R: again. Entries
-without `reconnect` are not persistent: they disappear at the next logon (in a running session
-they stay until logoff). Entries with `reconnect: true` are stored by Windows in `HKCU\Network`;
+without `reconnect` are not stored on the client, so after the removal they are simply not mapped
+any more at the next logon (in a running session they stay until logoff). Entries with `reconnect: true` are stored by Windows in `HKCU\Network`;
 because they are written with "remove this item when it is no longer applied", the Drive Maps
 extension removes them at the next logon as well (measured: event 4101 "… removed",
 `HKCU\Network` empty).
@@ -1776,7 +1786,9 @@ drives_file: /etc/linuxmuster/lmn-gpo/drives.yaml     # optional, das ist der St
 ```
 
 ```bash
-cp /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
+mkdir -p -m 0700 /etc/linuxmuster/lmn-gpo      # gibt es schon, sobald 'lmn-gpo setup' lief
+# --update=none: überschreibt nie eine vorhandene drives.yaml
+cp --update=none /usr/share/doc/lmn-gpo/examples/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml
 editor /etc/linuxmuster/lmn-gpo/drives.yaml     # Pfade und Gruppen; Zeile 'example: true' löschen
 lmn-gpo doctor                                  # Abschnitt "Drive maps": Datei, Gruppen, Freigaben, Reihenfolge
 lmn-gpo apply --pack 20-drives --dry-run        # Tabelle der Laufwerke, das XML, der Link
@@ -1784,16 +1796,24 @@ lmn-gpo apply --pack 20-drives --yes
 ```
 
 **Kein Beispiel unter `/usr/share/doc`?** Minimierte Ubuntu-Installationen schließen `/usr/share/doc`
-aus (`/etc/dpkg/dpkg.cfg.d/excludes`), das Verzeichnis bleibt dort leer. Das Beispiel aus dem
-installierten `.deb` holen oder von GitHub beim Tag eurer Version (`lmn-gpo --version`):
+aus (`/etc/dpkg/dpkg.cfg.d/excludes`): Von `/usr/share/doc/lmn-gpo` werden nur `copyright` und
+`changelog.gz` installiert, die Beispieldatei fehlt. Sie in eine **neue** Datei holen — das fasst
+eine vorhandene `drives.yaml` nie an. Entweder aus dem installierten `.deb`, mit genauem Namen (im
+Verzeichnis dieser Datei ausführen; `7.3.6` durch eure Version ersetzen, `lmn-gpo --version`):
 
 ```bash
-dpkg-deb --fsys-tarfile lmn-gpo_*_all.deb \
-  | tar -xO ./usr/share/doc/lmn-gpo/examples/drives.yaml.example > /etc/linuxmuster/lmn-gpo/drives.yaml
-# oder: https://github.com/faircomp/linuxmuster-gpo-template/blob/v<version>/examples/drives.yaml.example
+dpkg-deb --fsys-tarfile ./lmn-gpo_7.3.6_all.deb \
+  | tar -xO ./usr/share/doc/lmn-gpo/examples/drives.yaml.example > /root/drives.yaml.example
 ```
 
-(`unminimize` holt `/usr/share/doc` für das ganze System zurück.)
+oder von GitHub, beim Tag eurer Version (den gibt es, sobald die Version veröffentlicht ist):
+
+```bash
+curl -fsSLo /root/drives.yaml.example https://raw.githubusercontent.com/faircomp/linuxmuster-gpo-template/v7.3.6/examples/drives.yaml.example
+```
+
+Danach selbst nach `drives.yaml` kopieren, wie oben mit `/root/drives.yaml.example` als Quelle:
+`cp --update=none /root/drives.yaml.example /etc/linuxmuster/lmn-gpo/drives.yaml`.
 
 `drives.yaml` ist bewusst eine eigene Datei: lmn-gpo liest sie nur, Kommentare und Reihenfolge
 bleiben erhalten (`setup` schreibt `site.yaml` neu), und sie enthält keine Geheimnisse — sie darf
@@ -1910,8 +1930,9 @@ nach einem zurückgehaltenen Eintrag, damit das nächste `apply` eine neue GPO a
 Einträgen schreibt.
 
 Bei der nächsten Anmeldung fehlen die Löschen-Einträge, sophomorix verbindet K: P: T: R: wieder.
-Einträge ohne `reconnect` sind nicht dauerhaft: Sie verschwinden bei der nächsten Anmeldung (in einer
-laufenden Sitzung bis zur Abmeldung). Einträge mit `reconnect: true` speichert Windows in
+Einträge ohne `reconnect` werden auf dem Client nicht gespeichert, nach dem Entfernen werden sie bei
+der nächsten Anmeldung also einfach nicht mehr verbunden (in einer laufenden Sitzung bleiben sie bis
+zur Abmeldung). Einträge mit `reconnect: true` speichert Windows in
 `HKCU\Network`; weil sie mit „Element entfernen, wenn es nicht mehr angewendet wird" geschrieben
 sind, entfernt die Laufwerkszuordnungs-Erweiterung sie bei der nächsten Anmeldung ebenfalls
 (gemessen: Ereignis 4101 „… entfernt“, `HKCU\Network` leer).
