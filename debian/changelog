@@ -1,5 +1,43 @@
 lmn-gpo (7.3.7) lmn73; urgency=medium
 
+  * New pack 21-office-trusted-schule, ON BY DEFAULT: the school's network drives
+    become Office trusted locations - for Microsoft Access only, unless
+    office_trusted_apps lists more (excel, word, powerpoint). Office blocks VBA macros
+    in files it treats as coming from the internet ("SECURITY RISK - Microsoft has
+    blocked macros from running"), e.g. Access databases a teacher collected from the
+    students; in a trusted location they run.
+  * THIS CHANGES EVERY WINDOWS CLIENT: a site with 'packs: null' (the default) gets the
+    pack at the next 'lmn-gpo apply', without any change to site.yaml. Files on these
+    drives then open with macros enabled and without a prompt - also files students put
+    there and downloads saved to H:. Microsoft recommends against network trusted
+    locations. Decide before you apply: 'office_trusted_enabled: false' keeps the old
+    behaviour, 'office_trusted_roles: [teacher]' limits it to teachers. Switching it off
+    later: office_trusted_enabled: false + 'lmn-gpo apply --yes' (GPOs backed up to
+    /var/backups/lmn-gpo and removed; the values are policy values and leave the clients
+    at the next refresh).
+  * Which drives, read at every apply, per school: H: (the share root of the users'
+    homeDirectory, \\server\<school>\), linuxmuster's default drives from the
+    sophomorix school GPO (read only; a drive disabled in the WebUI is left out) and,
+    with drives_enabled, every drives.yaml entry. Each is written as the UNC path and
+    as the drive letter (office_trusted_forms). Office takes at most 20 locations per
+    application: a school that needs more is held back (nothing written, apply exits 1),
+    never cut. One user GPO per school, LMN-U-<school>-21-office-trusted-schule, linked
+    to OU=Devices and effective through loopback (15-lockdown-base, active by default).
+  * New pack 22-edulution-trusted-schule, on by default but only with a host:
+    edulution_host (per school edulution_host_by_school) puts https://<host> into the
+    Windows 'Trusted sites' zone, also on teacher notebooks. Files downloaded from there
+    get ZoneId=2 instead of 3 and Office no longer hard-blocks their macros (the
+    "Enable content" bar applies). Side effect: Windows trusts the whole site, not only
+    for Office. Without a host the pack is skipped and says so. It shares the zone-list
+    key with 12-proxy-zone-schule; neither removes the other's entry.
+  * lmn-gpo setup asks for both. lmn-gpo-check.ps1 lists the trusted locations (run it
+    as the user) and the site-to-zone list. apply prints the KMS tattoo note only when
+    a KMS GPO was retired.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Tue, 10 Nov 2026 10:22:38 +0100
+
+lmn-gpo (7.3.7) lmn73; urgency=medium
+
   * Pack 17-ntp-zeit switches Secure Time Seeding off on the clients
     (Software\Policies\Microsoft\W32Time\Config\UtilizeSslTimeData = 0). Windows 10/11 also
     set the clock from time data in their outgoing TLS connections; Microsoft has reports of
