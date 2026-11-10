@@ -10,7 +10,8 @@
     Covers computer AND user policies: privacy, update split, power/lock, RDP/firewall/
     groups, KMS (Windows and Office), hotspot block, OneDrive, hibernation, loopback,
     Firefox, role proxy, student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time),
-    Point and Print and the boot-order startup-script log.
+    Point and Print, the boot-order startup-script log, the Office trusted locations (HKCU)
+    and the site-to-zone list (proxy host, edulution).
 
     Run twice: (1) as ADMINISTRATOR for computer GPOs/firewall/groups,
     (2) as the logged-in STUDENT (not elevated) for the user restrictions (lockdown/proxy).
@@ -509,6 +510,51 @@ if ($netDrives) {
     Write-Host "  [--] no network drive in this session" -ForegroundColor DarkGray
 }
 Write-Host "       Which GPO won a letter: gpresult /h (Drive Maps). Errors: Application log, source 'Group Policy Drive Maps'." -ForegroundColor DarkGray
+
+Write-Head "Office trusted locations (pack 21-office-trusted-schule)"
+# HKCU policies: run as the logged-on user, not elevated. Path and letter forms are both
+# listed; which one Office matches is shown in the Trust Center (Policy Locations).
+$otAny = $false
+foreach ($app in @('access', 'excel', 'word', 'powerpoint')) {
+    $base = "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\$app\Security\Trusted Locations"
+    if (-not (Test-Path -LiteralPath $base)) { continue }
+    $otAny = $true
+    $net = (Get-ItemProperty -LiteralPath $base -Name AllowNetworkLocations -ErrorAction SilentlyContinue).AllowNetworkLocations
+    if ($net -eq 1) {
+        Write-Host ("  [OK] {0}: network trusted locations allowed" -f $app) -ForegroundColor Green; $ok++
+    } else {
+        Write-Host ("  [!!] {0}: AllowNetworkLocations = {1} (Office ignores network locations)" -f $app, $net) -ForegroundColor Red; $fail++
+    }
+    $locs = @(Get-ChildItem -LiteralPath $base -ErrorAction SilentlyContinue |
+        Sort-Object { [int]('0' + ($_.PSChildName -replace '[^0-9]', '')) })
+    foreach ($l in $locs) {
+        $v = Get-ItemProperty -LiteralPath $l.PSPath -ErrorAction SilentlyContinue
+        Write-Host ("       {0,-11} {1,-42} subfolders={2}  {3}" -f $l.PSChildName, $v.Path, $v.AllowSubfolders, $v.Description)
+    }
+}
+if (-not $otAny) {
+    Write-Host "  [--] no policy trusted locations for this user (pack off, or not run as the user)" -ForegroundColor DarkGray
+    $skip++
+}
+$mix = (Get-ItemProperty -LiteralPath "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Security\Trusted Locations" -Name "Allow User Locations" -ErrorAction SilentlyContinue).'Allow User Locations'
+if ($null -ne $mix) { Write-Host ("       Allow mix of policy and user locations = {0}" -f $mix) -ForegroundColor DarkGray }
+Write-Host "       In Office: File > Options > Trust Center > Trust Center Settings > Trusted Locations." -ForegroundColor DarkGray
+
+Write-Head "Site to zone list (12-proxy-zone-schule, 22-edulution-trusted-schule)"
+$zoneNames = @{ '0' = 'My Computer'; '1' = 'Local intranet'; '2' = 'Trusted sites'; '3' = 'Internet'; '4' = 'Restricted sites' }
+$zm = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey"
+if (Test-Path -LiteralPath $zm) {
+    $zk = Get-Item -LiteralPath $zm
+    foreach ($n in $zk.GetValueNames()) {
+        $z = "$($zk.GetValue($n))"
+        Write-Host ("  [OK] {0,-42} zone {1} ({2})" -f $n, $z, $zoneNames[$z]) -ForegroundColor Green
+        $ok++
+    }
+} else {
+    Write-Host "  [--] no site-to-zone policy on this computer (packs off, or no host configured)" -ForegroundColor DarkGray
+    $skip++
+}
+Write-Host "       Zone of a downloaded file: Get-Content <file> -Stream Zone.Identifier (ZoneId=2 = Trusted sites, 3 = Internet)." -ForegroundColor DarkGray
 
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {
