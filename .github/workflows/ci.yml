@@ -346,7 +346,8 @@ jobs:
           # without a pack that sets UserPolicyMode these GPOs reach nobody, and until 7.3.2
           # apply just reported "Done: N GPO(s) applied."
           assert {p.id for p in packs.values() if apply.Applier.needs_loopback(p)} == \
-              {"12-proxy-student-schule", "12-proxy-teacher-schule", "12-proxy-staff-schule"}, \
+              {"12-proxy-student-schule", "12-proxy-teacher-schule", "12-proxy-staff-schule",
+               "21-office-trusted-schule"}, \
               sorted(p.id for p in packs.values() if apply.Applier.needs_loopback(p))
           allp = list(packs.values())
           # only the role proxy selected -> gap, and the warning names pack, school and the fix
