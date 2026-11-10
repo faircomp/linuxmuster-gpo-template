@@ -11,7 +11,7 @@ Policies **directly from the Linux server** – without the Windows GPMC – and
 **multi-school capable** (several schools per server, and identical rollout across many
 customer servers).
 
-> **Status: complete & verified.** 34 policy packs, idempotent, with `--dry-run`.
+> **Status: complete & verified.** 36 policy packs, idempotent, with `--dry-run`.
 > Tested end-to-end against a real linuxmuster 7.3 instance: create → idempotent re-run
 > (0 changes) → `sysvolcheck`/`aclcheck`/`dbcheck` clean → fully removable.
 
@@ -22,9 +22,9 @@ customer servers).
 ## Contents
 
 - [What the toolkit does](#why-this-works) · [Concept](#concept)
-- [Features](#features) (34 packs)
+- [Features](#features) (36 packs)
 - **Guide:** [Installation](#installation) → [Quick start](#quick-start) → [Usage](#usage) → [Configuration](#configuration-siteyaml)
-- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Fixed drive letters](#fixed-drive-letters-multi-school) · [Point and Print](#point-and-print-printer-drivers-for-students)
+- **Setting up features:** [KMS](#kms) · [Branding](#branding-wallpaper--logon-background) · [Firefox](#firefox) · [Proxy](#role-based-proxy) · [Wi-Fi](#wi-fi-multiple-networks--roaming) · [Veyon](#veyon-classroom-management) · [Student lockdown](#student-lockdown) · [Boot order](#uefi-boot-order-pxe-first) · [Time sync](#time-synchronisation) · [Fixed drive letters](#fixed-drive-letters-multi-school) · [Point and Print](#point-and-print-printer-drivers-for-students) · [Office trusted locations](#office-network-drives-as-trusted-locations) · [edulution trusted site](#edulution-as-a-trusted-site)
 - [Rolling out to clients](#rolling-out-to-clients) · [Checking on the client](#checking-on-the-client) · [Updating the toolkit](#updating-the-toolkit) · [Troubleshooting](#troubleshooting)
 - [Requirements](#requirements) · [Directory layout](#directory-layout)
 
@@ -54,7 +54,7 @@ registers the corresponding CSE GUID. Details: [`docs/`](docs/).
 
 ## Features
 
-All 34 packs in `catalog/`. **Always active** (no extra parameter needed):
+All 36 packs in `catalog/`. **Always active** (no extra parameter needed):
 
 | Package | Effect |
 |---|---|
@@ -73,6 +73,7 @@ All 34 packs in `catalog/`. **Always active** (no extra parameter needed):
 | **Block mobile hotspot** | Windows hotspot / ICS blocked on **all** machines (toggle greyed out) — no exception |
 | **Student lockdown** | students (`role-student`) cannot change sensitive settings — above all **cannot remove the proxy** (+ Connections tab/PAC & Registry Editor locked); **teachers/admins unrestricted** (loopback + filter) |
 | **Time synchronisation (W32Time)** | clients sync from the server via explicit **NTP** (`ntp_mode`, default); **also corrects large offsets** (dead CMOS battery); **Secure Time Seeding off** (no clock jumps from TLS data); `nt5ds` available where MS-SNTP signing works |
+| **Office: network drives trusted** | H:, linuxmuster's default drives (and `drives.yaml`) become Office **trusted locations**, **Access only** by default — macros there run without a prompt; `office_trusted_enabled: false` switches it off. [Details](#office-network-drives-as-trusted-locations) |
 
 **Optional** (enabled via `site.yaml` / the setup assistant):
 
@@ -90,6 +91,7 @@ All 34 packs in `catalog/`. **Always active** (no extra parameter needed):
 | **UEFI boot order PXE first** | `bootorder_pxe_first: true` | scheduled task (SYSTEM/highest) forces network/PXE to the top (→ LINBO) if Windows pushes itself forward; robust pattern detection, idempotent. **Hardware-dependent — test on 1 machine first** |
 | **Allow Point and Print** | `pointandprint_enabled: true` | lets students auto-install printer drivers from your print server(s) — the printers linuxmuster/sophomorix already connects — which patched Windows 11 otherwise blocks (PrintNightmare). Trusts **only** your servers (auto-detected `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
 | **Fixed drive letters** | `drives_enabled: true` + `drives.yaml` | your own drive letters (letter, UNC path, label, groups) at every school, H: from the home directory, linuxmuster's default drives K: P: S: T: R: switched off for all or for groups; one user GPO linked **enforced**, so it wins over the school GPOs — also for a teacher at another school's computer. [Details](#fixed-drive-letters-multi-school) |
+| **edulution as a trusted site** | `edulution_host` (on by default once a host is set) | `https://<host>` in the Windows **Trusted sites** zone: downloads from it get `ZoneId=2`, Office no longer hard-blocks their macros; teacher notebooks included. Side effect: Windows trusts the whole site. [Details](#edulution-as-a-trusted-site) |
 
 ---
 
@@ -310,6 +312,15 @@ printservers_extra: []        # extra/external print-server FQDNs to also trust 
 
 drives_enabled: false         # true = fixed drive letters from drives_file (pack 20-drives, opt-in)
 drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absolute path)
+
+office_trusted_enabled: true  # network drives as Office trusted locations (pack 21, ON by default)
+office_trusted_apps: [access] # any of access, excel, word, powerpoint
+office_trusted_roles: all     # all | a list of teacher, student, staff
+office_trusted_forms: [unc, letter]   # UNC path, drive letter or both (default: both)
+
+edulution_trusted_enabled: true       # edulution in the Trusted sites zone (pack 22, ON by default)
+edulution_host: ""                    # e.g. edulution.school.de; "" = pack skipped
+edulution_host_by_school: {}          # per-school override { schule2: "edu.schule2.de" }
 ```
 
 > `site.yaml` contains **secrets** (Wi-Fi PSKs, encrypted bind password) and is in
@@ -917,6 +928,116 @@ The trusted-server list is **auto-detected** to match how linuxmuster connects
 > scoped relaxation, bounded to your servers (`TrustedServers=1` + `ServerList`). The safest
 > alternative is to pre-stage the drivers in the **LINBO image** and leave this disabled.
 
+## Office: network drives as trusted locations
+
+**On by default** since 7.3.7 (pack `21-office-trusted-schule`). Since 2022 Office blocks VBA
+macros in files it considers to come from the internet. A file share that Windows does not count
+as *Local intranet* or *Trusted sites* is treated the same way, and "Unblock" in the file
+properties does not help there. A teacher who opens the Access databases collected from the
+students then sees *"SECURITY RISK – Microsoft has blocked macros from running because the source
+of this file is untrusted"* and cannot test the macros. This pack makes the school's network
+drives **trusted locations** in Office, by default for **Access only**.
+
+```yaml
+office_trusted_enabled: true          # default; false switches it off (see below)
+office_trusted_apps: [access]         # any of access, excel, word, powerpoint
+office_trusted_roles: all             # or a list of teacher, student, staff
+office_trusted_forms: [unc, letter]   # write the UNC path, the drive letter, or both (default)
+```
+
+**Which drives**, read at every `apply`, per school:
+
+- **H:** — the share root of the school's users' `homeDirectory` (`\\server\<school>\`), not one
+  path per user;
+- **linuxmuster's default drives** (K: P: S: T: R:) as the `sophomorix:school:<school>` GPO maps
+  them — read only, a drive disabled in the WebUI is left out;
+- with `drives_enabled: true`, **every entry of `drives.yaml`** (also other file servers, e.g. the
+  administration's).
+
+Each drive becomes one location with "subfolders allowed", written **twice: as the UNC path and as
+the drive letter** (`H:\`) — which of the two Office matches for a file opened via `H:` is being
+measured in the lab; until then both are written. A path below another one is covered by it
+(`\\server\<school>\share` is inside `\\server\<school>\`). Office takes **at most 20** policy
+locations per application: a school that would need more is **held back** (nothing written, an
+existing GPO left as it is, `apply` exits 1 and lists them) — nothing is cut silently. Fix:
+fewer drives in `drives.yaml`, or `office_trusted_forms: [unc]`.
+
+Written per application (user policy, `Software\Policies\Microsoft\Office\16.0\<app>\Security\
+Trusted Locations`): *Allow Trusted Locations on the network* (without it Office ignores every
+policy location on a network path) and *Trusted Location #1…#N* with path, subfolders and the
+description `lmn-gpo <letters>`. Plus *Allow mix of policy and user locations* in Common, so
+Office's own locations (Access' wizard folder ACCWIZ) and the user's stay in use — Microsoft says
+that is also what "not configured" does; it is written to pin it. Names verified against
+Microsoft's ADMX: [`docs/RESEARCH.md`](docs/RESEARCH.md) section 9. One user GPO per school,
+`LMN-U-<school>-21-office-trusted-schule`, linked to `OU=Devices` of the school and effective
+through **loopback**, like the role proxy (`15-lockdown-base` provides it; `apply`/`doctor` warn
+if no loopback pack is active). A teacher of school A at a computer of school B gets school B's
+paths; the letter form still covers H:.
+
+> ### Security — decided deliberately, read before you keep it on
+> - Files on these drives open with **macros enabled and without any prompt**, AutoExec included.
+>   That applies to files **students** put there and to **downloads saved to H:**, too — a trusted
+>   location skips the internet check entirely.
+> - Microsoft: "Network locations can also be set as a Trusted Location, but it's not
+>   recommended", and its security baseline for Microsoft 365 Apps disables network trusted
+>   locations. A site that applies that baseline gets whichever GPO is processed last.
+> - Default is **Access only**. Excel, Word and PowerPoint only when you list them.
+> - Teachers: open students' Access files **with SHIFT held down** — that skips the AutoExec
+>   macro and the startup form. It is advice, not a safeguard: a database can switch the SHIFT
+>   bypass off itself (`AllowBypassKey`).
+> - **Alternative** (Microsoft's recommendation for shares): put the file server into the *Local
+>   intranet* or *Trusted sites* zone (Site to Zone Assignment List, as `12-proxy-zone-schule`
+>   does for the proxy). Macros then are no longer hard-blocked but follow the Trust Center
+>   setting (the "Enable content" bar) instead of running silently. Not shipped as a pack.
+
+**Switching it off:** `office_trusted_enabled: false` + `lmn-gpo apply --yes`. apply backs the
+GPOs up (`/var/backups/lmn-gpo`) and removes them; every value is under `Software\Policies`, so
+the clients drop them at the next policy refresh (`gpupdate /force`, logon). Narrower:
+`office_trusted_roles: [teacher]` (only role-teacher), or another `office_trusted_apps` list.
+Changing the roles of an existing GPO other than narrowing from `all`: `apply` only ever *adds*
+security-filter entries, so it holds the school back and names the fix —
+`lmn-gpo remove --school <school> --pack 21-office-trusted-schule --yes`, then `apply`.
+
+**Upgrading:** a site with `packs: null` (the default) gets the pack at the next `apply`, without
+any change to `site.yaml` — that changes Office's behaviour on every Windows client. With an
+explicit `packs:` list it only comes when `21-office-trusted-schule` is added.
+
+Check on the client as the logged-on user: `lmn-gpo-check.ps1` lists the locations; in Office
+*File > Options > Trust Center > Trust Center Settings > Trusted Locations*, section *Policy
+Locations*.
+
+## edulution as a trusted site
+
+**On by default, once the host is set** (pack `22-edulution-trusted-schule`). Files that a teacher
+downloads from the school's edulution website in Edge or Chrome carry the Internet zone
+(`ZoneId=3`) and Office hard-blocks their macros. With the site in the **Trusted sites** zone
+they get `ZoneId=2`, and Microsoft: "if the ZoneId is 2, VBA macros in that file won't be blocked
+by default" — the normal "Enable content" bar of the Trust Center applies.
+
+```yaml
+edulution_trusted_enabled: true                          # default
+edulution_host: "edulution.school.de"                    # empty = pack skipped (never guessed)
+edulution_host_by_school: { schule2: "edu.schule2.de" }  # optional, per school
+```
+
+Written: `https://<host>` = `2` in the Site to Zone Assignment List
+(`HKLM\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey`), one
+computer GPO per school, linked to `OU=Devices` of the school — **teacher notebooks included**.
+Only `https://` is mapped (plain http to that host is unchanged); a path, port or wildcard in
+the host is refused (held back, exit 1). Without a host the pack is skipped with a notice. It
+shares the key with `12-proxy-zone-schule` (proxy host → Local intranet): both GPOs only add
+their own value and never delete the other's.
+
+> **Side effect:** the **whole site** is in the Trusted sites zone for Windows, not only for
+> Office — every check that keys on the Internet zone treats its downloads as trusted (e.g.
+> Office's Protected View for internet files, Windows' security prompt before running a
+> downloaded program), and Edge's IE mode uses the Trusted sites settings for it. Only add a
+> site you control. Switch off: `edulution_trusted_enabled: false` (or an empty host) + `apply`.
+
+Check: `lmn-gpo-check.ps1` lists the zone list; for a downloaded file
+`Get-Content <file> -Stream Zone.Identifier` shows `ZoneId=2`. That Edge/Chrome/Firefox write
+`ZoneId=2` with this GPO is the lab's check ([`docs/RESEARCH.md`](docs/RESEARCH.md) section 10).
+
 ---
 
 ## Rolling out to clients
@@ -983,7 +1104,8 @@ have arrived **and take effect** — covering every pack: `gpresult` (computer *
 user), registry actual values, firewall, local groups, KMS (Windows **and** Office),
 hotspot, OneDrive, hibernation,
 loopback, Firefox, role proxy, **student lockdown (HKCU)**, Veyon, Wi-Fi (+ RADIUS CA),
-**time sync (w32tm)** and the **boot-order log**. It also produces an HTML report.
+**time sync (w32tm)**, the **boot-order log**, the **Office trusted locations** (HKCU) and the
+**site-to-zone list** (proxy host, edulution). It also produces an HTML report.
 
 Best run **twice**:
 ```powershell
@@ -1005,6 +1127,14 @@ per check + a summary.
 > or over RDP — a remote-shell result is meaningless.
 
 ## Updating the toolkit
+
+> ### Upgrading to 7.3.7: two packs are on by default
+> A site with `packs: null` gets [`21-office-trusted-schule`](#office-network-drives-as-trusted-locations)
+> at the next `apply` without any change to `site.yaml`: H:, the default drives and the
+> `drives.yaml` drives become **Office trusted locations for Access** on every Windows client
+> (macros there run without a prompt). Decide before you apply: `office_trusted_enabled: false`
+> keeps the old behaviour. [`22-edulution-trusted-schule`](#edulution-as-a-trusted-site) only
+> acts once `edulution_host` is set. `lmn-gpo apply --dry-run` lists both.
 
 > ### Upgrading from 7.3.1 or older: re-apply once
 > 7.3.2 corrects the loopback value. Up to 7.3.1 `loopback: merge` wrote
@@ -1101,7 +1231,7 @@ any machine, not just the DC. Installing the ready-made `.deb` from a release ne
 
 ```
 lmn_gpo/        Python engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      34 YAML policy packs
+catalog/      36 YAML policy packs
 examples/     drives.yaml.example (installed to /usr/share/doc/lmn-gpo/examples/)
 scripts/      Windows startup/shutdown scripts + lmn-gpo-check.ps1 (client diagnostics)
 tests/        pytest unit tests (no DC needed; run in CI)
@@ -1132,7 +1262,7 @@ Windows-11-Gruppenrichtlinien **direkt vom Linux-Server aus** – ohne Windows-G
 und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Ausrollen
 über viele Kunden-Server hinweg).
 
-> **Status: fertig & verifiziert.** 34 Policy-Packs, idempotent, mit `--dry-run`.
+> **Status: fertig & verifiziert.** 36 Policy-Packs, idempotent, mit `--dry-run`.
 > End-to-End gegen eine echte linuxmuster-7.3-Instanz getestet: anlegen → idempotenter
 > Re-Run (0 Änderungen) → `sysvolcheck`/`aclcheck`/`dbcheck` sauber → restlos entfernen.
 
@@ -1143,9 +1273,9 @@ und ist **Multischule-fähig** (mehrere Schulen pro Server sowie identisches Aus
 ## Inhalt
 
 - [Was das Toolkit macht](#warum-das-funktioniert) · [Konzept](#konzept-1)
-- [Features](#features-1) (34 Packs)
+- [Features](#features-1) (36 Packs)
 - **Anleitung:** [Installation](#installation-1) → [Schnellstart](#schnellstart) → [Bedienung](#bedienung) → [Konfiguration](#konfiguration-siteyaml-1)
-- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Feste Laufwerke](#feste-laufwerke-multischule) · [Point and Print](#point-and-print-druckertreiber-für-schüler)
+- **Features einrichten:** [KMS](#kms-1) · [Branding](#branding-wallpaper--anmeldebild) · [Firefox](#firefox-1) · [Proxy](#rollen-proxy) · [WLAN](#wlan-mehrere-netze--roaming) · [Veyon](#veyon-klassenraum-steuerung) · [Schüler-Lockdown](#schüler-lockdown) · [Bootreihenfolge](#uefi-bootreihenfolge-pxe-zuerst) · [Zeitsync](#zeitsynchronisation) · [Feste Laufwerke](#feste-laufwerke-multischule) · [Point and Print](#point-and-print-druckertreiber-für-schüler) · [Office-Speicherorte](#office-netzlaufwerke-als-vertrauenswürdige-speicherorte) · [edulution-Site](#edulution-als-vertrauenswürdige-site)
 - [Ausrollen auf die Clients](#ausrollen-auf-die-clients) · [Prüfen am Client](#prüfen-am-client) · [Update des Toolkits](#update-des-toolkits) · [Troubleshooting](#troubleshooting-1)
 - [Anforderungen](#anforderungen) · [Verzeichnisstruktur](#verzeichnisstruktur)
 
@@ -1174,7 +1304,7 @@ selbst und registriert die jeweilige CSE-GUID. Details: [`docs/`](docs/).
 
 ## Features
 
-Alle 34 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nötig):
+Alle 36 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nötig):
 
 | Paket | Wirkung |
 |---|---|
@@ -1193,6 +1323,7 @@ Alle 34 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nöti
 | **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
 | **Schüler-Lockdown** | Schüler (`role-student`) können sensible Einstellungen nicht ändern — v. a. den **Proxy nicht rausnehmen** (+ Verbindungen-Tab/PAC & Registry-Editor gesperrt); **Lehrer/Admins uneingeschränkt** (Loopback + Filter) |
 | **Zeitsynchronisation (W32Time)** | Clients synchen per explizitem **NTP** vom Server (`ntp_mode`, Standard); **korrigiert auch große Versätze** (leere CMOS-Batterie); **Secure Time Seeding aus** (keine Uhrsprünge aus TLS-Daten); `nt5ds` möglich, wo MS-SNTP-Signierung funktioniert |
+| **Office: Netzlaufwerke vertrauenswürdig** | H:, die Standardlaufwerke von linuxmuster (und `drives.yaml`) werden in Office **vertrauenswürdige Speicherorte**, standardmäßig **nur Access** — Makros dort laufen ohne Rückfrage; `office_trusted_enabled: false` schaltet ab. [Details](#office-netzlaufwerke-als-vertrauenswürdige-speicherorte) |
 
 **Optional** (per `site.yaml` / Setup-Assistent aktiviert):
 
@@ -1210,6 +1341,7 @@ Alle 34 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nöti
 | **UEFI-Bootreihenfolge PXE zuerst** | `bootorder_pxe_first: true` | Scheduled Task (SYSTEM/höchste Rechte) zwingt Netzwerk/PXE an die erste Stelle (→ LINBO), falls Windows sich vordrängt; robuste Muster-Erkennung, idempotent. **Hardwareabhängig — erst auf 1 Gerät testen** |
 | **Point and Print erlauben** | `pointandprint_enabled: true` | lässt Schüler Druckertreiber von euren Druckservern automatisch installieren — die Drucker, die linuxmuster/sophomorix ohnehin verbindet — was gepatchtes Windows 11 sonst blockiert (PrintNightmare). Vertraut **nur** euren Servern (auto-erkannt `\\SERVER` + FQDN + IP, plus `printservers_extra`) |
 | **Feste Laufwerke** | `drives_enabled: true` + `drives.yaml` | eigene Laufwerke (Buchstabe, UNC-Pfad, Bezeichnung, Gruppen) an jeder Schule, H: aus dem Home-Verzeichnis, linuxmuster-Standardlaufwerke K: P: S: T: R: für alle oder für Gruppen abgeschaltet; eine Benutzer-GPO, **erzwungen** verlinkt, damit sie gegen die Schul-GPOs gewinnt — auch für eine Lehrkraft am Rechner einer anderen Schule. [Details](#feste-laufwerke-multischule) |
+| **edulution als vertrauenswürdige Site** | `edulution_host` (standardmäßig an, sobald ein Host eingetragen ist) | `https://<host>` in der Windows-Zone **Vertrauenswürdige Sites**: Downloads von dort bekommen `ZoneId=2`, Office blockiert ihre Makros nicht mehr hart; Lehrer-Notebooks eingeschlossen. Nebenwirkung: Windows vertraut der ganzen Site. [Details](#edulution-als-vertrauenswürdige-site) |
 
 ---
 
@@ -1433,6 +1565,15 @@ printservers_extra: []        # zusätzliche/externe Druckserver-FQDNs (der loka
 
 drives_enabled: false         # true = feste Laufwerke aus drives_file (Pack 20-drives, opt-in)
 drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absoluter Pfad)
+
+office_trusted_enabled: true  # Netzlaufwerke als vertrauenswürdige Office-Speicherorte (Pack 21, standardmäßig an)
+office_trusted_apps: [access] # beliebig aus access, excel, word, powerpoint
+office_trusted_roles: all     # all | Liste aus teacher, student, staff
+office_trusted_forms: [unc, letter]   # UNC-Pfad, Laufwerksbuchstabe oder beides (Standard: beides)
+
+edulution_trusted_enabled: true       # edulution in der Zone Vertrauenswürdige Sites (Pack 22, standardmäßig an)
+edulution_host: ""                    # z. B. edulution.schule.de; "" = Pack übersprungen
+edulution_host_by_school: {}          # je Schule { schule2: "edu.schule2.de" }
 ```
 
 > Die `site.yaml` enthält **Geheimnisse** (WLAN-PSKs, verschlüsseltes Bind-Passwort) und ist
@@ -2011,6 +2152,123 @@ FQDN + IP) — das vermeidet den klassischen Kurzname-vs-FQDN-Fehler. `printserv
 > eingegrenzte Lockerung, begrenzt auf eure Server (`TrustedServers=1` + `ServerList`). Am
 > sichersten: Treiber ins **LINBO-Image** vorinstallieren und dies deaktiviert lassen.
 
+## Office: Netzlaufwerke als vertrauenswürdige Speicherorte
+
+**Standardmäßig an** seit 7.3.7 (Pack `21-office-trusted-schule`). Seit 2022 blockiert Office
+VBA-Makros in Dateien, die es für Internet-Dateien hält. Eine Dateifreigabe, die Windows weder
+zu *Lokales Intranet* noch zu *Vertrauenswürdige Sites* zählt, wird genauso behandelt, und
+„Zulassen" in den Dateieigenschaften hilft dort nicht. Eine Lehrkraft, die eingesammelte
+Access-Datenbanken der Schüler öffnet, sieht dann *„SICHERHEITSRISIKO – Microsoft hat die
+Ausführung von Makros blockiert, da die Quelle dieser Datei nicht vertrauenswürdig ist"* und kann
+die Makros nicht prüfen. Dieses Pack macht die Netzlaufwerke der Schule in Office zu
+**vertrauenswürdigen Speicherorten**, standardmäßig **nur für Access**.
+
+```yaml
+office_trusted_enabled: true          # Standard; false schaltet ab (siehe unten)
+office_trusted_apps: [access]         # beliebig aus access, excel, word, powerpoint
+office_trusted_roles: all             # oder eine Liste aus teacher, student, staff
+office_trusted_forms: [unc, letter]   # UNC-Pfad, Laufwerksbuchstabe oder beides (Standard)
+```
+
+**Welche Laufwerke**, bei jedem `apply` neu gelesen, je Schule:
+
+- **H:** — der Freigabe-Stamm des `homeDirectory` der Benutzer der Schule (`\\server\<schule>\`),
+  nicht ein Pfad pro Benutzer;
+- **die Standardlaufwerke von linuxmuster** (K: P: S: T: R:), so wie die GPO
+  `sophomorix:school:<schule>` sie verbindet — nur gelesen, ein in der WebUI abgeschaltetes
+  Laufwerk fehlt;
+- bei `drives_enabled: true` **jeder Eintrag der `drives.yaml`** (auch andere Fileserver, etwa
+  der der Verwaltung).
+
+Jedes Laufwerk wird ein Speicherort mit „Unterordner zulassen", **zweimal geschrieben: als
+UNC-Pfad und als Laufwerksbuchstabe** (`H:\`) — welche Form Office für eine über `H:` geöffnete
+Datei heranzieht, wird im Lab gemessen; bis dahin stehen beide drin. Ein Pfad unterhalb eines
+anderen ist durch ihn abgedeckt (`\\server\<schule>\share` liegt in `\\server\<schule>\`). Office
+nimmt **höchstens 20** Richtlinien-Speicherorte je Anwendung: Eine Schule, die mehr bräuchte, wird
+**zurückgehalten** (nichts geschrieben, eine vorhandene GPO bleibt wie sie ist, `apply` endet mit
+1 und listet sie auf) — still gekürzt wird nichts. Abhilfe: weniger Laufwerke in der
+`drives.yaml` oder `office_trusted_forms: [unc]`.
+
+Geschrieben wird je Anwendung (Benutzer-Richtlinie, `Software\Policies\Microsoft\Office\16.0\
+<App>\Security\Trusted Locations`): *Vertrauenswürdige Speicherorte im Netzwerk zulassen* (ohne
+sie ignoriert Office jeden Richtlinien-Speicherort auf einem Netzwerkpfad) und *Vertrauenswürdiger
+Speicherort Nr. 1…N* mit Pfad, Unterordnern und der Beschreibung `lmn-gpo <Buchstaben>`. Dazu
+*Mischung aus Richtlinien- und Benutzerspeicherorten zulassen* unter Common, damit Offices eigene
+Speicherorte (der Assistenten-Ordner ACCWIZ von Access) und die des Benutzers gültig bleiben —
+laut Microsoft macht „nicht konfiguriert" dasselbe; geschrieben wird es, um es festzunageln. Die
+Namen sind gegen Microsofts ADMX geprüft: [`docs/RESEARCH.md`](docs/RESEARCH.md) Abschnitt 9. Eine
+Benutzer-GPO je Schule, `LMN-U-<schule>-21-office-trusted-schule`, verlinkt an `OU=Devices` der
+Schule und wirksam über **Loopback** wie der Rollen-Proxy (`15-lockdown-base` liefert es;
+`apply`/`doctor` warnen, wenn kein Loopback-Pack aktiv ist). Eine Lehrkraft der Schule A am
+Rechner der Schule B bekommt die Pfade der Schule B; die Buchstaben-Form deckt H: trotzdem ab.
+
+> ### Sicherheit — bewusst entschieden, vor dem Anlassen lesen
+> - Dateien auf diesen Laufwerken öffnen **mit aktivierten Makros und ohne Rückfrage**, auch
+>   AutoExec. Das gilt auch für Dateien, die **Schüler** dort ablegen, und für **auf H:
+>   gespeicherte Downloads** — ein vertrauenswürdiger Speicherort überspringt die
+>   Internet-Prüfung ganz.
+> - Microsoft: Netzwerk-Speicherorte sind möglich, „but it's not recommended", und die
+>   Sicherheits-Baseline für Microsoft 365 Apps schaltet Netzwerk-Speicherorte ab. Wer diese
+>   Baseline anwendet, bekommt die Einstellung der GPO, die zuletzt verarbeitet wird.
+> - Standard ist **nur Access**. Excel, Word und PowerPoint nur, wenn ihr sie eintragt.
+> - Lehrkräfte: Access-Dateien von Schülern **mit gedrückter Umschalttaste öffnen** — das
+>   überspringt das AutoExec-Makro und das Startformular. Ein Rat, kein Schutz: Eine Datenbank
+>   kann die Umschalttaste selbst abschalten (`AllowBypassKey`).
+> - **Alternative** (Microsofts Empfehlung für Freigaben): den Fileserver in die Zone *Lokales
+>   Intranet* oder *Vertrauenswürdige Sites* aufnehmen (Zonenliste, wie `12-proxy-zone-schule` es
+>   für den Proxy macht). Makros sind dann nicht mehr hart blockiert, folgen aber der
+>   Trust-Center-Einstellung (Leiste „Inhalt aktivieren") statt still zu laufen. Kein Pack dafür.
+
+**Abschalten:** `office_trusted_enabled: false` + `lmn-gpo apply --yes`. apply sichert die GPOs
+(`/var/backups/lmn-gpo`) und entfernt sie; alle Werte liegen unter `Software\Policies`, die Clients
+verwerfen sie beim nächsten Richtlinien-Abgleich (`gpupdate /force`, Anmeldung). Enger:
+`office_trusted_roles: [teacher]` (nur role-teacher) oder eine andere `office_trusted_apps`-Liste.
+Die Rollen einer vorhandenen GPO anders ändern als von `all` aus einzuengen: `apply` *ergänzt*
+Sicherheitsfilter nur, deshalb hält es die Schule zurück und nennt die Abhilfe —
+`lmn-gpo remove --school <schule> --pack 21-office-trusted-schule --yes`, dann `apply`.
+
+**Update:** Eine Installation mit `packs: null` (Standard) bekommt das Pack beim nächsten `apply`,
+ohne Änderung an der `site.yaml` — das ändert das Verhalten von Office auf allen Windows-Clients.
+Mit fester `packs:`-Liste kommt es erst, wenn `21-office-trusted-schule` dort steht.
+
+Prüfen am Client als angemeldeter Benutzer: `lmn-gpo-check.ps1` listet die Speicherorte; in
+Office *Datei > Optionen > Trust Center > Einstellungen für das Trust Center > Vertrauenswürdige
+Speicherorte*, Abschnitt *Richtlinien-Speicherorte*.
+
+## edulution als vertrauenswürdige Site
+
+**Standardmäßig an, sobald der Host eingetragen ist** (Pack `22-edulution-trusted-schule`).
+Dateien, die eine Lehrkraft in Edge oder Chrome von der edulution-Seite der Schule lädt, tragen die
+Internetzone (`ZoneId=3`), und Office blockiert ihre Makros hart. Steht die Site in der Zone
+**Vertrauenswürdige Sites**, bekommen sie `ZoneId=2`, und laut Microsoft gilt: „if the ZoneId is 2,
+VBA macros in that file won't be blocked by default" — es greift die normale Leiste „Inhalt
+aktivieren" des Trust Centers.
+
+```yaml
+edulution_trusted_enabled: true                          # Standard
+edulution_host: "edulution.schule.de"                    # leer = Pack übersprungen (nie geraten)
+edulution_host_by_school: { schule2: "edu.schule2.de" }  # optional, je Schule
+```
+
+Geschrieben wird `https://<host>` = `2` in der Liste der Site-zu-Zonen-Zuweisungen
+(`HKLM\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey`), eine
+Computer-GPO je Schule, verlinkt an `OU=Devices` der Schule — **Lehrer-Notebooks eingeschlossen**.
+Nur `https://` wird zugeordnet (reines http zu diesem Host bleibt wie es ist); ein Pfad, Port oder
+Platzhalter im Host wird abgelehnt (zurückgehalten, Exit 1). Ohne Host wird das Pack mit Hinweis
+übersprungen. Den Schlüssel teilt es mit `12-proxy-zone-schule` (Proxy-Host → Lokales Intranet):
+Beide GPOs fügen nur ihren eigenen Wert hinzu und löschen nie den der anderen.
+
+> **Nebenwirkung:** Die **ganze Site** steht für Windows in der Zone Vertrauenswürdige Sites,
+> nicht nur für Office — jede Prüfung, die an der Internetzone hängt, hält ihre Downloads für
+> vertrauenswürdig (z. B. die geschützte Ansicht von Office für Internet-Dateien, die
+> Sicherheitsabfrage von Windows vor dem Start eines heruntergeladenen Programms), und der
+> IE-Modus von Edge wendet die Einstellungen dieser Zone auf sie an. Nur eine Site eintragen, die
+> ihr selbst betreibt. Abschalten: `edulution_trusted_enabled: false` (oder leerer Host) + `apply`.
+
+Prüfen: `lmn-gpo-check.ps1` zeigt die Zonenliste; für eine heruntergeladene Datei zeigt
+`Get-Content <datei> -Stream Zone.Identifier` `ZoneId=2`. Dass Edge/Chrome/Firefox mit dieser GPO
+`ZoneId=2` schreiben, prüft das Lab ([`docs/RESEARCH.md`](docs/RESEARCH.md) Abschnitt 10).
+
 ---
 
 ## Ausrollen auf die Clients
@@ -2078,7 +2336,8 @@ angekommen sind **und wirken** — deckt jedes Pack ab: `gpresult` (Computer **u
 Registry-Ist-Werte, Firewall, lokale Gruppen, KMS (Windows **und** Office), Hotspot,
 OneDrive, Ruhezustand, Loopback,
 Firefox, Rollen-Proxy, **Schüler-Lockdown (HKCU)**, Veyon, WLAN (+ RADIUS-CA), **Zeitsync
-(w32tm)** und das **Bootorder-Log**. Erzeugt zusätzlich einen HTML-Report.
+(w32tm)**, das **Bootorder-Log**, die **vertrauenswürdigen Office-Speicherorte** (HKCU) und die
+**Zonenliste** (Proxy-Host, edulution). Erzeugt zusätzlich einen HTML-Report.
 
 Am besten **zweimal** ausführen:
 ```powershell
@@ -2101,6 +2360,16 @@ je Prüfung + Summe.
 > Ergebnis aus einer Remote-Shell ist wertlos.
 
 ## Update des Toolkits
+
+> ### Update auf 7.3.7: zwei Packs sind standardmäßig an
+> Eine Installation mit `packs: null` bekommt
+> [`21-office-trusted-schule`](#office-netzlaufwerke-als-vertrauenswürdige-speicherorte) beim
+> nächsten `apply`, ohne Änderung an der `site.yaml`: H:, die Standardlaufwerke und die Laufwerke
+> der `drives.yaml` werden auf jedem Windows-Client **vertrauenswürdige Office-Speicherorte für
+> Access** (Makros dort laufen ohne Rückfrage). Vor dem Anwenden entscheiden:
+> `office_trusted_enabled: false` behält das alte Verhalten.
+> [`22-edulution-trusted-schule`](#edulution-als-vertrauenswürdige-site) wirkt erst, wenn
+> `edulution_host` gesetzt ist. `lmn-gpo apply --dry-run` zeigt beides.
 
 > ### Update von 7.3.1 oder älter: einmal neu anwenden
 > 7.3.2 korrigiert den Loopback-Wert. Bis 7.3.1 schrieb `loopback: merge`
@@ -2200,7 +2469,7 @@ ist nichts Zusätzliches nötig.
 
 ```
 lmn_gpo/        Python-Engine + CLI (gpo, apply, env, catalog, veyon, wlan, scripts_ext, setup, paths, cli)
-catalog/      34 YAML-Policy-Packs
+catalog/      36 YAML-Policy-Packs
 examples/     drives.yaml.example (installiert nach /usr/share/doc/lmn-gpo/examples/)
 scripts/      Windows-Start-/Shutdown-Skripte + lmn-gpo-check.ps1 (Client-Diagnose)
 tests/        pytest-Unit-Tests (ohne DC; laufen in CI)

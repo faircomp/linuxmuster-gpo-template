@@ -12,7 +12,7 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 | Component | Path | Stack |
 |---|---|---|
 | CLI + engine | `lmn_gpo/` (`cli.py` argparse entry; `./lmn-gpo-cli` launcher for a source checkout, `/usr/bin/lmn-gpo` when installed) | Python 3.12 (Ubuntu 24.04), `python3-samba` (`samba`/`ldb` bindings, `samba-tool gpo load`), `python3-yaml`; no PyPI deps, no venv |
-| Catalog packs | `catalog/*.yaml` (34 packs `NN-name.yaml`; `*-schule` packs are applied per school; `20-drives` reads the admin's `drives.yaml`, example in `examples/`) | YAML schema documented in `README.md` |
+| Catalog packs | `catalog/*.yaml` (36 packs `NN-name.yaml`; `*-schule` packs are applied per school; `20-drives` reads the admin's `drives.yaml`, example in `examples/`; `21-office-trusted-schule` generates its registry values at apply time, `lmn_gpo/officetrust.py`) | YAML schema documented in `README.md` |
 | Client scripts | `scripts/*.ps1` (startup/shutdown scripts, `lmn-gpo-check.ps1` client diagnostics); `lmn_gpo/wlan.py` and `lmn_gpo/drives.py` generate more at apply time | Windows PowerShell 5.1, **pure ASCII** |
 | Data | `lib/veyon-default-pub.pem`; `wallpapers/` (admin-provided, not committed) | installed to `/usr/share/lmn-gpo`, wallpapers to `/var/lib/lmn-gpo` |
 | Packaging | classic `debian/` (debhelper 13, native 3.0): `changelog` (version source), `control`, `rules`, `install`, `dirs`, `docs`, `clean`, `copyright`, postinst/prerm/postrm; `make deb` → `dpkg-buildpackage` → `../lmn-gpo_<version>_all.deb` | `dh $@ --with python3`, plain `dist-packages` install, no venv |
