@@ -15,10 +15,12 @@ description: >
   The drives are read at apply time, per school: H: (the share root of the school's users'
   homeDirectory, e.g. \\server\<school>\ - not one path per user), the enabled default drives
   of the sophomorix school GPO (read only) and, while 20-drives is switched on, the entries
-  of drives.yaml. Each becomes one location with subfolders allowed, written twice: as the
-  UNC path and as the drive letter (X:\). A path below another one is covered by it and not
-  written again. At most 20 locations per application (Trusted Location #1-#20 in
-  Microsoft's ADMX); more is an error: the pack is held back, nothing is cut.
+  of drives.yaml. Each becomes one location with subfolders allowed, written as the UNC path,
+  as the drive letter (X:\) and, for a share on this server that is a DFS proxy (smb.conf
+  'msdfs proxy', linuxmuster-fileserver), as the proxy target - until the lab shows which
+  form Office checks (office_trusted_forms). A path below another one is covered by it. At
+  most 20 locations per application (Trusted Location #1-#20 in Microsoft's ADMX); more is
+  an error: the pack is held back, nothing is cut.
 
   Per application: "Allow Trusted Locations on the network" (without it Office ignores
   every policy location on a network path) and the locations, description 'lmn-gpo <letters>'.

@@ -9,6 +9,7 @@ import datetime
 import os
 import re
 import shutil
+import subprocess
 
 from . import ad, catalog, drivesconf, gporder, officetrust, sophodrives
 from .gpo import GpoEngine
@@ -97,7 +98,7 @@ DEFAULT_ANSWERS = {
     "office_trusted_enabled": True,
     "office_trusted_apps": ["access"],      # access | excel | word | powerpoint
     "office_trusted_roles": "all",          # all | a list of teacher, student, staff
-    "office_trusted_forms": ["unc", "letter"],  # write the UNC path, the drive letter or both
+    "office_trusted_forms": ["unc", "letter", "dfs"],  # UNC path, drive letter, DFS target
     # The school's edulution website in the 'Trusted sites' zone (pack
     # 22-edulution-trusted-schule), ON by default, active once a host is set.
     "edulution_trusted_enabled": True,
@@ -188,6 +189,7 @@ class Applier:
         # pack 21-office-trusted-schule: per school (plan, apps), and the read-only sources
         self._office: dict[str, tuple] = {}
         self._sopho_gpos = None
+        self._dfs: dict[str, str] = {}      # share -> its smb.conf 'msdfs proxy'
 
     # ------------------------------------------------------------------ #
     # selection
@@ -1216,6 +1218,23 @@ class Applier:
                 return g.items, g.display, g.error
         return None, f"{sophodrives.SCHOOL_GPO_PREFIX}{school.name}", "no such GPO"
 
+    def _msdfs_proxy(self, share: str) -> str:
+        """smb.conf `msdfs proxy` of a share on this server ('' = none), read with testparm
+        as env.py reads the globals. Cached, read-only."""
+        key = share.lower()
+        if key not in self._dfs:
+            value = ""
+            try:
+                p = subprocess.run(["testparm", "-s", "--section-name", share,
+                                    "--parameter-name", "msdfs proxy"],
+                                   capture_output=True, text=True, timeout=30)
+                if p.returncode == 0:
+                    value = p.stdout.strip()
+            except Exception:
+                value = ""
+            self._dfs[key] = value
+        return self._dfs[key]
+
     def office_plan(self, school):
         """(plan, apps, problems) of 21-office-trusted-schule for one school. Read-only."""
         if school.name in self._office:
@@ -1245,6 +1264,10 @@ class Applier:
             else:
                 sources += officetrust.drives_yaml_sources(
                     cfg, (self.env.server_netbios or "").lower(), self.env.serverfqdn)
+        if "dfs" in forms:
+            sources += officetrust.dfs_sources(
+                sources, [self.env.server_netbios, self.env.serverfqdn,
+                          (self.env.serverfqdn or "").split(".")[0]], self._msdfs_proxy)
         plan = officetrust.plan(sources, forms or officetrust.FORMS)
         plan.notes[:0] = notes
         if not problems:

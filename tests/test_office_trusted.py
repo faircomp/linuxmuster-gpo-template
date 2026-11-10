@@ -192,7 +192,7 @@ def test_application_list():
     assert officetrust.parse_roles(["student", "teacher"]) == \
         (["@role-teacher", "@role-student"], "")
     assert "unknown role" in officetrust.parse_roles(["teachers"])[1]
-    assert officetrust.parse_forms(None) == (("unc", "letter"), "")
+    assert officetrust.parse_forms(None) == (("unc", "letter", "dfs"), "")
     assert officetrust.parse_forms(["letter"]) == (("letter",), "")
     assert "unknown form" in officetrust.parse_forms(["drive"])[1]
 
@@ -221,6 +221,8 @@ def dc(domain, tmp_path, monkeypatch):
     fake, env, sysvol = domain
     samba = FakeSamba(fake, sysvol).install(monkeypatch)
     monkeypatch.setattr(apply, "RETIRE_BACKUP_DIR", str(tmp_path / "backups"))
+    # no smb.conf here: no share is a DFS proxy unless a test says so
+    monkeypatch.setattr(apply.Applier, "_msdfs_proxy", lambda self, share: "")
     for school in ("default-school", "msg", "gsg", "gym"):
         sdn = f"OU={school},{SCHOOLS_OU}"
         fake.add(f"CN=max,OU=5a,OU=Students,{sdn}", objectClass=["top", "person", "user"],
@@ -267,7 +269,8 @@ def test_pack_shape_and_defaults():
     assert apply.Applier.needs_loopback(pack)
     d = apply.DEFAULT_ANSWERS
     assert d["office_trusted_enabled"] is True and d["office_trusted_apps"] == ["access"]
-    assert d["office_trusted_roles"] == "all" and d["office_trusted_forms"] == ["unc", "letter"]
+    assert d["office_trusted_roles"] == "all"
+    assert d["office_trusted_forms"] == ["unc", "letter", "dfs"]
 
 
 def test_default_on_writes_one_user_gpo_per_school_with_replace(dc, capsys):
@@ -478,3 +481,65 @@ def test_a_changed_role_filter_on_an_existing_gpo_is_held_back(dc, capsys, monke
     else:
         assert rc == 0 and not ap.held_back, out
         assert len(samba.loads) == loads + 1          # word added: written
+
+
+
+# --------------------------------------------------------------------------- #
+# the DFS target (linuxmuster-fileserver: msdfs proxy on the DC's school share)
+# --------------------------------------------------------------------------- #
+def test_proxy_root_and_dfs_twins():
+    assert officetrust.proxy_root("//fs.dev.lmschule.de/default-school") == \
+        "\\\\fs.dev.lmschule.de\\default-school\\"
+    assert officetrust.proxy_root(r"\fs\share") == "\\\\fs\\share\\"
+    assert officetrust.proxy_root("") == officetrust.proxy_root("//fs") == ""
+    proxies = {"default-school": "//fs.dev.lmschule.de/default-school"}
+    src = sources() + [officetrust.DriveSource("V", r"\\verwaltung\verwaltung", "drives.yaml")]
+    twins = officetrust.dfs_sources(src, ["SERVER", "server.dev.lmschule.de", "server"],
+                                    lambda share: proxies.get(share, ""))
+    assert [(t.letter, t.path, t.form) for t in twins] == [
+        ("H", "\\\\fs.dev.lmschule.de\\default-school\\", "dfs"),
+        ("K", "\\\\fs.dev.lmschule.de\\default-school\\program", "dfs"),
+        ("P", "\\\\fs.dev.lmschule.de\\default-school\\share\\projects", "dfs"),
+        ("S", "\\\\fs.dev.lmschule.de\\default-school\\students", "dfs"),
+        ("T", "\\\\fs.dev.lmschule.de\\default-school\\share", "dfs"),
+        ("R", "\\\\fs.dev.lmschule.de\\default-school\\iso", "dfs")]
+    assert twins[0].origin == "homeDirectory (msdfs proxy)"
+
+
+def test_dfs_twins_merge_and_the_forms_pick_them():
+    proxies = {"default-school": "//fs.dev.lmschule.de/default-school"}
+    src = sources()
+    src += officetrust.dfs_sources(src, ["server"], lambda share: proxies.get(share, ""))
+    p = officetrust.plan(src)
+    assert [(loc.kind, loc.path) for loc in p.locations][:2] == [
+        ("unc", "\\\\server\\default-school\\"),
+        ("dfs", "\\\\fs.dev.lmschule.de\\default-school\\")]
+    assert len(p.locations) == 8 and p.locations[1].letters == ["H", "K", "P", "R", "S", "T"]
+    assert [loc.kind for loc in officetrust.plan(src, ("unc", "letter")).locations].count("dfs") == 0
+    assert [loc.kind for loc in officetrust.plan(src, ("dfs",)).locations] == ["dfs"]
+    # a form that is not written never swallows a path of a written one
+    S = officetrust.DriveSource
+    mixed = [S("T", r"\\fs\school\share", "drives.yaml", "unc"), S("H", r"\\fs\school", "h", "dfs")]
+    assert [loc.path for loc in officetrust.plan(mixed, ("unc",)).locations] == \
+        ["\\\\fs\\school\\share\\"]
+
+
+def test_apply_reads_the_msdfs_proxy_of_the_school_share(dc, monkeypatch):
+    fake, env, _sysvol, samba, _path = dc
+    asked = []
+
+    def proxy(self, share):
+        asked.append(share)
+        return "//fs.dev.lmschule.de/default-school" if share == "default-school" else ""
+    monkeypatch.setattr(apply.Applier, "_msdfs_proxy", proxy)
+    _ap, rc = run(env, {})
+    locs = locations(samba, gpo(fake, name("default-school"))[0])
+    assert rc == 0 and locs[:2] == ["\\\\server\\default-school\\",
+                                    "\\\\fs.dev.lmschule.de\\default-school\\"]
+    assert len(locs) == 8 and set(asked) == {"default-school"}
+    # without the dfs form nothing is asked and nothing is written for it
+    asked.clear()
+    _ap, rc = run(env, {"office_trusted_forms": ["unc", "letter"]})
+    assert rc == 0 and not asked
+    assert "\\\\fs.dev.lmschule.de\\default-school\\" not in \
+        locations(samba, gpo(fake, name("default-school"))[0])

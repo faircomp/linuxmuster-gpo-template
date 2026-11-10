@@ -11,7 +11,9 @@ Three layers, each testable without a domain controller:
 
   *_sources()  the drives: H: (the share roots of the school's homeDirectory values), the
                enabled default drives of the sophomorix school GPO and, while 20-drives is
-               switched on, the entries of drives.yaml
+               switched on, the entries of drives.yaml; dfs_sources() adds, for a path on
+               this server whose share is a DFS proxy (`msdfs proxy`, as
+               linuxmuster-fileserver sets it up), the same path on the proxy target
   plan()       one UNC location per path - a path below another one is covered by it,
                because every location allows subfolders - and one drive-letter location per
                letter. More than MAX_LOCATIONS is an error, never a silent cut.
@@ -31,7 +33,9 @@ APP_KEYS = {"access": "access", "excel": "excel", "word": "word", "powerpoint": 
 APP_ORDER = ("access", "excel", "word", "powerpoint")
 # "Trusted Location #1" .. "#20": twenty policies per application in every ADMX file.
 MAX_LOCATIONS = 20
-FORMS = ("unc", "letter")
+# The path forms written: the UNC path the drive is mapped to, the drive letter, and the DFS
+# target of a share on this server. Which one Office matches is measured in the lab.
+FORMS = ("unc", "letter", "dfs")
 ROLES = ("teacher", "student", "staff")
 DESCRIPTION_PREFIX = "lmn-gpo"
 # office16.admx L_Allowmixofpolicyanduserlocations
@@ -44,11 +48,12 @@ class DriveSource:
     letter: str        # "H"
     path: str          # UNC path of the drive (for H: the share root of homeDirectory)
     origin: str        # where it comes from, for the output
+    form: str = "unc"  # unc | dfs (the msdfs proxy target of a share on this server)
 
 
 @dataclass
 class Location:
-    kind: str                                    # unc | letter
+    kind: str                                    # unc | dfs | letter
     path: str                                    # '\\server\school\' or 'H:\'
     letters: list = field(default_factory=list)
     origins: list = field(default_factory=list)
@@ -62,10 +67,6 @@ class Location:
 class TrustPlan:
     locations: list = field(default_factory=list)   # [Location], Location1 first
     notes: list = field(default_factory=list)       # sources that could not be used
-
-    @property
-    def unc(self) -> list:
-        return [loc for loc in self.locations if loc.kind == "unc"]
 
     def lines(self) -> list[str]:
         out = []
@@ -141,6 +142,36 @@ def sophomorix_sources(items, origin: str) -> list[DriveSource]:
     return out
 
 
+def proxy_root(value: str) -> str:
+    r"""'\\host\share\' of an `msdfs proxy` value ('//fs.domain/share' or '\fs\share'),
+    '' if it does not name a host and a share."""
+    parts = [p for p in str(value or "").strip().replace("/", "\\").split("\\") if p]
+    if len(parts) < 2 or any("%" in p for p in parts):
+        return ""
+    return "\\\\" + "\\".join(parts) + "\\"
+
+
+def dfs_sources(sources, server_names, proxy_of) -> list[DriveSource]:
+    r"""The DFS twins of the sources. A path on this server (host in `server_names`,
+    case-insensitive) whose share is an msdfs proxy - `proxy_of(share)` returns the
+    smb.conf value, '' for none - is trusted on the target as well:
+    '\\server\school\x' -> '\\fs.domain\school\x'. The client really connects to the
+    target (lab: Get-SmbConnection), and which of the two names Office checks is not
+    measured yet."""
+    names = {str(n).lower() for n in server_names if n}
+    out = []
+    for src in sources:
+        parts = _parts(src.path)
+        if not parts or parts[0].lower() not in names:
+            continue
+        root = proxy_root(proxy_of(parts[1]))
+        if not root:
+            continue
+        path = root + "\\".join(parts[2:])
+        out.append(DriveSource(src.letter, path, f"{src.origin} (msdfs proxy)", "dfs"))
+    return out
+
+
 def drives_yaml_sources(cfg, server: str, serverfqdn: str = "") -> list[DriveSource]:
     """The entries of a validated drives.yaml (drivesconf.DrivesConfig). `home: true` is H:,
     which the homeDirectory roots already cover. Taken from the file, not from the resolved
@@ -153,12 +184,14 @@ def drives_yaml_sources(cfg, server: str, serverfqdn: str = "") -> list[DriveSou
 # the plan
 # --------------------------------------------------------------------------- #
 def plan(sources, forms=FORMS) -> TrustPlan:
-    r"""UNC locations (sorted by path), then drive-letter locations (sorted by letter).
+    r"""UNC locations, then DFS-target locations (each sorted by path), then drive-letter
+    locations (sorted by letter); `forms` picks which of the three are written.
 
-    A UNC path below another one is merged into it: every location is written with
+    A path below another one is merged into it: every location is written with
     'allow subfolders', so the outer one already covers it. Paths are compared
     case-insensitively but never across host names - `\\server\x` and `\\server.domain\x`
-    are two strings to Office, so they stay two locations.
+    are two strings to Office, so they stay two locations. Forms that are not wanted are
+    dropped BEFORE merging, so a path never vanishes into an outer one that is not written.
     """
     out = TrustPlan()
     cands: dict[str, Location] = {}
@@ -170,12 +203,13 @@ def plan(sources, forms=FORMS) -> TrustPlan:
             out.notes.append(f"{letter}: {src.path or '(no path)'} ({src.origin}) is not a "
                              f"UNC path \\\\server\\share - not trusted")
             continue
-        loc = cands.setdefault(path.casefold(), Location("unc", path))
-        if letter and letter not in loc.letters:
-            loc.letters.append(letter)
-        if src.origin not in loc.origins:
-            loc.origins.append(src.origin)
-        if letter:
+        if src.form in forms:
+            loc = cands.setdefault(path.casefold(), Location(src.form, path))
+            if letter and letter not in loc.letters:
+                loc.letters.append(letter)
+            if src.origin not in loc.origins:
+                loc.origins.append(src.origin)
+        if letter and src.form == "unc":
             lloc = letters.setdefault(letter, Location("letter", f"{letter}:\\", [letter]))
             if src.origin not in lloc.origins:
                 lloc.origins.append(src.origin)
@@ -194,8 +228,9 @@ def plan(sources, forms=FORMS) -> TrustPlan:
                 outer.origins.append(o)
     for loc in kept:
         loc.letters.sort()
-    if "unc" in forms:
-        out.locations += sorted(kept, key=lambda x: x.path.casefold())
+    for form in ("unc", "dfs"):
+        out.locations += sorted((k for k in kept if k.kind == form),
+                                key=lambda x: x.path.casefold())
     if "letter" in forms:
         out.locations += [letters[x] for x in sorted(letters)]
     return out
@@ -211,7 +246,7 @@ def problems(p: TrustPlan) -> list[str]:
         return [f"{n} trusted locations needed, Office takes at most {MAX_LOCATIONS} per "
                 f"application (Trusted Location #1-#{MAX_LOCATIONS}) - nothing is cut, the "
                 f"pack is held back: drop drives from drives.yaml, or set "
-                f"office_trusted_forms to one form"]
+                f"office_trusted_forms to fewer forms"]
     return []
 
 
@@ -291,8 +326,9 @@ def parse_roles(value) -> tuple[list[str], str]:
 
 
 def parse_forms(value) -> tuple[tuple, str]:
-    """office_trusted_forms -> (forms, problem). Default both: the UNC path and the drive
-    letter (which one Office needs is measured in the lab, docs/RESEARCH.md)."""
+    """office_trusted_forms -> (forms, problem). Default all three: the UNC path, the drive
+    letter and the DFS target (which one Office needs is measured in the lab,
+    docs/RESEARCH.md section 9)."""
     words = _words(list(FORMS) if value is None else value)
     if words is None or not words:
         return (), f"office_trusted_forms must be a list of {', '.join(FORMS)}, got {value!r}"
