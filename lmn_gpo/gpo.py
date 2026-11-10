@@ -225,6 +225,24 @@ class GpoEngine:
                 return True
         return False
 
+    def apply_trustees(self, guid: str) -> set[str] | None:
+        """Trustees (SDDL form, upper case: 'AU' = Authenticated Users, else the SID) that hold
+        an ALLOW 'Apply Group Policy' ACE on the GPO; None when the descriptor cannot be
+        read. Read-only, also in a dry run."""
+        try:
+            sddl = ad.descriptor_sddl(self.gpo_dn(guid))
+        except Exception:
+            return None
+        if sddl is None:
+            return None
+        out = set()
+        for ace in re.findall(r"\(([^)]*)\)", sddl):
+            f = ace.split(";")
+            if len(f) >= 6 and f[0].upper() == "OA" and "CR" in f[2].upper() \
+               and f[3].lower() == APPLY_GROUP_POLICY.lower():
+                out.add(f[5].upper())
+        return out
+
     def grant_apply(self, guid: str, sid: str) -> None:
         """Grant Read + Apply-Group-Policy to a trustee SID on the GPO object."""
         if not self.dry_run and self._has_apply_ace(guid, sid, deny=False):

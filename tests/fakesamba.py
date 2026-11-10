@@ -6,7 +6,9 @@ to this container", Samba netcmd/gpo.py cmd_setlink); dellink/del/backup; aclche
 sysvolreset succeed. versionNumber/extension names are written into the fake directory.
 `gpo load` merges the JSON entries into Machine/User Registry.pol and raises the matching
 half of GPT.INI and versionNumber, as Samba's RegistryGroupPolicies.merge_s() and
-increment_gpt_ini() do (python/samba/policies.py).
+increment_gpt_ini() do (python/samba/policies.py). With --replace it starts every class the
+entries name from an EMPTY file and leaves the other class's file alone (replace_s).
+`loads` records every load (guid, replace, entries); `pol()` reads a Registry.pol back.
 """
 from __future__ import annotations
 
@@ -115,6 +117,7 @@ class FakeSamba:
         self.fake = fake
         self.sysvol = sysvol
         self.log: list[list[str]] = []
+        self.loads: list[dict] = []         # every gpo load: guid, replace, entries
 
     def run(self, eng, args, *, needs_creds=True, input_text=None, check=True, mutating=True):
         if eng.dry_run and mutating:
@@ -157,14 +160,26 @@ class FakeSamba:
                       replace="--replace" in args)
         return subprocess.CompletedProcess(args, 0, out, "")
 
+    def pol(self, guid, cls="User") -> dict:
+        """The GPO's <cls>/Registry.pol as (key.lower, value.lower) -> (type, data), strings
+        without their terminating NUL, REG_MULTI_SZ as a list."""
+        out = {}
+        for k, (t, data) in read_pol(os.path.join(self.sysvol, guid, cls, "Registry.pol")).items():
+            if t in (1, 2):
+                data = data.rstrip("\x00")
+            elif t == 7:
+                data = bytes(data).decode("utf-16-le").rstrip("\x00").split("\x00")
+            out[k] = (t, data)
+        return out
+
     def load(self, guid, entries, *, replace=False):
-        """samba-tool gpo load: merge_s() + increment_gpt_ini() + extension registration."""
-        if replace:
-            raise NotImplementedError("the fake only implements the merge mode of gpo load")
+        """samba-tool gpo load: merge_s() or replace_s() + increment_gpt_ini() + extension
+        registration."""
+        self.loads.append({"guid": guid, "replace": replace, "entries": entries})
         changed = {"Machine": False, "User": False}
         for half in changed:
             path = os.path.join(self.sysvol, guid, half, "Registry.pol")
-            pol = read_pol_entries(path)
+            pol = [] if replace else read_pol_entries(path)   # replace_s: preg.file()
             for e in entries:
                 cls = e["class"].lower()
                 if not (cls == "both" or cls == half.lower()):

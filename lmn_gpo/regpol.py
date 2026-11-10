@@ -33,11 +33,17 @@ class RegPol:
         Each entry: {keyname, valuename, class(MACHINE|USER|BOTH), type, data}.
         If gpo_dir is given and every entry is already present with the same
         value, the load is skipped (idempotent — no version bump on re-run).
+
+        replace=True: `samba-tool gpo load --replace` writes a NEW Registry.pol for every
+        class the entries name (samba policies.py replace_s; the other class's file is not
+        touched), so a value that is no longer wanted disappears. The skip check is then
+        "exactly these values", not "at least these".
         """
         entries = [e for e in entries if e]
         if not entries:
             return
-        if gpo_dir and not self.engine.dry_run and _all_present(gpo_dir, entries):
+        present = _exactly_present if replace else _all_present
+        if gpo_dir and not self.engine.dry_run and present(gpo_dir, entries):
             self.engine._log("    Registry unchanged — skipped")
             return
         if self.engine.dry_run and self.engine.verbose:
@@ -126,6 +132,24 @@ def _all_present(gpo_dir: str, entries: list[dict]) -> bool:
                     return False
             else:                       # types we don't compare -> force a load
                 return False
+    return True
+
+
+def _exactly_present(gpo_dir: str, entries: list[dict]) -> bool:
+    """True iff the Registry.pol of every class the entries name holds exactly these values
+    and no other one - the idempotency check of a `--replace` load."""
+    if not _all_present(gpo_dir, entries):
+        return False
+    want: dict[str, set] = {"Machine": set(), "User": set()}
+    for e in entries:
+        key = (e["keyname"].lower(), e["valuename"].lower())
+        if e["class"] in ("MACHINE", "BOTH"):
+            want["Machine"].add(key)
+        if e["class"] in ("USER", "BOTH"):
+            want["User"].add(key)
+    for sub, keys in want.items():
+        if keys and set(_read_pol(os.path.join(gpo_dir, sub, "Registry.pol"))) != keys:
+            return False
     return True
 
 

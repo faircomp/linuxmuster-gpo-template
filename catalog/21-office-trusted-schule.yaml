@@ -1,0 +1,36 @@
+id: "21-office-trusted-schule"
+title: "Office: network drives as trusted locations (per school, Access by default)"
+scope: school
+target: user
+requires: office_trusted
+registry_source: office-trusted
+description: >
+  ON by default (office_trusted_enabled: true). Makes the school's network drives Office
+  TRUSTED LOCATIONS, by default for Microsoft Access only (office_trusted_apps). Since 2022
+  Office blocks VBA macros in files it considers to come from the internet, and a file share
+  that Windows does not count as Local intranet or Trusted sites is treated exactly like the
+  internet ("SECURITY RISK - Microsoft has blocked macros from running"); "Unblock" in the
+  file properties does not help there. Files in a trusted location skip that check.
+
+  The drives are read at apply time, per school: H: (the share root of the school's users'
+  homeDirectory, e.g. \\server\<school>\ - not one path per user), the enabled default drives
+  of the sophomorix school GPO (read only) and, while 20-drives is switched on, the entries
+  of drives.yaml. Each becomes one location with subfolders allowed, written twice: as the
+  UNC path and as the drive letter (X:\). A path below another one is covered by it and not
+  written again. At most 20 locations per application (Trusted Location #1-#20 in
+  Microsoft's ADMX); more is an error: the pack is held back, nothing is cut.
+
+  Per application: "Allow Trusted Locations on the network" (without it Office ignores
+  every policy location on a network path) and the locations, description 'lmn-gpo <letters>'.
+  In Common: "Allow mix of policy and user locations", so Office's own locations (e.g.
+  Access' ACCWIZ) and the user's stay in use. Every value is under Software\Policies: removing
+  the GPO removes them from the clients.
+
+  SECURITY: files on these drives open with macros ENABLED and without a prompt - also files a
+  student saved there and downloads saved to H:. Microsoft recommends against network
+  trusted locations. Switch off with office_trusted_enabled: false + apply.
+
+  USER policy linked to OU=Devices of the school (the address of the drives follows the
+  device), effective through loopback like the role proxy: needs a pack with 'loopback:'
+  on the same machines (15-lockdown-base is always active unless 'packs:' leaves it out).
+  office_trusted_roles limits it to role-teacher / role-student / role-staff (default: all).
