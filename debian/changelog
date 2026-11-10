@@ -18,8 +18,9 @@ lmn-gpo (7.3.7) lmn73; urgency=medium
   * Which drives, read at every apply, per school: H: (the share root of the users'
     homeDirectory, \\server\<school>\), linuxmuster's default drives from the
     sophomorix school GPO (read only; a drive disabled in the WebUI is left out) and,
-    with drives_enabled, every drives.yaml entry. Each is written as the UNC path and
-    as the drive letter (office_trusted_forms). Office takes at most 20 locations per
+    with drives_enabled, every drives.yaml entry. Each is written as the UNC path, as
+    the drive letter and, for a share that is a DFS proxy (linuxmuster-fileserver), as
+    the DFS target (office_trusted_forms). Office takes at most 20 locations per
     application: a school that needs more is held back (nothing written, apply exits 1),
     never cut. One user GPO per school, LMN-U-<school>-21-office-trusted-schule, linked
     to OU=Devices and effective through loopback (15-lockdown-base, active by default).
