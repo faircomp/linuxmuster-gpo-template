@@ -288,6 +288,67 @@ def _ask_drives(answers: dict) -> None:
         print(f"    create {path} before the next apply; until then apply skips the pack.")
 
 
+def _ask_office_trusted(answers: dict) -> None:
+    """Network drives as Office trusted locations (pack 21-office-trusted-schule), ON by
+    default. Asks the switch, the applications and the roles."""
+    from .officetrust import APP_ORDER, ROLES, parse_apps, parse_roles
+    print("\n  Office trusted locations (on by default): makes H:, linuxmuster's default drives")
+    print("    and the drives.yaml drives TRUSTED LOCATIONS in Office, so macros in files there")
+    print("    run (e.g. an Access database a teacher collected from students). Without it")
+    print("    Office blocks them: a share outside the Intranet zone counts as internet.")
+    print("    SECURITY: files on these drives then open with macros enabled and WITHOUT a")
+    print("    prompt - also files a student saved there. Microsoft recommends against")
+    print("    network trusted locations. Open students' Access files with SHIFT held down.")
+    answers["office_trusted_enabled"] = _ask_yesno(
+        "    Enable?", bool(answers.get("office_trusted_enabled", True)))
+    if not answers["office_trusted_enabled"]:
+        return
+    prior = answers.get("office_trusted_apps") or ["access"]
+    while True:
+        raw = _ask(f"    For which applications ({', '.join(APP_ORDER)}; comma-separated)",
+                   ",".join(prior) if isinstance(prior, list) else str(prior))
+        apps, why = parse_apps(raw)
+        if not why:
+            break
+        print(f"    ! {why}")
+    answers["office_trusted_apps"] = apps
+    prior = answers.get("office_trusted_roles", "all")
+    while True:
+        raw = _ask(f"    For which roles (all | any of {', '.join(ROLES)}; comma-separated)",
+                   ",".join(prior) if isinstance(prior, list) else str(prior or "all"))
+        tokens, why = parse_roles(raw)
+        if not why:
+            break
+        print(f"    ! {why}")
+    answers["office_trusted_roles"] = ([t.removeprefix("@role-") for t in tokens]
+                                       if tokens else "all")
+
+
+def _ask_edulution(answers: dict) -> None:
+    """The school's edulution website in the Trusted sites zone (pack
+    22-edulution-trusted-schule): on by default, active once a host is entered."""
+    from .apply import site_host
+    print("\n  edulution as a trusted site (on by default, needs the host): files downloaded")
+    print("    from the school's edulution website are then marked 'Trusted sites' instead of")
+    print("    'Internet', and Office no longer hard-blocks their macros (the normal 'Enable")
+    print("    content' bar applies). SIDE EFFECT: Windows trusts the WHOLE site this way,")
+    print("    not only for Office. Other host per school: 'edulution_host_by_school' in site.yaml.")
+    answers["edulution_trusted_enabled"] = _ask_yesno(
+        "    Enable?", bool(answers.get("edulution_trusted_enabled", True)))
+    if not answers["edulution_trusted_enabled"]:
+        return
+    while True:
+        raw = _ask("    edulution host, e.g. edulution.school.de (empty = skip the pack)",
+                   answers.get("edulution_host", "") or "")
+        host, why = site_host(raw)
+        if not why:
+            break
+        print(f"    ! {why}")
+    answers["edulution_host"] = host
+    if not host:
+        print("    no host - the pack is skipped until one is set.")
+
+
 def run(site_path: str = DEFAULT_SITE) -> int:
     e = envmod.detect()
     packs = catalog.load_packs()
@@ -428,6 +489,10 @@ def run(site_path: str = DEFAULT_SITE) -> int:
 
     # Point and Print (optional): allow non-admin driver install from the print server
     _ask_pointandprint(answers, e)
+
+    # Office trusted locations (default on) and edulution as a trusted site (default on)
+    _ask_office_trusted(answers)
+    _ask_edulution(answers)
 
     # Preview
     print("\n-- Preview (dry run) ---------------------------------------")
