@@ -316,7 +316,7 @@ drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absol
 office_trusted_enabled: true  # network drives as Office trusted locations (pack 21, ON by default)
 office_trusted_apps: [access] # any of access, excel, word, powerpoint
 office_trusted_roles: all     # all | a list of teacher, student, staff
-office_trusted_forms: [unc, letter]   # UNC path, drive letter or both (default: both)
+office_trusted_forms: [unc, letter, dfs]   # UNC path, drive letter, DFS target (default: all)
 
 edulution_trusted_enabled: true       # edulution in the Trusted sites zone (pack 22, ON by default)
 edulution_host: ""                    # e.g. edulution.school.de; "" = pack skipped
@@ -942,7 +942,7 @@ drives **trusted locations** in Office, by default for **Access only**.
 office_trusted_enabled: true          # default; false switches it off (see below)
 office_trusted_apps: [access]         # any of access, excel, word, powerpoint
 office_trusted_roles: all             # or a list of teacher, student, staff
-office_trusted_forms: [unc, letter]   # write the UNC path, the drive letter, or both (default)
+office_trusted_forms: [unc, letter, dfs]   # UNC path, drive letter, DFS target (default: all)
 ```
 
 **Which drives**, read at every `apply`, per school:
@@ -954,13 +954,15 @@ office_trusted_forms: [unc, letter]   # write the UNC path, the drive letter, or
 - with `drives_enabled: true`, **every entry of `drives.yaml`** (also other file servers, e.g. the
   administration's).
 
-Each drive becomes one location with "subfolders allowed", written **twice: as the UNC path and as
-the drive letter** (`H:\`) — which of the two Office matches for a file opened via `H:` is being
-measured in the lab; until then both are written. A path below another one is covered by it
+Each drive becomes one location with "subfolders allowed", written **as the UNC path, as the drive
+letter** (`H:\`) **and as the DFS target** — with linuxmuster-fileserver the school share on the
+server is a DFS proxy (`msdfs proxy = //fs.<domain>/<school>` in smb.conf, read with testparm), and
+the client really connects to the file server. Which of the three Office matches for a file
+opened via `H:` is being measured in the lab; until then all are written. A path below another one is covered by it
 (`\\server\<school>\share` is inside `\\server\<school>\`). Office takes **at most 20** policy
 locations per application: a school that would need more is **held back** (nothing written, an
 existing GPO left as it is, `apply` exits 1 and lists them) — nothing is cut silently. Fix:
-fewer drives in `drives.yaml`, or `office_trusted_forms: [unc]`.
+fewer drives in `drives.yaml`, or fewer forms in `office_trusted_forms`.
 
 Written per application (user policy, `Software\Policies\Microsoft\Office\16.0\<app>\Security\
 Trusted Locations`): *Allow Trusted Locations on the network* (without it Office ignores every
@@ -1569,7 +1571,7 @@ drives_file: ""               # "" = /etc/linuxmuster/lmn-gpo/drives.yaml (absol
 office_trusted_enabled: true  # Netzlaufwerke als vertrauenswürdige Office-Speicherorte (Pack 21, standardmäßig an)
 office_trusted_apps: [access] # beliebig aus access, excel, word, powerpoint
 office_trusted_roles: all     # all | Liste aus teacher, student, staff
-office_trusted_forms: [unc, letter]   # UNC-Pfad, Laufwerksbuchstabe oder beides (Standard: beides)
+office_trusted_forms: [unc, letter, dfs]   # UNC-Pfad, Laufwerksbuchstabe, DFS-Ziel (Standard: alle)
 
 edulution_trusted_enabled: true       # edulution in der Zone Vertrauenswürdige Sites (Pack 22, standardmäßig an)
 edulution_host: ""                    # z. B. edulution.schule.de; "" = Pack übersprungen
@@ -2167,7 +2169,7 @@ die Makros nicht prüfen. Dieses Pack macht die Netzlaufwerke der Schule in Offi
 office_trusted_enabled: true          # Standard; false schaltet ab (siehe unten)
 office_trusted_apps: [access]         # beliebig aus access, excel, word, powerpoint
 office_trusted_roles: all             # oder eine Liste aus teacher, student, staff
-office_trusted_forms: [unc, letter]   # UNC-Pfad, Laufwerksbuchstabe oder beides (Standard)
+office_trusted_forms: [unc, letter, dfs]   # UNC-Pfad, Laufwerksbuchstabe, DFS-Ziel (Standard: alle)
 ```
 
 **Welche Laufwerke**, bei jedem `apply` neu gelesen, je Schule:
@@ -2180,14 +2182,17 @@ office_trusted_forms: [unc, letter]   # UNC-Pfad, Laufwerksbuchstabe oder beides
 - bei `drives_enabled: true` **jeder Eintrag der `drives.yaml`** (auch andere Fileserver, etwa
   der der Verwaltung).
 
-Jedes Laufwerk wird ein Speicherort mit „Unterordner zulassen", **zweimal geschrieben: als
-UNC-Pfad und als Laufwerksbuchstabe** (`H:\`) — welche Form Office für eine über `H:` geöffnete
-Datei heranzieht, wird im Lab gemessen; bis dahin stehen beide drin. Ein Pfad unterhalb eines
+Jedes Laufwerk wird ein Speicherort mit „Unterordner zulassen", geschrieben **als UNC-Pfad, als
+Laufwerksbuchstabe** (`H:\`) **und als DFS-Ziel** — mit linuxmuster-fileserver ist die
+Schulfreigabe auf dem Server ein DFS-Proxy (`msdfs proxy = //fs.<domäne>/<schule>` in der smb.conf,
+per testparm gelesen), und der Client verbindet sich tatsächlich mit dem Fileserver. Welche der drei
+Formen Office für eine über `H:` geöffnete Datei heranzieht, wird im Lab gemessen; bis dahin stehen
+alle drin. Ein Pfad unterhalb eines
 anderen ist durch ihn abgedeckt (`\\server\<schule>\share` liegt in `\\server\<schule>\`). Office
 nimmt **höchstens 20** Richtlinien-Speicherorte je Anwendung: Eine Schule, die mehr bräuchte, wird
 **zurückgehalten** (nichts geschrieben, eine vorhandene GPO bleibt wie sie ist, `apply` endet mit
 1 und listet sie auf) — still gekürzt wird nichts. Abhilfe: weniger Laufwerke in der
-`drives.yaml` oder `office_trusted_forms: [unc]`.
+`drives.yaml` oder weniger Formen in `office_trusted_forms`.
 
 Geschrieben wird je Anwendung (Benutzer-Richtlinie, `Software\Policies\Microsoft\Office\16.0\
 <App>\Security\Trusted Locations`): *Vertrauenswürdige Speicherorte im Netzwerk zulassen* (ohne

@@ -360,7 +360,14 @@ spellings (`\\server\x`, `\\server.<domain>\x`) stay separate: Office compares s
 Windows 11 client (then a file on it without a Mark of the Web is not blocked at all, and the
 trusted location matters for files that carry one, e.g. downloads saved to H:), and whether
 Office matches a file opened via `H:\…` against the UNC location, the letter location, or both.
-Until the lab says which, both forms are written (`office_trusted_forms`).
+**DFS:** with linuxmuster-fileserver the DC's school share is a DFS proxy (lab: `[default-school]`
+`msdfs proxy = //fs.dev.lmschule.de/default-school`; `Get-SmbConnection` on the client shows the
+connection to `fs.dev.lmschule.de`, while urlmon still rates the mapped `\\server\…` name, see
+`work/gpo-office-trusted/lab-baseline.md` in the hub). lmn-gpo reads `msdfs proxy` per share with
+`testparm -s --section-name <share> --parameter-name "msdfs proxy"` (output format checked with
+testparm 4.22 against a test smb.conf: the bare value, exit 0; unknown section: exit 1) and adds
+the same path on the target. Until the lab says which form Office checks, all three are written
+(`office_trusted_forms: [unc, letter, dfs]`).
 
 **Samba side.** `samba-tool gpo load` (merge, `policies.py merge_s`) keeps every value already in
 the Registry.pol, so a drive removed from drives.yaml would keep its `locationN`. The pack is
