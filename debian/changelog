@@ -1,3 +1,29 @@
+lmn-gpo (7.3.7) lmn73; urgency=medium
+
+  * Pack 17-ntp-zeit switches Secure Time Seeding off on the clients
+    (Software\Policies\Microsoft\W32Time\Config\UtilizeSslTimeData = 0). Windows 10/11 also
+    set the clock from time data in their outgoing TLS connections; Microsoft has reports of
+    that heuristic setting clocks wrong by days to years and ships Windows Server 2025 with
+    it off. A client clock that jumps by more than 5 minutes makes Kerberos fail: the proxy
+    asks students for a password again (squid cache.log: "Clock skew too great"), file
+    access breaks. The clients keep the school server as their only time source. The other
+    values of pack 17 are unchanged.
+  * The package upgrade does not touch any GPO. Run 'lmn-gpo apply --pack 17-ntp-zeit --yes'
+    once (or a full 'lmn-gpo apply --yes'); it adds the value to the existing GPO
+    LMN-C-GLOBAL-17-ntp-zeit and raises its computer version, nothing else in it changes.
+    On the clients: 'gpupdate /force' and a REBOOT. Microsoft lists the reboot as required:
+    the time service stops using TLS time data once it picks up the policy, the reboot also
+    stops it from collecting that data.
+  * lmn-gpo-check.ps1 (time synchronisation) shows UtilizeSslTimeData and fails while it is
+    missing or not 0 although pack 17 is applied - "not set" on a client means the GPO was
+    not re-applied after the upgrade. It also prints the value the time service last
+    reported (event 257/260/263 in Microsoft-Windows-Time-Service/Operational, where that
+    log exists) and asks for a reboot while the service still runs with it on.
+  * A laptop with a dead CMOS battery that never reaches the school server no longer
+    guesses the time from the internet; on the school network NTP corrects it as before.
+
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Wed, 11 Nov 2026 16:50:56 +0100
+
 lmn-gpo (7.3.6) lmn73; urgency=medium
 
   * New OPT-IN pack 20-drives: fixed drive letters for every school. The list lives in
