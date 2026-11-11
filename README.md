@@ -72,7 +72,7 @@ All 34 packs in `catalog/`. **Always active** (no extra parameter needed):
 | **School admins** | `<school>-admins` as local admins + RDP **per school** |
 | **Block mobile hotspot** | Windows hotspot / ICS blocked on **all** machines (toggle greyed out) — no exception |
 | **Student lockdown** | students (`role-student`) cannot change sensitive settings — above all **cannot remove the proxy** (+ Connections tab/PAC & Registry Editor locked); **teachers/admins unrestricted** (loopback + filter) |
-| **Time synchronisation (W32Time)** | clients sync from the server via explicit **NTP** (`ntp_mode`, default); **also corrects large offsets** (dead CMOS battery); `nt5ds` available where MS-SNTP signing works |
+| **Time synchronisation (W32Time)** | clients sync from the server via explicit **NTP** (`ntp_mode`, default); **also corrects large offsets** (dead CMOS battery); **Secure Time Seeding off** (no clock jumps from TLS data); `nt5ds` available where MS-SNTP signing works |
 
 **Optional** (enabled via `site.yaml` / the setup assistant):
 
@@ -655,6 +655,22 @@ for dead BIOS/CMOS batteries); without it a client that drifted far simply never
 Clients only (linked at `OU=SCHOOLS`); the DC stays untouched.
 Check on the client: `w32tm /query /source` and `w32tm /query /status`.
 
+**Secure Time Seeding off** (since 7.3.7, `UtilizeSslTimeData = 0`). Out of the box Windows
+10/11 also sets the clock from time data in its outgoing TLS connections ("Secure Time
+Seeding"). Microsoft has reports of that heuristic setting clocks wrong by days to years,
+recommends switching it off on Windows Server and ships Windows Server 2025 with it off; for
+Windows 10/11 it leaves the decision to the admin. A client clock that jumps by more than
+5 minutes makes Kerberos reject its tickets: the proxy asks for a password again (squid's
+`cache.log`: `Clock skew too great`), file access fails. Our clients have the school server
+as their time source and do not need it. The price: a machine whose CMOS battery is dead and
+that never reaches the school server (a laptop at home) no longer guesses the time from the
+internet. Microsoft lists a **reboot** as required for this value (the time service stops
+using TLS time data as soon as it picks up the policy; the reboot also stops collecting it).
+Coming from 7.3.6 or older: run `lmn-gpo apply --pack 17-ntp-zeit --yes` once (the package
+upgrade does not re-apply), then `gpupdate /force` and reboot the clients. `lmn-gpo-check.ps1`
+shows the value (and what the time service last reported) and fails while it is missing or
+not 0.
+
 ## Home drive H: (safety net)
 
 Off by default. Enable with `home_drive_enabled: true` (the assistant asks) to have
@@ -1059,7 +1075,7 @@ git pull
 | **Two `site.yaml`** (assistant vs. `--config`) | `setup` saves to `/etc/linuxmuster/lmn-gpo/`. Always apply the **same** file. |
 | **Teachers can't open the Veyon Master** | on the client `gpupdate /force` + **restart the Veyon service**. The toolkit already sets the correct **BaseDN-relative** group DNs. |
 | **Boot-order log: "a required privilege is not held"** | old script version. The current package uses a **scheduled task** — re-roll out; check the log for `Worker (Scheduled Task…)` lines. |
-| **Clocks wrong** | apply package `17-ntp-zeit`; on the client `w32tm /resync`. The `MaxPhaseCorrection` fix also corrects battery machines. |
+| **Clocks wrong** | apply package `17-ntp-zeit`; on the client `w32tm /resync`. The `MaxPhaseCorrection` fix also corrects battery machines. Clocks that **jump** by minutes (proxy asks for a password, `Clock skew too great`): pack 17 from 7.3.7 on switches Secure Time Seeding off, re-apply it and reboot the client. |
 | GPO supposedly not applied | on the client as admin `gpresult /r`; cross-check with [`lmn-gpo-check.ps1`](#checking-on-the-client); mind `-Refresh` + reboot. |
 | **A per-school user GPO (`LMN-U-<school>-12-proxy-*`) is missing from `gpresult /scope user`** — not even under "filtered out" | no loopback on that machine. These packs are linked to `OU=Devices` and need `12-proxy-base` or `15-lockdown-base`; `apply`/`doctor` print "Loopback prerequisite". Check on the client: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` must exist and read `0x1`. |
 | **`gpupdate /target:user` over SSH/WinRM reports success, nothing changes** | user policy is only processed in an interactive session (logon type 2/10), never in session 0. See [Checking on the client](#checking-on-the-client). |
@@ -1176,7 +1192,7 @@ Alle 34 Packs in `catalog/`. **Immer aktiv** (kein zusätzlicher Parameter nöti
 | **Schul-Admins** | `<schule>-admins` als lokale Admins + RDP **je Schule** |
 | **Mobiler Hotspot verbieten** | Windows-Hotspot / ICS auf **allen** Rechnern gesperrt (Schalter ausgegraut) — keine Ausnahme |
 | **Schüler-Lockdown** | Schüler (`role-student`) können sensible Einstellungen nicht ändern — v. a. den **Proxy nicht rausnehmen** (+ Verbindungen-Tab/PAC & Registry-Editor gesperrt); **Lehrer/Admins uneingeschränkt** (Loopback + Filter) |
-| **Zeitsynchronisation (W32Time)** | Clients synchen per explizitem **NTP** vom Server (`ntp_mode`, Standard); **korrigiert auch große Versätze** (leere CMOS-Batterie); `nt5ds` möglich, wo MS-SNTP-Signierung funktioniert |
+| **Zeitsynchronisation (W32Time)** | Clients synchen per explizitem **NTP** vom Server (`ntp_mode`, Standard); **korrigiert auch große Versätze** (leere CMOS-Batterie); **Secure Time Seeding aus** (keine Uhrsprünge aus TLS-Daten); `nt5ds` möglich, wo MS-SNTP-Signierung funktioniert |
 
 **Optional** (per `site.yaml` / Setup-Assistent aktiviert):
 
@@ -1770,6 +1786,23 @@ bei leeren BIOS/CMOS-Batterien); ohne das holt ein weit abgedrifteter Client nie
 Nur für Clients (an `OU=SCHOOLS`); der DC bleibt unberührt.
 Am Client prüfen: `w32tm /query /source` und `w32tm /query /status`.
 
+**Secure Time Seeding aus** (seit 7.3.7, `UtilizeSslTimeData = 0`). Ab Werk stellt Windows
+10/11 die Uhr zusätzlich nach Zeitangaben seiner ausgehenden TLS-Verbindungen („Secure Time
+Seeding"). Microsoft liegen Berichte vor, dass diese Heuristik Uhren um Tage bis Jahre
+verstellt hat, empfiehlt das Abschalten auf Windows Server und liefert Windows Server 2025
+mit abgeschaltetem STS aus; für Windows 10/11 überlässt es die Entscheidung dem Admin. Springt
+eine Client-Uhr um mehr als 5 Minuten, lehnt Kerberos ihre Tickets ab: Der Proxy fragt wieder
+nach dem Passwort (squid-`cache.log`: `Clock skew too great`), Dateizugriffe scheitern. Unsere
+Clients haben den Schulserver als Zeitquelle und brauchen das nicht. Der Preis: Ein Rechner
+mit leerer CMOS-Batterie, der den Schulserver nie erreicht (Laptop zu Hause), schätzt die Zeit
+nicht mehr aus dem Internet. Microsoft nennt für diesen Wert einen **Neustart** als nötig (der
+Zeitdienst nutzt die TLS-Zeitdaten schon nicht mehr, sobald er die Richtlinie übernimmt; der
+Neustart beendet auch das Sammeln).
+Von 7.3.6 oder älter kommend: einmal `lmn-gpo apply --pack 17-ntp-zeit --yes` (das
+Paket-Upgrade wendet nichts neu an), dann `gpupdate /force` und die Clients neu starten.
+`lmn-gpo-check.ps1` zeigt den Wert (und was der Zeitdienst zuletzt gemeldet hat) und meldet
+einen Fehler, solange er fehlt oder nicht 0 ist.
+
 ## Feste Laufwerke (Multischule)
 
 Standardmäßig aus (Pack `20-drives`, neu in 7.3.6). Es verbindet die Laufwerke, die **ihr**
@@ -2140,7 +2173,7 @@ git pull
 | **Zwei `site.yaml`** (Assistent vs. `--config`) | `setup` speichert nach `/etc/linuxmuster/lmn-gpo/`. Immer **dieselbe** Datei anwenden. |
 | **Lehrer können Veyon-Master nicht öffnen** | am Client `gpupdate /force` + **Veyon-Dienst neu starten**. Das Toolkit setzt bereits die korrekten **BaseDN-relativen** Gruppen-DNs. |
 | **Bootorder-Log: „fehlt ein erforderliches Recht"** | alte Skript-Version. Aktuelles Pack nutzt einen **Scheduled Task** — neu ausrollen; Log auf `Worker (Scheduled Task…)`-Zeilen prüfen. |
-| **Uhren falsch** | Pack `17-ntp-zeit` anwenden; am Client `w32tm /resync`. Der `MaxPhaseCorrection`-Fix korrigiert auch Batterie-Rechner. |
+| **Uhren falsch** | Pack `17-ntp-zeit` anwenden; am Client `w32tm /resync`. Der `MaxPhaseCorrection`-Fix korrigiert auch Batterie-Rechner. Uhren, die um Minuten **springen** (Proxy fragt nach dem Passwort, `Clock skew too great`): Pack 17 schaltet ab 7.3.7 Secure Time Seeding ab, neu anwenden und den Client neu starten. |
 | GPO angeblich nicht angewandt | am Client als Admin `gpresult /r`; mit [`lmn-gpo-check.ps1`](#prüfen-am-client) gegenprüfen; auf `-Refresh` + Neustart achten. |
 | **Eine Schul-Benutzer-GPO (`LMN-U-<schule>-12-proxy-*`) fehlt in `gpresult /scope user`** — auch nicht unter „herausgefiltert" | Auf dem Rechner fehlt Loopback. Diese Packs hängen an `OU=Devices` und brauchen `12-proxy-base` oder `15-lockdown-base`; `apply`/`doctor` melden „Loopback prerequisite". Am Client prüfen: `reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UserPolicyMode` muss existieren und `0x1` sein. |
 | **`gpupdate /target:user` über SSH/WinRM meldet Erfolg, es ändert sich nichts** | Benutzerrichtlinie wird nur in einer interaktiven Sitzung verarbeitet (Anmeldetyp 2/10), nie in Session 0. Siehe [Prüfen am Client](#prüfen-am-client). |

@@ -164,6 +164,67 @@ Sources: [W32Time: how the service works](https://learn.microsoft.com/en-us/wind
 [Samba wiki: time synchronisation](https://wiki.samba.org/index.php/Time_Synchronisation) ·
 [ntpsec access control](https://docs.ntpsec.org/latest/access.html) · `ntpd/ntp_restrict.c`
 
+### 6a. Secure Time Seeding off (pack 17, since 7.3.7)
+
+**Field case (2026-11-11, a production linuxmuster 7.3 school).** Students were shown the
+squid proxy's login dialog again and again; squid's `cache.log` had
+`gss_accept_sec_context() failed ... Clock skew too great` more than 26,000 times in six days,
+while proxy and DC agreed to the second. On one client the logon worked at 13:03 and broke at
+13:20: the client clock jumped by more than 5 minutes in the middle of a session. That
+school's own time GPO set `UtilizeSslTimeData = 1`. Whether switching it off ends the jumps
+was **not yet confirmed on that client** when 7.3.7 was made; the change rests on the
+Microsoft facts below.
+
+What Microsoft documents (checked 2026-11-11):
+
+| Fact | Source |
+|---|---|
+| STS is "a heuristic-based timekeeping mechanism" that takes the approximate time from the metadata of outbound SSL/TLS connections and uses it "to detect and correct any large errors in the system clock". | STS recommendations |
+| On by default on every Windows client from Windows 10 1511 on and on Windows Server 2016/2019/2022; **off** by default on Windows Server 2025. Registry reference: "The default out-of-box value for all Windows versions with this feature is 1 except for Windows Server 2025, where the default value is 0. Domain membership doesn't affect this setting." | STS recommendations; W32Time tools and settings (`UtilizeSslTimeData`) |
+| Reported incidents: W32Time "sets the system time to a random incorrect value, with a time error varying from days and weeks to years", usually self-corrected after a while, not reproducible on demand; some were persistent and ended only after STS was switched off. Microsoft recommends disabling STS on Windows Server (DCs, time-sensitive servers, VM hosts, and to consider it on all servers). | STS recommendations |
+| For client SKUs (Windows 10/11) Microsoft has **no** general recommendation: it received no similar feedback there, calls client incidents "a small but distinct possibility" and leaves the decision to the admin; devices with drained batteries "might rely on STS to automatically correct gross time errors". | STS recommendations, "Scope" |
+| Windows 10 and later: after a restart in a network without outbound SSL traffic, STS sets the clock from stale stored data into the past; listed symptoms include "Kerberos authentication fails". | Computer clock resets to a previous date and time (KB3160312) |
+| Policy: Computer Configuration > Administrative Templates > System > Windows Time Service > **Global Configuration Settings**, setting `UtilizeSslTimeData`, "Values (Reboot required): 0 = STS disabled, 1 = STS enabled". ADMX `W32Time.admx`, policy `W32TIME_POLICY_CONFIG`, registry key `Software\Policies\Microsoft\W32Time\Config`, boolean, default 1. The local value is `HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Config\UtilizeSslTimeData`, REG_DWORD. | STS recommendations; ADMX_W32Time Policy CSP; W32Time tools and settings |
+| Policy values for W32Time live under `HKLM\SOFTWARE\Policies\Microsoft` and "the values defined by Group Policy overwrite any preexisting values in the W32Time section of the registry". | W32Time tools and settings |
+| When the policy reaches a client, "W32Time is notified and it stops time monitoring and enforcement by using SSL time data. The SSL time data collection stops when each machine reboots." Locally `W32tm.exe /config /update` has the same effect without a reboot. Microsoft suggests excluding "portable slim laptops/tablets" whose batteries drain, because they "need the Secure Time Seeding feature to bootstrap their time". | Time accuracy improvements for Windows Server 2016, "Secure Time Seeding" |
+| What the running service uses: the latest of events 257, 260, 263 in `Microsoft-Windows-Time-Service/Operational` contains `UtilizeSslTimeData: 0` when STS is off ("not available on all editions and releases"); the W32Time debug log shows `ReadConfig: 'UtilizeSslTimeData'=0x00000000`. | STS recommendations |
+
+Trade-off: school clients get their time from the school server by NTP, and pack 17 lets
+W32Time correct any offset (`MaxPos/NegPhaseCorrection = 0xFFFFFFFF`), so a dead CMOS battery
+is corrected on the school network without STS. A device that leaves the network with a dead
+battery loses STS as its fallback; that is accepted, the jumping clocks were the bigger harm.
+
+So pack 17 writes `UtilizeSslTimeData = 0` (REG_DWORD, machine) next to its existing
+`MaxPos/NegPhaseCorrection` values under `Software\Policies\Microsoft\W32Time\Config`, and
+`lmn-gpo-check.ps1` (6e) reads both the policy value and the event Microsoft names.
+
+**Not documented by Microsoft: a partial `Config` policy.** The ADMX policy "Global
+Configuration Settings" writes all of its values at once when it is enabled in the GPMC, and the
+CSP text only says: "If this policy setting is enabled, W32time Service on target machines use
+the settings provided here. Otherwise, the service on target machines use locally configured
+settings values." Pack 17 writes only three of those values (`MaxPos/NegPhaseCorrection`
+already before 7.3.7). That W32Time takes a single value from the policy key and keeps the local
+value for the others is **not stated** in any Microsoft document found; it has to be confirmed
+on a client: after `gpupdate /force` and a reboot, the latest event 257/260/263 (or the
+W32Time debug log) must show `UtilizeSslTimeData: 0`. `lmn-gpo-check.ps1` prints
+that event line next to the policy value for exactly this reason.
+
+**Upgrade.** `lmn-gpo apply` passes all registry values of a pack to `samba-tool gpo load`
+unless every one of them is already in the GPO's `Registry.pol` with the same type and data
+(`lmn_gpo/regpol.py` `_all_present`). On a GPO written by 7.3.6 `UtilizeSslTimeData` is
+missing, so the next apply loads the pack; Samba's `RegistryGroupPolicies.merge_s()` replaces
+or appends the entries in `Machine/Registry.pol` and `increment_gpt_ini(machine_changed=True)`
+raises the computer half of GPT.INI and `versionNumber` by one
+(`python/samba/policies.py` and `netcmd/gpo.py` `cmd_load`, read in the Samba 4.22 source of the
+development machine; the lab test checks it on the 7.3 DC). `tests/test_apply_ntp.py` replays this on the
+fake domain. The postinst does not run `apply`, so the admin has to.
+
+Sources: [Secure Time Seeding recommendations for Windows Server](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/sts-recommendations-for-windows-server) ·
+[Windows Time service tools and settings](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings) ·
+[ADMX_W32Time Policy CSP](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-admx-w32time) ·
+[Computer clock resets to a previous date and time (KB3160312)](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/client-clock-reverts-to-previous-time) ·
+[Time accuracy improvements for Windows Server 2016](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-server-2016-improvements)
+
 ## 7. Data Protection / GDPR (Evidence)
 
 DSK resolution on Windows: **Enterprise/Education + `AllowTelemetry=0` (Security) +
