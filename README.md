@@ -943,12 +943,24 @@ The trusted-server list is **auto-detected** to match how linuxmuster connects
 ## Office: network drives as trusted locations
 
 **On by default** since 7.3.8 (pack `21-office-trusted-schule`). Since 2022 Office blocks VBA
-macros in files it considers to come from the internet. A file share that Windows does not count
-as *Local intranet* or *Trusted sites* is treated the same way, and "Unblock" in the file
-properties does not help there. A teacher who opens the Access databases collected from the
-students then sees *"SECURITY RISK – Microsoft has blocked macros from running because the source
-of this file is untrusted"* and cannot test the macros. This pack makes the school's network
-drives **trusted locations** in Office, by default for **Access only**.
+macros in files from the internet. Measured with the Access Runtime on Windows 11, without lmn-gpo:
+
+- **Only a notice** for files on H:, T: and the other drives and on `\\server\<school>\…`: Windows
+  counts the short server name as *Local intranet*, and Access shows its normal security notice
+  with *Open*.
+- **Hard block** — *"Microsoft has blocked macros from running because the source of this file is
+  untrusted"*, no way to enable them (the Runtime offers only *Cancel*) — for files with a Mark
+  of the Web `ZoneId=3` (browser downloads, e.g. from the edulution web UI) and for files opened
+  through the server's FQDN `\\server.<domain>\…` or the DFS target `\\fs.<domain>\…` (both in
+  the Internet zone; "Unblock" in the file properties does not help on such a share).
+
+This pack makes the school's network drives **trusted locations** in Office, by default for
+**Access only** and for all roles: macros in files opened from them (letter or UNC path) run
+**without any notice**, so a teacher can test the Access databases collected from the students.
+A download saved to H: and opened there runs, too (H: keeps no `Zone.Identifier`). **Still
+hard-blocked:** files opened through the FQDN or the DFS target (unless `office_trusted_forms`
+has `dfs`, below) and local files with `ZoneId=3`. For downloads from edulution,
+[pack 22](#edulution-as-a-trusted-site) replaces the hard block with the normal notice.
 
 ```yaml
 office_trusted_enabled: true          # default; false switches it off (see below)
@@ -1003,11 +1015,13 @@ paths; the letter form still covers H:.
 > - Teachers: open students' Access files **with SHIFT held down** — that skips the AutoExec
 >   macro and the startup form. It is advice, not a safeguard: a database can switch the SHIFT
 >   bypass off itself (`AllowBypassKey`).
-> - **Alternative** (Microsoft's recommendation for shares): put the file server into the *Local
->   intranet* or *Trusted sites* zone (Site to Zone Assignment List, as `12-proxy-zone-schule`
->   does for the proxy). Macros then are no longer hard-blocked but follow the Trust Center
->   setting (the "Enable content" bar) instead of running silently. Not shipped as a pack; mind
->   that such a list replaces the users' own zone lists ([proxy](#role-based-proxy)).
+> - **Alternative** (Microsoft's recommendation for shares): leave the pack off
+>   (`office_trusted_enabled: false`). Files on the drives (`\\server\…`, *Local intranet*) then
+>   follow the Trust Center setting (the security notice) instead of running silently. Names
+>   Windows puts into the Internet zone (`server.<domain>`, `fs.<domain>`) lose the hard block
+>   only in the *Local intranet* or *Trusted sites* zone (Site to Zone Assignment List, as
+>   `12-proxy-zone-schule` does for the proxy). Not shipped as a pack; mind that such a list
+>   replaces the users' own zone lists ([proxy](#role-based-proxy)).
 
 **Switching it off:** `office_trusted_enabled: false` + `lmn-gpo apply --yes`. apply backs the
 GPOs up (`/var/backups/lmn-gpo`) and removes them; every value is under `Software\Policies`, so
@@ -1032,7 +1046,8 @@ downloads from the school's edulution website carry the Internet zone (`ZoneId=3
 hard-blocks their macros. With the site in the **Trusted sites** zone, measured with Edge 157 on
 Windows 11: Edge saves the download **without any `Zone.Identifier`** (no Mark of the Web, not
 `ZoneId=2`), and Access shows its normal security notice with *Open* instead of the hard block.
-Chrome and Firefox are not measured.
+Chrome and Firefox are not measured. A download saved to H: and opened there does not need this
+pack: with pack 21 its macros run without any notice (H: keeps no `Zone.Identifier`).
 
 ```yaml
 edulution_trusted_enabled: true                          # default
@@ -2209,13 +2224,28 @@ FQDN + IP) — das vermeidet den klassischen Kurzname-vs-FQDN-Fehler. `printserv
 ## Office: Netzlaufwerke als vertrauenswürdige Speicherorte
 
 **Standardmäßig an** seit 7.3.8 (Pack `21-office-trusted-schule`). Seit 2022 blockiert Office
-VBA-Makros in Dateien, die es für Internet-Dateien hält. Eine Dateifreigabe, die Windows weder
-zu *Lokales Intranet* noch zu *Vertrauenswürdige Sites* zählt, wird genauso behandelt, und
-„Zulassen" in den Dateieigenschaften hilft dort nicht. Eine Lehrkraft, die eingesammelte
-Access-Datenbanken der Schüler öffnet, sieht dann *„SICHERHEITSRISIKO – Microsoft hat die
-Ausführung von Makros blockiert, da die Quelle dieser Datei nicht vertrauenswürdig ist"* und kann
-die Makros nicht prüfen. Dieses Pack macht die Netzlaufwerke der Schule in Office zu
-**vertrauenswürdigen Speicherorten**, standardmäßig **nur für Access**.
+VBA-Makros in Dateien aus dem Internet. Gemessen mit der Access Runtime unter Windows 11, ohne
+lmn-gpo:
+
+- **Nur eine Warnung** für Dateien auf H:, T: und den anderen Laufwerken und unter
+  `\\server\<schule>\…`: Windows zählt den kurzen Servernamen zu *Lokales Intranet*, und Access
+  zeigt die normale Sicherheitswarnung mit *Öffnen*.
+- **Harte Blockade** — *„Microsoft hat die Ausführung von Makros blockiert, da die Quelle dieser
+  Datei nicht vertrauenswürdig ist."*, ohne Möglichkeit, sie zu aktivieren (die Runtime bietet nur
+  *Abbrechen*) — für Dateien mit Herkunftskennzeichnung `ZoneId=3` (Browser-Downloads, etwa aus
+  der edulution-Weboberfläche) und für Dateien, die über den FQDN des Servers
+  `\\server.<domäne>\…` oder das DFS-Ziel `\\fs.<domäne>\…` geöffnet werden (beide in der
+  Internetzone; „Zulassen" in den Dateieigenschaften hilft auf einer solchen Freigabe nicht).
+
+Dieses Pack macht die Netzlaufwerke der Schule in Office zu **vertrauenswürdigen
+Speicherorten**, standardmäßig **nur für Access** und für alle Rollen: Makros in Dateien, die von
+dort geöffnet werden (über Buchstaben oder UNC-Pfad), laufen **ohne jede Warnung** — eine
+Lehrkraft kann die eingesammelten Access-Datenbanken der Schüler also prüfen. Ein auf H:
+gespeicherter und von dort geöffneter Download läuft ebenfalls (H: speichert keinen
+`Zone.Identifier`). **Weiter hart blockiert:** über den FQDN oder das DFS-Ziel geöffnete Dateien
+(außer mit `dfs` in `office_trusted_forms`, siehe unten) und lokale Dateien mit `ZoneId=3`. Für
+Downloads von edulution ersetzt [Pack 22](#edulution-als-vertrauenswürdige-site) die harte
+Blockade durch die normale Warnung.
 
 ```yaml
 office_trusted_enabled: true          # Standard; false schaltet ab (siehe unten)
@@ -2274,10 +2304,12 @@ Rechner der Schule B bekommt die Pfade der Schule B; die Buchstaben-Form deckt H
 > - Lehrkräfte: Access-Dateien von Schülern **mit gedrückter Umschalttaste öffnen** — das
 >   überspringt das AutoExec-Makro und das Startformular. Ein Rat, kein Schutz: Eine Datenbank
 >   kann die Umschalttaste selbst abschalten (`AllowBypassKey`).
-> - **Alternative** (Microsofts Empfehlung für Freigaben): den Fileserver in die Zone *Lokales
->   Intranet* oder *Vertrauenswürdige Sites* aufnehmen (Zonenliste, wie `12-proxy-zone-schule` es
->   für den Proxy macht). Makros sind dann nicht mehr hart blockiert, folgen aber der
->   Trust-Center-Einstellung (Leiste „Inhalt aktivieren") statt still zu laufen. Kein Pack dafür;
+> - **Alternative** (Microsofts Empfehlung für Freigaben): das Pack auslassen
+>   (`office_trusted_enabled: false`). Dateien auf den Laufwerken (`\\server\…`, *Lokales
+>   Intranet*) folgen dann der Trust-Center-Einstellung (der Sicherheitswarnung), statt still zu
+>   laufen. Namen, die Windows in die Internetzone legt (`server.<domäne>`, `fs.<domäne>`),
+>   verlieren die harte Blockade erst in der Zone *Lokales Intranet* oder *Vertrauenswürdige
+>   Sites* (Zonenliste, wie `12-proxy-zone-schule` es für den Proxy macht). Kein Pack dafür;
 >   eine solche Liste ersetzt die eigenen Zonenlisten der Benutzer ([Proxy](#rollen-proxy)).
 
 **Abschalten:** `office_trusted_enabled: false` + `lmn-gpo apply --yes`. apply sichert die GPOs
@@ -2304,6 +2336,8 @@ Dateien, die eine Lehrkraft von der edulution-Seite der Schule lädt, tragen die
 Sites**, gemessen mit Edge 157 unter Windows 11: Edge speichert den Download **ganz ohne
 `Zone.Identifier`** (keine Herkunftskennzeichnung, nicht `ZoneId=2`), und Access zeigt die normale
 Sicherheitswarnung mit *Öffnen* statt der harten Blockade. Chrome und Firefox sind nicht gemessen.
+Ein auf H: gespeicherter und von dort geöffneter Download braucht dieses Pack nicht: Mit Pack 21
+laufen seine Makros ohne jede Warnung (H: speichert keinen `Zone.Identifier`).
 
 ```yaml
 edulution_trusted_enabled: true                          # Standard

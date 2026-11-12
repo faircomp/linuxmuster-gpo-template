@@ -1,11 +1,20 @@
 lmn-gpo (7.3.8) lmn73; urgency=medium
 
-  * New pack 21-office-trusted-schule, ON BY DEFAULT: the school's network drives
-    become Office trusted locations - for Microsoft Access only, unless
-    office_trusted_apps lists more (excel, word, powerpoint). Office blocks VBA macros
-    in files it treats as coming from the internet ("SECURITY RISK - Microsoft has
-    blocked macros from running"), e.g. Access databases a teacher collected from the
-    students; in a trusted location they run.
+  * New pack 21-office-trusted-schule, ON BY DEFAULT: the school's network
+    drives become Office trusted locations - for Microsoft Access only, unless
+    office_trusted_apps lists more (excel, word, powerpoint). Measured with the
+    Access Runtime on Windows 11: without lmn-gpo, files on H:, T: and
+    \\server\<school>\... (Local intranet zone) only get the normal security
+    notice with 'Open'; the hard block ("Microsoft has blocked macros from
+    running", only 'Cancel') hits files with Mark of the Web ZoneId=3 (browser
+    downloads, e.g. from the edulution web UI) and files opened as
+    \\server.<domain>\... or through the DFS target \\fs.<domain>\... (Internet
+    zone). With the pack, macros on the drives (letter and UNC path) run without
+    any notice, for all roles by default, also in a download saved to H: (H:
+    keeps no Zone.Identifier). Still hard-blocked: the FQDN path, the DFS target
+    (unless office_trusted_forms has 'dfs') and local files with ZoneId=3. Pack
+    22 (below) turns the hard block for edulution downloads into the normal
+    notice.
   * THIS CHANGES EVERY WINDOWS CLIENT: a site with 'packs: null' (the default) gets the
     pack at the next 'lmn-gpo apply', without any change to site.yaml. Files on these
     drives then open with macros enabled and without a prompt - also files students put
