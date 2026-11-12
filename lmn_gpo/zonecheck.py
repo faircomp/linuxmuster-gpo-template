@@ -5,7 +5,7 @@ A GPO with Site to Zone Assignment List values (ZoneMapKey: 12-proxy-zone-schule
 on the matching extension-names attribute. Without it Windows writes the values into
 HKLM\\Software\\Policies\\...\\ZoneMapKey and never turns them into zone mappings: the site
 keeps its old zone (lab, Windows 11, 2026-11-12; docs/RESEARCH.md section 10). lmn-gpo up to
-7.3.6 did not register it; `lmn-gpo apply` from 7.3.7 on does. A warning, like the other
+7.3.7 did not register it; `lmn-gpo apply` from 7.3.8 on does. A warning, like the other
 GPO-state checks: the exit code is unchanged.
 """
 from __future__ import annotations

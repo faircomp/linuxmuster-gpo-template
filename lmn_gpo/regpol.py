@@ -62,7 +62,7 @@ class RegPol:
         else:
             self._load(guid, entries, replace)
         # Also when the values were unchanged: a GPO written before the zone-map extension
-        # was registered (lmn-gpo up to 7.3.6) gets it now.
+        # was registered (lmn-gpo up to 7.3.7) gets it now.
         self.ensure_zonemap_cse(guid, entries)
 
     def _load(self, guid: str, entries: list[dict], replace: bool) -> None:

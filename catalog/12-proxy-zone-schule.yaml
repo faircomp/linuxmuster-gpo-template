@@ -11,7 +11,7 @@ description: >
   Teacher notebooks (@teachernb) are excluded, matching the other proxy packs.
 
   Windows applies the Site to Zone Assignment List only through the 'Internet Explorer
-  Zonemapping' client-side extension; apply registers it on the GPO (since 7.3.7 - before,
+  Zonemapping' client-side extension; apply registers it on the GPO (since 7.3.8 - before,
   the value reached the registry and the proxy stayed in the Internet zone).
 
   SIDE EFFECT (Microsoft, docs/RESEARCH.md section 10; not measured in the lab): while a

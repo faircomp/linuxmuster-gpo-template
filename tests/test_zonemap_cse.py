@@ -151,7 +151,7 @@ def test_second_apply_is_byte_identical(dc):
 
 
 def test_upgrade_adds_it_to_an_existing_proxy_gpo_with_unchanged_values(dc, capsys):
-    """A 12-proxy-zone-schule GPO as lmn-gpo 7.3.6 left it: registry values in place, only
+    """A 12-proxy-zone-schule GPO as lmn-gpo 7.3.7 left it: registry values in place, only
     Samba's registry extension, version 1. The next apply loads nothing, registers the
     extension and bumps the machine version; the one after changes nothing."""
     fake, env, sysvol, samba = dc

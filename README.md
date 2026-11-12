@@ -409,10 +409,10 @@ Edge, Chrome and Firefox are set to the Windows system proxy; the proxy host is 
 the Intranet zone for automatic SSO. The [student lockdown](#student-lockdown) prevents
 students from removing the proxy.
 
-> **Intranet zone for the proxy (`12-proxy-zone-schule`), fixed in 7.3.7.** Windows applies the
+> **Intranet zone for the proxy (`12-proxy-zone-schule`), fixed in 7.3.8.** Windows applies the
 > Site to Zone Assignment List only through the client-side extension *Internet Explorer
-> Zonemapping*. Up to 7.3.6 the GPO did not register it: the value reached the registry, the
-> proxy host stayed in the **Internet** zone (measured on Windows 11). From 7.3.7 `apply` registers
+> Zonemapping*. Up to 7.3.7 the GPO did not register it: the value reached the registry, the
+> proxy host stayed in the **Internet** zone (measured on Windows 11). From 7.3.8 `apply` registers
 > it and bumps the GPO version, also on existing GPOs; after the next `apply` and a policy refresh
 > the proxy really is in the Local intranet zone. **Side effect** (Microsoft, not measured in the
 > lab): while a computer Site to Zone Assignment List is in effect, Windows uses only that list —
@@ -941,7 +941,7 @@ The trusted-server list is **auto-detected** to match how linuxmuster connects
 
 ## Office: network drives as trusted locations
 
-**On by default** since 7.3.7 (pack `21-office-trusted-schule`). Since 2022 Office blocks VBA
+**On by default** since 7.3.8 (pack `21-office-trusted-schule`). Since 2022 Office blocks VBA
 macros in files it considers to come from the internet. A file share that Windows does not count
 as *Local intranet* or *Trusted sites* is treated the same way, and "Unblock" in the file
 properties does not help there. A teacher who opens the Access databases collected from the
@@ -1154,7 +1154,7 @@ per check + a summary.
 
 ## Updating the toolkit
 
-> ### Upgrading to 7.3.7: two packs are on by default
+> ### Upgrading to 7.3.8: two packs are on by default
 > A site with `packs: null` gets [`21-office-trusted-schule`](#office-network-drives-as-trusted-locations)
 > at the next `apply` without any change to `site.yaml`: H:, the default drives and the
 > `drives.yaml` drives become **Office trusted locations for Access** on every Windows client
@@ -1165,7 +1165,7 @@ per check + a summary.
 > **Proxy in the Intranet zone, now for real.** With the role proxy on, the next `apply` registers
 > the *Internet Explorer Zonemapping* extension on the existing `12-proxy-zone-schule` GPOs and
 > bumps their version (`lmn-gpo doctor` names every GPO still without it). After a policy refresh
-> the proxy host is in the Local intranet zone — up to 7.3.6 it stayed in the Internet zone. From
+> the proxy host is in the Local intranet zone — up to 7.3.7 it stayed in the Internet zone. From
 > then on, according to Microsoft (not measured in the lab), Windows uses only the policy's
 > site-to-zone list: sites users or the image put into a zone themselves no longer count
 > ([proxy](#role-based-proxy)).
@@ -1696,10 +1696,10 @@ Chrome und Firefox werden auf den Windows-System-Proxy gestellt; der Proxy-Host 
 Intranet-Zone für automatisches SSO. Der [Schüler-Lockdown](#schüler-lockdown) verhindert,
 dass Schüler den Proxy entfernen.
 
-> **Intranet-Zone für den Proxy (`12-proxy-zone-schule`), korrigiert in 7.3.7.** Windows wendet
+> **Intranet-Zone für den Proxy (`12-proxy-zone-schule`), korrigiert in 7.3.8.** Windows wendet
 > die Liste der Site-zu-Zonen-Zuweisungen nur über die clientseitige Erweiterung *Internet
-> Explorer Zonemapping* an. Bis 7.3.6 trug die GPO sie nicht: Der Wert kam in der Registry an, der
-> Proxy-Host blieb in der **Internetzone** (gemessen unter Windows 11). Ab 7.3.7 trägt `apply` sie
+> Explorer Zonemapping* an. Bis 7.3.7 trug die GPO sie nicht: Der Wert kam in der Registry an, der
+> Proxy-Host blieb in der **Internetzone** (gemessen unter Windows 11). Ab 7.3.8 trägt `apply` sie
 > ein und erhöht die GPO-Version, auch bei vorhandenen GPOs; nach dem nächsten `apply` und einer
 > Richtlinienaktualisierung liegt der Proxy wirklich in der Zone Lokales Intranet.
 > **Nebenwirkung** (laut Microsoft, im Lab nicht gemessen): Solange eine Zonenliste für den
@@ -2200,7 +2200,7 @@ FQDN + IP) — das vermeidet den klassischen Kurzname-vs-FQDN-Fehler. `printserv
 
 ## Office: Netzlaufwerke als vertrauenswürdige Speicherorte
 
-**Standardmäßig an** seit 7.3.7 (Pack `21-office-trusted-schule`). Seit 2022 blockiert Office
+**Standardmäßig an** seit 7.3.8 (Pack `21-office-trusted-schule`). Seit 2022 blockiert Office
 VBA-Makros in Dateien, die es für Internet-Dateien hält. Eine Dateifreigabe, die Windows weder
 zu *Lokales Intranet* noch zu *Vertrauenswürdige Sites* zählt, wird genauso behandelt, und
 „Zulassen" in den Dateieigenschaften hilft dort nicht. Eine Lehrkraft, die eingesammelte
@@ -2422,7 +2422,7 @@ je Prüfung + Summe.
 
 ## Update des Toolkits
 
-> ### Update auf 7.3.7: zwei Packs sind standardmäßig an
+> ### Update auf 7.3.8: zwei Packs sind standardmäßig an
 > Eine Installation mit `packs: null` bekommt
 > [`21-office-trusted-schule`](#office-netzlaufwerke-als-vertrauenswürdige-speicherorte) beim
 > nächsten `apply`, ohne Änderung an der `site.yaml`: H:, die Standardlaufwerke und die Laufwerke
@@ -2436,7 +2436,7 @@ je Prüfung + Summe.
 > nächste `apply` die Erweiterung *Internet Explorer Zonemapping* an den vorhandenen
 > `12-proxy-zone-schule`-GPOs nach und erhöht ihre Version (`lmn-gpo doctor` nennt jede GPO, der
 > sie noch fehlt). Nach einer Richtlinienaktualisierung liegt der Proxy-Host in der Zone Lokales
-> Intranet — bis 7.3.6 blieb er in der Internetzone. Ab dann nutzt Windows laut Microsoft (im Lab
+> Intranet — bis 7.3.7 blieb er in der Internetzone. Ab dann nutzt Windows laut Microsoft (im Lab
 > nicht gemessen) nur die Zonenliste aus der Richtlinie: Sites, die Benutzer oder das Image selbst
 > einer Zone zugeordnet haben, zählen nicht mehr ([Proxy](#rollen-proxy)).
 

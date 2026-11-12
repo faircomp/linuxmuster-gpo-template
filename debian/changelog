@@ -1,4 +1,4 @@
-lmn-gpo (7.3.7) lmn73; urgency=medium
+lmn-gpo (7.3.8) lmn73; urgency=medium
 
   * New pack 21-office-trusted-schule, ON BY DEFAULT: the school's network drives
     become Office trusted locations - for Microsoft Access only, unless
@@ -56,7 +56,7 @@ lmn-gpo (7.3.7) lmn73; urgency=medium
     lmn-gpo selftest checks the zone-map extension against the real samba-tool. apply
     prints the KMS tattoo note only when a KMS GPO was retired.
 
- -- Kevin Stenzel <mail@kevin-stenzel.de>  Thu, 12 Nov 2026 06:40:04 +0100
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Thu, 12 Nov 2026 10:01:57 +0100
 
 lmn-gpo (7.3.7) lmn73; urgency=medium
 

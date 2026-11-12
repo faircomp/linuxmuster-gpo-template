@@ -27,7 +27,7 @@ def test_doctor_names_a_gpo_without_the_extension(dc, capsys):
     assert out.count("[ok] LMN-C-default-school-") == 2 and "[warn]" not in out
     assert "21-office-trusted-schule" not in out
     edu, msg = gpo(fake, EDU)
-    msg.set("gPCMachineExtensionNames", REG_SAMBA)          # as 7.3.6 left it
+    msg.set("gPCMachineExtensionNames", REG_SAMBA)          # as 7.3.7 left it
     assert (f"LMN-C-default-school-{EDU}", edu, "gPCMachineExtensionNames", False) in \
         zonecheck.rows(env)
     assert zonecheck.run(env) == 1

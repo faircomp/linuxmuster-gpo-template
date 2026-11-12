@@ -546,7 +546,7 @@ Write-Head "Site to zone list (12-proxy-zone-schule, 22-edulution-trusted-schule
 # 'Internet Explorer Zonemapping' extension, which writes ...\Policies\...\ZoneMap; the zone
 # that counts is what urlmon returns (MapUrlToZone, the API Edge and Office use). Checked
 # per entry, without admin rights. Without the extension the list sits there and the site
-# keeps its old zone (lmn-gpo up to 7.3.6, lab 2026-11-12).
+# keeps its old zone (lmn-gpo up to 7.3.7, lab 2026-11-12).
 $zoneNames = @{ '0' = 'My Computer'; '1' = 'Local intranet'; '2' = 'Trusted sites'; '3' = 'Internet'; '4' = 'Restricted sites' }
 function Get-LmnUrlZone([string]$Url) {
     # IInternetSecurityManager::MapUrlToZone; .NET Framework's Zone.CreateFromUrl (same API)
@@ -622,7 +622,7 @@ if (Test-Path -LiteralPath $zm) {
     }
     if ($zoneFail) {
         Write-Host "       The list arrived but is not in effect. Most likely the GPO lacks the 'Internet Explorer" -ForegroundColor Yellow
-        Write-Host "       Zonemapping' extension {4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3} (lmn-gpo up to 7.3.6):" -ForegroundColor Yellow
+        Write-Host "       Zonemapping' extension {4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3} (lmn-gpo up to 7.3.7):" -ForegroundColor Yellow
         Write-Host "       on the DC 'lmn-gpo doctor', then 'lmn-gpo apply --yes'; here 'gpupdate /force'." -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains")) {
             Write-Host "       (HKLM\SOFTWARE\Policies\...\Internet Settings\ZoneMap\Domains does not exist: the extension never ran.)" -ForegroundColor Yellow

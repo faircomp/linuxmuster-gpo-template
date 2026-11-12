@@ -377,7 +377,7 @@ So a drive letter and the UNC path it is mapped to cover each other, and the DFS
 covers files opened through `\\fs.<domain>\…` itself (a shortcut, a link, the Explorer history).
 Not measured: paths without a drive letter for a role that has none (e.g. `\\server\<school>\students\…`
 for a teacher without S: — the UNC form is meant for those) and another school's drives on a
-roaming device (the letter form is meant for those). Default from 7.3.7: **`[unc, letter]`**;
+roaming device (the letter form is meant for those). Default from 7.3.8: **`[unc, letter]`**;
 `dfs` on request. A file opened as `\\server.<domain>\…` stays blocked with every form (another
 string to Office, measured).
 
@@ -455,7 +455,7 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   then parses them into corresponding ZoneMap subkey settings"
   ([Internet Explorer's Explicit Security Zone Mappings](https://learn.microsoft.com/en-us/archive/blogs/fdcc/internet-explorers-explicit-security-zone-mappings),
   Microsoft TechNet blog "fdcc" (Aaron Margosis), 2011-09-22, updated 2012-05-15, archived on
-  Microsoft Learn, read 2026-11-12). **Measured:** up to 7.3.6 lmn-gpo registered only the
+  Microsoft Learn, read 2026-11-12). **Measured** (with 7.3.6): up to 7.3.7 lmn-gpo registered only the
   registry CSE; the values arrived in `HKLM\…\ZoneMapKey`, the zonemapping CSE never ran (no
   `…\Policies\…\ZoneMap\Domains`, not in the GP history), and both the edulution host and the
   proxy host of 12-proxy-zone-schule stayed zone 3. With `gPCMachineExtensionNames` set by hand to
@@ -466,7 +466,7 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   translates the whole merged ZoneMapKey, so one GPO with it activates the values of all.
   `ListBox_Support_ZoneMapKey=1` (the policy's own value) was **not** written in that experiment
   and is not needed; lmn-gpo does not write it.
-- **How lmn-gpo registers it (from 7.3.7).** `RegPol.load` adds the group
+- **How lmn-gpo registers it (from 7.3.8).** `RegPol.load` adds the group
   `[{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]` (CSE + the
   Administrative Templates tool GUID, the measured pair) to the extension-names attribute of the
   side whose values contain ZoneMapKey, sorted by CSE GUID, and bumps that half of the version
@@ -486,7 +486,7 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   `[{35378eac-683f-11d2-a89a-00c04fbbcfa2}][{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]`.
   The lowercase registry group without tool GUID is what every samba-tool-loaded GPO carries and
   what the lab client processed (pack 21's values, the ZoneMapKey values); the zonemapping group is
-  byte for byte the measured one. That exact combination is the lab's check for 7.3.7.
+  byte for byte the measured one. That exact combination is the lab's check for 7.3.8.
   `lmn-gpo doctor` warns about an LMN-* GPO with ZoneMapKey values but without the CSE (as its own
   group), `lmn-gpo selftest` checks the registration against the real samba-tool, and
   `lmn-gpo-check.ps1` compares the listed zone with the one urlmon returns.
@@ -503,8 +503,8 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   says the converse: "If you disable or don't configure this policy, users may choose their own
   site-to-zone assignments." Both explicit sources are archived IE 9/10-era posts; **on Windows 11
   this is not measured** (lab check: a site a user put into Trusted sites before, zone with and
-  without the GPO). It applies as soon as one GPO with the list is in effect — with 7.3.7 that is
-  12-proxy-zone-schule (proxy on) or this pack (host set); before 7.3.7 the list never took effect.
+  without the GPO). It applies as soon as one GPO with the list is in effect — with 7.3.8 that is
+  12-proxy-zone-schule (proxy on) or this pack (host set); before 7.3.8 the list never took effect.
 - **Side effect:** the zone is Windows-wide, not Office-only ("These zone numbers have associated
   security settings that apply to all of the sites in the zone"); the Trusted Sites zone uses the
   Low template by default (ADML).
