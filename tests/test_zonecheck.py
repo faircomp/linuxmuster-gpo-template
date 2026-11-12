@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 
 from conftest import POLICIES
-from fakesamba import FakeSamba
+from fakesamba import FakeSamba, write_pol
 from lmn_gpo import regpol, ui, version, zonecheck
 from test_zonemap_cse import ANSWERS, EDU, REG_GPMC, REG_SAMBA, ZONE, dc, gpo, run  # noqa: F401
 
@@ -49,9 +49,10 @@ def test_doctor_ignores_gpos_that_are_not_ours(dc):
     guid = "{AAAAAAAA-0000-0000-0000-000000000001}"
     fake.add(f"CN={guid},{POLICIES}", objectClass="groupPolicyContainer", cn=guid,
              displayName="Some admin GPO", gPCMachineExtensionNames=REG_GPMC, versionNumber="1")
-    samba.pols[os.path.join(sysvol, guid, "Machine", "Registry.pol")] = {
-        (regpol.ZONEMAP_KEY.lower(), "intranet.example"): (1, "1")}
-    assert zonecheck.rows(env) == []
+    write_pol(os.path.join(sysvol, guid, "Machine", "Registry.pol"),
+              [(regpol.ZONEMAP_KEY, "intranet.example", 1, "1\x00".encode("utf-16-le"))])
+    assert regpol.pol_has_zonemap(os.path.join(sysvol, guid), "Machine")   # zone values: yes
+    assert zonecheck.rows(env) == []                                      # but not ours
 
 
 # --------------------------------------------------------------------------- #
