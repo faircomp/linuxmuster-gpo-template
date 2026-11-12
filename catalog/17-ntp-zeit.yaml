@@ -16,6 +16,12 @@ description: >
   CORE FIX for "not all clocks are correct": MaxPos/NegPhaseCorrection = 0xFFFFFFFF
   (always correct) — otherwise W32Time refuses to correct large offsets (typical
   with dead BIOS/CMOS batteries, where the clock jumps far back).
+  Secure Time Seeding OFF (UtilizeSslTimeData = 0, since 7.3.7): otherwise Windows also
+  sets the clock from time data in its outgoing TLS connections, a heuristic that is on by
+  default on Windows 10/11 and that Microsoft has seen set clocks wrong by days to years
+  (off by default from Windows Server 2025 on). A clock that jumps by more than 5 minutes
+  breaks Kerberos (proxy SSO, file access). The clients have the school server as their
+  time source and do not need it. Microsoft lists a reboot as required for this value.
   Applies only to clients (linked at OU=SCHOOLS); the DC is left untouched and keeps its
   own time source. Effective after gpupdate + reboot (or 'w32tm /config /update').
 registry:
@@ -31,3 +37,5 @@ registry:
   # Always correct, even for large offsets (dead CMOS battery or similar)
   - { key: 'Software\Policies\Microsoft\W32Time\Config', name: MaxPosPhaseCorrection, class: machine, type: dword, data: 4294967295 }
   - { key: 'Software\Policies\Microsoft\W32Time\Config', name: MaxNegPhaseCorrection, class: machine, type: dword, data: 4294967295 }
+  # Secure Time Seeding off: no clock jumps from TLS time data (Kerberos fails beyond 5 min)
+  - { key: 'Software\Policies\Microsoft\W32Time\Config', name: UtilizeSslTimeData, class: machine, type: dword, data: 0 }

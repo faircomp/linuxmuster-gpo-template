@@ -323,7 +323,35 @@ if (Test-Path "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\TimeProviders\NtpClient
             $fail++
         }
     }
+    # Secure Time Seeding (STS) sets the clock from time data in TLS connections; Microsoft
+    # has reports of it setting clocks wrong by days to years. Beyond 5 minutes Kerberos
+    # rejects the tickets (proxy SSO, file access). Package 17 switches it off since lmn-gpo
+    # 7.3.7. Missing = the GPO was written by an older lmn-gpo and Windows keeps its default
+    # (on for Windows 10/11).
+    $sts = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\W32Time\Config" -Name UtilizeSslTimeData -ErrorAction SilentlyContinue).UtilizeSslTimeData
+    if ($null -eq $sts) {
+        Write-Host ("  [!!] {0,-30} not set - Secure Time Seeding stays ON (Windows default)." -f "UtilizeSslTimeData") -ForegroundColor Red
+        Write-Host "       Re-apply package 17 with lmn-gpo 7.3.7 or newer, then gpupdate + reboot." -ForegroundColor Red
+        $fail++
+    } elseif ($sts -ne 0) {
+        Write-Host ("  [!!] {0,-30} = {1}  (expected 0) - Secure Time Seeding is ON; another GPO may set it." -f "UtilizeSslTimeData", $sts) -ForegroundColor Red
+        $fail++
+    } else {
+        Write-Host ("  {0}{1,-30} = 0 (Secure Time Seeding off)" -f (Mark $true), "UtilizeSslTimeData") -ForegroundColor Green
+        $ok++
+    }
 } else { Write-Host "  [--] No W32Time policy (package 17 not applied)." -ForegroundColor DarkGray }
+# What the running service uses for STS. Microsoft documents the value in the events 257,
+# 260 and 263 of the Time-Service operational log ("UtilizeSslTimeData: 0" = off) and a
+# reboot to apply a change. Shown, not asserted: the log is not present on every edition.
+$stsEv = Get-WinEvent -LogName 'Microsoft-Windows-Time-Service/Operational' -FilterXPath '*[System[(EventID=257 or EventID=260 or EventID=263)]]' -MaxEvents 1 -ErrorAction SilentlyContinue
+if ($stsEv -and ("$($stsEv.Message)" -match 'UtilizeSslTimeData:\s*(\d+)')) {
+    $stsRun = [int]$matches[1]
+    Write-Host ("       (service: UtilizeSslTimeData={0} at {1}, event {2})" -f $stsRun, $stsEv.TimeCreated, $stsEv.Id) -ForegroundColor DarkGray
+    if ($stsRun -ne 0 -and "$sts" -eq "0") {
+        Write-Host "       The policy says off but the service still ran with STS on - reboot the client." -ForegroundColor Yellow
+    }
+}
 # The POLICY branch is not what the running service uses. W32Time mirrors policy into its own
 # Parameters key; when that mirroring did not happen, the policy can look perfect while the
 # service still runs on its old settings. Compare the two explicitly.
