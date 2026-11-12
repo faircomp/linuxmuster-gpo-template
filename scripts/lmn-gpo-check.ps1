@@ -11,7 +11,8 @@
     groups, KMS (Windows and Office), hotspot block, OneDrive, hibernation, loopback,
     Firefox, role proxy, student lockdown (HKCU), Veyon, Wi-Fi, time sync (W32Time),
     Point and Print, the boot-order startup-script log, the Office trusted locations (HKCU)
-    and the site-to-zone list (proxy host, edulution).
+    and the site-to-zone list (proxy host, edulution) with the zone Windows really
+    applies to each entry (MapUrlToZone, no admin rights needed).
 
     Run twice: (1) as ADMINISTRATOR for computer GPOs/firewall/groups,
     (2) as the logged-in STUDENT (not elevated) for the user restrictions (lockdown/proxy).
@@ -541,20 +542,98 @@ if ($null -ne $mix) { Write-Host ("       Allow mix of policy and user locations
 Write-Host "       In Office: File > Options > Trust Center > Trust Center Settings > Trusted Locations." -ForegroundColor DarkGray
 
 Write-Head "Site to zone list (12-proxy-zone-schule, 22-edulution-trusted-schule)"
+# The ZoneMapKey values are only what the GPO delivered. Windows applies them through the
+# 'Internet Explorer Zonemapping' extension, which writes ...\Policies\...\ZoneMap; the zone
+# that counts is what urlmon returns (MapUrlToZone, the API Edge and Office use). Checked
+# per entry, without admin rights. Without the extension the list sits there and the site
+# keeps its old zone (lmn-gpo up to 7.3.6, lab 2026-11-12).
 $zoneNames = @{ '0' = 'My Computer'; '1' = 'Local intranet'; '2' = 'Trusted sites'; '3' = 'Internet'; '4' = 'Restricted sites' }
+function Get-LmnUrlZone([string]$Url) {
+    # IInternetSecurityManager::MapUrlToZone; .NET Framework's Zone.CreateFromUrl (same API)
+    # as fallback where Add-Type is not allowed - Windows PowerShell 5.1 only: in PowerShell 7
+    # (.NET Core) it is a stub that answers 0 for every URL. $null = could not be determined.
+    try {
+        if (-not ('LmnGpoCheck.UrlZone' -as [type])) {
+            Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace LmnGpoCheck {
+  [ComImport, Guid("79eac9ee-baf9-11ce-8c82-00aa004ba90b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  public interface IInternetSecurityManager {
+    [PreserveSig] int SetSecuritySite(IntPtr pSite);
+    [PreserveSig] int GetSecuritySite(out IntPtr pSite);
+    [PreserveSig] int MapUrlToZone([MarshalAs(UnmanagedType.LPWStr)] string url, out uint zone, uint flags);
+  }
+  [ComImport, Guid("7b8a2d94-0ac9-11d1-896c-00c04fb6bfc4")] public class InternetSecurityManager {}
+  public static class UrlZone {
+    public static int Map(string url) {
+      var m = (IInternetSecurityManager)new InternetSecurityManager();
+      uint z;
+      int hr = m.MapUrlToZone(url, out z, 0);
+      return hr == 0 ? (int)z : -1;
+    }
+  }
+}
+'@
+        }
+        $z = [LmnGpoCheck.UrlZone]::Map($Url)
+        if ($z -ge 0) { return $z }
+    } catch { }
+    if ($PSVersionTable.PSEdition -ne 'Core') {
+        try {
+            $z = [int][System.Security.Policy.Zone]::CreateFromUrl($Url).SecurityZone
+            if ($z -ge 0) { return $z }
+        } catch { }
+    }
+    return $null
+}
+function Get-LmnZoneUrl([string]$Name) {
+    # The URL to test for a list entry: 'https://host' as is, a bare host as http://host/
+    # (a bare host covers every protocol), '*.domain' through one host below it. An IP range
+    # (10.0.0.1-50) has no single URL: $null.
+    $n = $Name.Trim()
+    if ($n -match '^[0-9.]+-[0-9]+$') { return $null }
+    $n = $n -replace '\*', 'lmn-gpo-check'
+    if ($n -notmatch '://') { $n = 'http://' + $n }
+    return $n.TrimEnd('/') + '/'
+}
 $zm = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey"
+$zoneFail = $false
 if (Test-Path -LiteralPath $zm) {
     $zk = Get-Item -LiteralPath $zm
     foreach ($n in $zk.GetValueNames()) {
         $z = "$($zk.GetValue($n))"
-        Write-Host ("  [OK] {0,-42} zone {1} ({2})" -f $n, $z, $zoneNames[$z]) -ForegroundColor Green
-        $ok++
+        $url = Get-LmnZoneUrl $n
+        if (-not $url) {
+            Write-Host ("  [--] {0,-42} zone {1} ({2}): IP range, effective zone not checked" -f $n, $z, $zoneNames[$z]) -ForegroundColor DarkGray
+            $skip++; continue
+        }
+        $eff = Get-LmnUrlZone $url
+        if ($null -eq $eff) {
+            Write-Host ("  [--] {0,-42} zone {1} ({2}): effective zone could not be determined" -f $n, $z, $zoneNames[$z]) -ForegroundColor DarkGray
+            $skip++
+        } elseif ("$eff" -eq $z) {
+            Write-Host ("  [OK] {0,-42} zone {1} ({2}), effective for {3}" -f $n, $z, $zoneNames[$z], $url) -ForegroundColor Green
+            $ok++
+        } else {
+            Write-Host ("  [!!] {0,-42} listed as zone {1} ({2}), but {3} is in zone {4} ({5})" -f $n, $z, $zoneNames[$z], $url, $eff, $zoneNames["$eff"]) -ForegroundColor Red
+            $fail++; $zoneFail = $true
+        }
+    }
+    if ($zoneFail) {
+        Write-Host "       The list arrived but is not in effect. Most likely the GPO lacks the 'Internet Explorer" -ForegroundColor Yellow
+        Write-Host "       Zonemapping' extension {4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3} (lmn-gpo up to 7.3.6):" -ForegroundColor Yellow
+        Write-Host "       on the DC 'lmn-gpo doctor', then 'lmn-gpo apply --yes'; here 'gpupdate /force'." -ForegroundColor Yellow
+        if (-not (Test-Path -LiteralPath "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains")) {
+            Write-Host "       (HKLM\SOFTWARE\Policies\...\Internet Settings\ZoneMap\Domains does not exist: the extension never ran.)" -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Host "  [--] no site-to-zone policy on this computer (packs off, or no host configured)" -ForegroundColor DarkGray
     $skip++
 }
-Write-Host "       Zone of a downloaded file: Get-Content <file> -Stream Zone.Identifier (ZoneId=2 = Trusted sites, 3 = Internet)." -ForegroundColor DarkGray
+Write-Host "       Downloads: Edge 157 writes NO Zone.Identifier for a file from a Trusted site (measured);" -ForegroundColor DarkGray
+Write-Host "       from the Internet zone: Get-Content <file> -Stream Zone.Identifier shows ZoneId=3." -ForegroundColor DarkGray
 
 # --- 7) Full HTML report (output file; skippable with -NoReport) ------------
 if (-not $NoReport) {
