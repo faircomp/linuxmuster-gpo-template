@@ -9,6 +9,13 @@ half of GPT.INI and versionNumber, as Samba's RegistryGroupPolicies.merge_s() an
 increment_gpt_ini() do (python/samba/policies.py). With --replace it starts every class the
 entries name from an EMPTY file and leaves the other class's file alone (replace_s).
 `loads` records every load (guid, replace, entries); `pol()` reads a Registry.pol back.
+
+Extension names on `gpo load`, as Samba does it (netcmd/gpo.py cmd_load + policies.py
+register_extension_name, identical in 4.19.5 and 4.22): BEFORE writing, for BOTH
+gPCMachineExtensionNames and gPCUserExtensionNames and whatever classes the entries name,
+'{35378eac-683f-11d2-a89a-00c04fbbcfa2}' (str(GUID) = lower case) is looked for as a
+case-sensitive substring; if missing it is appended inside the last group:
+'[' + value.strip('[]') + guid + ']'. `ext_at_load` records the values each load saw.
 """
 from __future__ import annotations
 
@@ -23,7 +30,6 @@ from conftest import POLICIES
 from lmn_gpo import gplink, regpol, version
 from lmn_gpo.gpo import GpoEngine, GpoError
 
-REGISTRY_EXT = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 _REG_TYPES = {"REG_SZ": 1, "REG_EXPAND_SZ": 2, "REG_BINARY": 3, "REG_DWORD": 4,
               "REG_MULTI_SZ": 7, "REG_QWORD": 11}
 _PREG_HEADER = b"PReg" + struct.pack("<I", 1)
@@ -112,12 +118,24 @@ def _samba_available() -> bool:
     return True
 
 
+SAMBA_REGISTRY_EXT = "{35378eac-683f-11d2-a89a-00c04fbbcfa2}"
+
+
+def samba_register_extension_name(value: str, ext: str = SAMBA_REGISTRY_EXT) -> str:
+    """Samba's RegistryGroupPolicies.register_extension_name, on a string."""
+    ext_names = value if value else "[]"
+    if ext in ext_names:
+        return value
+    return "[" + ext_names.strip("[]") + ext + "]"
+
+
 class FakeSamba:
     def __init__(self, fake, sysvol):
         self.fake = fake
         self.sysvol = sysvol
         self.log: list[list[str]] = []
         self.loads: list[dict] = []         # every gpo load: guid, replace, entries
+        self.ext_at_load: list[dict] = []   # the extension names each load found
 
     def run(self, eng, args, *, needs_creds=True, input_text=None, check=True, mutating=True):
         if eng.dry_run and mutating:
@@ -173,9 +191,18 @@ class FakeSamba:
         return out
 
     def load(self, guid, entries, *, replace=False):
-        """samba-tool gpo load: merge_s() or replace_s() + increment_gpt_ini() + extension
-        registration."""
+        """samba-tool gpo load: extension registration (cmd_load), then merge_s() or
+        replace_s(), then increment_gpt_ini()."""
         self.loads.append({"guid": guid, "replace": replace, "entries": entries})
+        # cmd_load registers the registry extension first, on both attributes
+        msg = self.fake.get(f"CN={guid},{POLICIES}")
+        attrs = ("gPCMachineExtensionNames", "gPCUserExtensionNames")
+        self.ext_at_load.append({a: self.fake.val(msg, a, "") or "" for a in attrs})
+        for attr in attrs:
+            cur = self.fake.val(msg, attr, "") or ""
+            new = samba_register_extension_name(cur)
+            if new != cur:
+                msg.set(attr, new)
         changed = {"Machine": False, "User": False}
         for half in changed:
             path = os.path.join(self.sysvol, guid, half, "Registry.pol")
@@ -195,14 +222,9 @@ class FakeSamba:
                     pol.append(item)
             if changed[half]:
                 write_pol(path, pol)
-        dn = f"CN={guid},{POLICIES}"
-        msg = self.fake.get(dn)
-        for attr in ("gPCMachineExtensionNames", "gPCUserExtensionNames"):
-            cur = (msg.get(attr) or [""])[0] or "[]"
-            if REGISTRY_EXT not in cur:
-                msg.set(attr, "[" + cur.strip("[]") + REGISTRY_EXT + "]")
         if not (changed["Machine"] or changed["User"]):
             return
+        # increment_gpt_ini: counts on from GPT.INI, writes GPT.INI and versionNumber
         gpt = os.path.join(self.sysvol, guid, "GPT.INI")
         ver = version._read_gpt_ini_version(os.path.join(self.sysvol, guid))
         machine, user = ver & 0xFFFF, ver >> 16

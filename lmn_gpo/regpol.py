@@ -5,6 +5,12 @@ versionNumber in lockstep, and registers the Registry CSE GUID
 {35378EAC-683F-11D2-A89A-00C04FBBCFA2} — the exact trio a Windows client checks
 before applying Administrative-Template settings. Windows Defender Firewall
 rules are ordinary registry-policy values, so they ride the same path.
+
+One registry policy needs a second extension: the Site to Zone Assignment List
+(ZoneMapKey values). The registry extension only writes them; the "Internet Explorer
+Zonemapping" extension turns them into the zone mappings Windows uses. RegPol.load
+registers it on every GPO whose values include ZoneMapKey, after the load
+(version.ZONEMAP_CSE, docs/RESEARCH.md section 10).
 """
 from __future__ import annotations
 
@@ -12,9 +18,17 @@ import json
 import os
 import tempfile
 
+from . import version
+
 # winnt.h registry type numbers, for comparing against an existing Registry.pol.
 _REG_TYPE_NUM = {"REG_SZ": 1, "REG_EXPAND_SZ": 2, "REG_BINARY": 3, "REG_DWORD": 4,
                  "REG_MULTI_SZ": 7, "REG_QWORD": 11}
+
+# Site to Zone Assignment List (inetres.admx IZ_Zonemaps), machine or user side.
+ZONEMAP_KEY = r"Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey"
+# Which extension-names attribute and which half of versionNumber belong to a class.
+_SIDES = (("MACHINE", "Machine", "gPCMachineExtensionNames"),
+          ("USER", "User", "gPCUserExtensionNames"))
 
 FIREWALL_KEY = r"Software\Policies\Microsoft\WindowsFirewall"
 FIREWALL_RULES_KEY = FIREWALL_KEY + r"\FirewallRules"
@@ -45,7 +59,13 @@ class RegPol:
         present = _exactly_present if replace else _all_present
         if gpo_dir and not self.engine.dry_run and present(gpo_dir, entries):
             self.engine._log("    Registry unchanged — skipped")
-            return
+        else:
+            self._load(guid, entries, replace)
+        # Also when the values were unchanged: a GPO written before the zone-map extension
+        # was registered (lmn-gpo up to 7.3.6) gets it now.
+        self.ensure_zonemap_cse(guid, entries)
+
+    def _load(self, guid: str, entries: list[dict], replace: bool) -> None:
         if self.engine.dry_run and self.engine.verbose:
             for e in entries:
                 print(f"    [dry-run] load {e['class']:7} {e['type']:12} "
@@ -64,6 +84,36 @@ class RegPol:
             except OSError:
                 pass
 
+    def ensure_zonemap_cse(self, guid: str, entries: list[dict]) -> bool:
+        """Register the Internet Explorer Zonemapping extension on the side(s) whose entries
+        carry ZoneMapKey values, and bump that half of versionNumber when the attribute
+        changed, so a client notices. Idempotent: registered already = no write, no bump.
+        Returns True if something was (or, in dry-run, would be) changed.
+
+        Only ever AFTER `samba-tool gpo load`: the load registers the registry extension by
+        appending '{35378eac-...}' inside the LAST group of whatever the attribute holds.
+        Registered before the first load, the zone-map group would swallow it and the GPO
+        would lose its registry extension (version.splice_cse)."""
+        changed = False
+        basedn = self.engine.env.basedn
+        for cls, half, attr in _SIDES:
+            if not zonemap_values(entries, cls):
+                continue
+            before = version.ext_names(guid, basedn, attr)
+            if version.has_cse(before, version.ZONEMAP_CSE):
+                continue
+            changed = True
+            if self.engine.dry_run:
+                self.engine._log(f"    [dry-run] register IE-Zonemapping-CSE on {attr} + bump "
+                                 f"{half.lower()} version")
+                continue
+            version.register_cse(guid, basedn, version.ZONEMAP_CSE, attr=attr)
+            version.bump(guid, basedn, self.engine.sysvol_path(guid),
+                         machine=half == "Machine", user=half == "User")
+            self.engine._log(f"    IE-Zonemapping-CSE registered ({attr}) + {half.lower()} "
+                             f"version bumped")
+        return changed
+
     def remove(self, guid: str, entries: list[dict]) -> None:
         """Remove policy values from the GPO (samba-tool gpo remove)."""
         entries = [e for e in entries if e]
@@ -79,6 +129,22 @@ class RegPol:
                 os.unlink(path)
             except OSError:
                 pass
+
+
+def zonemap_values(entries: list[dict], cls: str) -> bool:
+    """True iff an entry of class `cls` (MACHINE/USER; BOTH counts for either) sets a
+    value under the Site to Zone Assignment List key."""
+    want = ZONEMAP_KEY.lower()
+    return any(e["keyname"].lower() == want and e["class"] in (cls, "BOTH")
+               for e in entries if e)
+
+
+def pol_has_zonemap(gpo_dir: str, sub: str) -> bool:
+    """True iff the GPO's <sub>/Registry.pol (sub = Machine or User) holds a ZoneMapKey
+    value. Unreadable or missing file: False."""
+    want = ZONEMAP_KEY.lower()
+    return any(key == want and not name.startswith("**")
+               for key, name in _read_pol(os.path.join(gpo_dir, sub, "Registry.pol")))
 
 
 def _read_pol(path: str) -> dict:
