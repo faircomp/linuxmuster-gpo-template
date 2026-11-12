@@ -9,15 +9,20 @@ description: >
   is skipped and says so; no host is guessed.
 
   Puts https://<edulution host> into the Windows 'Trusted sites' zone (Site to Zone
-  Assignment List, zone 2). Edge and Chrome then mark files downloaded from there with
-  ZoneId=2 instead of 3, and Office does not hard-block the macros in such a file any more
-  (Microsoft: "if the ZoneId is 2, VBA macros in that file won't be blocked by default");
-  the normal "Enable content" bar of the Trust Center applies. Only https:// is mapped.
+  Assignment List, zone 2), applied through the 'Internet Explorer Zonemapping' client-side
+  extension that apply registers on the GPO. Measured with Edge 157 on Windows 11: a file
+  downloaded from a Trusted site gets NO Zone.Identifier at all (from the Internet zone it
+  gets ZoneId=3), and Access shows its normal security notice with 'Open' instead of the
+  hard block "Microsoft has blocked macros". Other browsers are not measured. Only https://
+  is mapped; plain http to the host stays in the Internet zone (measured).
 
   SIDE EFFECT: the whole site gets the Trusted sites zone in Windows, not only for Office.
   Every check that keys on the Internet zone treats its downloads as trusted, e.g. Office's
   Protected View for files from the internet or Windows' security prompt before running a
   downloaded program; Edge's IE mode applies the Trusted sites zone settings to the site.
+  And while a computer Site to Zone Assignment List is in effect, Windows uses only the
+  policy list: sites that users added themselves or that were set locally no longer count
+  (Microsoft, docs/RESEARCH.md section 10; not measured in the lab).
 
   Machine policy, per school, linked to OU=Devices of the school; applies to teacher
   notebooks too (no @teachernb exclusion). Same registry key as 12-proxy-zone-schule

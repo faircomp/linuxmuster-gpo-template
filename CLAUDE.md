@@ -61,6 +61,13 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 - **Only `LMN-*` GPOs are ours.** sophomorix' GPOs and the Default Domain Policy are never
   touched. GPT.INI and the AD `versionNumber` are bumped in lockstep and the matching CSE GUID
   registered, or Windows ignores the change.
+- **Site to Zone Assignment List (ZoneMapKey values) needs a second CSE.** `RegPol.load`
+  registers "Internet Explorer Zonemapping" `{4CFB60C1-…}` after `samba-tool gpo load` and
+  bumps the version; without it the values arrive and are never applied. On a GPO that
+  carries registry values, register another CSE only after its first `gpo load` (`apply_pack`
+  loads first), and never rewrite Samba's lowercase registry group `[{35378eac-…}]`: Samba's
+  load appends its GUID inside the last group whenever that exact lowercase string is missing
+  (`version.splice_cse`, `docs/RESEARCH.md` section 10).
 - **No PyPI dependencies:** the package installs into `/usr/lib/python3/dist-packages` and
   depends only on Ubuntu packages (`python3-yaml`, `python3-samba`, `samba-common-bin`,
   `openssl`). Do not add a venv.

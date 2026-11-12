@@ -343,11 +343,12 @@ def _ask_edulution(answers: dict) -> None:
     """The school's edulution website in the Trusted sites zone (pack
     22-edulution-trusted-schule): on by default, active once a host is entered."""
     from .apply import site_host
-    print("\n  edulution as a trusted site (on by default, needs the host): files downloaded")
-    print("    from the school's edulution website are then marked 'Trusted sites' instead of")
-    print("    'Internet', and Office no longer hard-blocks their macros (the normal 'Enable")
-    print("    content' bar applies). SIDE EFFECT: Windows trusts the WHOLE site this way,")
-    print("    not only for Office. Other host per school: 'edulution_host_by_school' in site.yaml.")
+    print("\n  edulution as a trusted site (on by default, needs the host): Edge then saves")
+    print("    files from the school's edulution website without the 'from the internet' mark,")
+    print("    and Access shows its normal security notice instead of hard-blocking the macros.")
+    print("    SIDE EFFECTS: Windows trusts the WHOLE site this way, not only for Office, and")
+    print("    sites users put into a zone themselves no longer count (Microsoft).")
+    print("    Other host per school: 'edulution_host_by_school' in site.yaml.")
     answers["edulution_trusted_enabled"] = _ask_yesno(
         "    Enable?", bool(answers.get("edulution_trusted_enabled", True)))
     if not answers["edulution_trusted_enabled"]:
