@@ -1,8 +1,10 @@
 """Non-destructive end-to-end self-test of the GPO engine.
 
 Creates a throwaway GPO ("LMN-SELFTEST-DELETEME"), loads a benign registry
-value + a firewall rule, writes a Drives.xml whose items are all DISABLED (a Delete and
-a Replace with targeting, the shapes pack 20-drives writes), briefly links it to the
+value + a firewall rule, merges a site-to-zone value in and out again (the Internet
+Explorer Zonemapping extension must be registered next to Samba's registry one), writes a
+Drives.xml whose items are all DISABLED (a Delete and a Replace with targeting, the shapes
+pack 20-drives writes), briefly links it to the
 first school's Devices OU, switches that link to enforced and back IN PLACE (the gPLink
 edit 20-drives relies on), applies grant/deny security-filter ACEs, verifies every side
 effect (Registry.pol, versionNumber, CSE GUIDs, gPLink, DACL, aclcheck), then removes
@@ -12,10 +14,10 @@ from __future__ import annotations
 
 import os
 
-from . import ad, gplink, ui
+from . import ad, gplink, ui, version
 from . import env as envmod
 from .gpo import GpoEngine, APPLY_GROUP_POLICY
-from .regpol import RegPol, firewall_entries
+from .regpol import ZONEMAP_KEY, RegPol, firewall_entries
 
 TEST_NAME = "LMN-SELFTEST-DELETEME"
 PROBE_KEY = r"Software\Policies\LmnGpo\Selftest"
@@ -70,6 +72,32 @@ def run(dry_run: bool = False) -> int:
         cse = ad.val(msg, "gPCMachineExtensionNames", "")
         step(int(ver) > 0, "versionNumber bumped", f"v{ver}")
         step("35378EAC" in cse.upper(), "Registry CSE registered", cse or "(empty)")
+
+        # --- Site to zone list: the IE Zonemapping extension (12-proxy-zone, 22-edulution) --
+        # Merged into the existing GPO like an upgrade does, against the real samba-tool: the
+        # extension must come as its own group next to Samba's registry group, the version
+        # must move, and the same values again must change nothing. A Restricted-sites entry
+        # for a reserved .invalid name, removed again before the GPO is ever linked.
+        zone = [{"keyname": ZONEMAP_KEY, "valuename": "lmn-gpo-selftest.invalid",
+                 "class": "MACHINE", "type": "REG_SZ", "data": "4"}]
+        rp.load(guid, zone, gpo_dir=eng.sysvol_path(guid))
+        zmsg = ad.find_one(f"(cn={guid})", base=pol_base, scope="one",
+                           attrs=["versionNumber", "gPCMachineExtensionNames"])
+        zexts = ad.val(zmsg, "gPCMachineExtensionNames", "") or ""
+        zver = int(ad.val(zmsg, "versionNumber", "0"))
+        step(version.has_cse(zexts, version.ZONEMAP_CSE)
+             and version.has_cse(zexts, version.REGISTRY_CSE),
+             "IE Zonemapping CSE registered as its own group, Registry CSE kept", zexts)
+        step(zver >= int(ver) + 2 and zver == version._read_gpt_ini_version(eng.sysvol_path(guid)),
+             "versionNumber bumped for the zone list (load + extension), GPT.INI in lockstep",
+             f"v{ver} -> v{zver}")
+        rp.load(guid, zone, gpo_dir=eng.sysvol_path(guid))
+        zmsg2 = ad.find_one(f"(cn={guid})", base=pol_base, scope="one",
+                            attrs=["versionNumber", "gPCMachineExtensionNames"])
+        step((ad.val(zmsg2, "gPCMachineExtensionNames", "") or "") == zexts
+             and int(ad.val(zmsg2, "versionNumber", "0")) == zver,
+             "same zone values again: extension names and version unchanged")
+        rp.remove(guid, [{k: z[k] for k in ("keyname", "valuename", "class")} for z in zone])
 
         # --- GptTmpl.inf (user rights + restricted groups) + Groups.xml (local admins) ---
         from .secedit import SecEdit
