@@ -290,8 +290,9 @@ def _ask_drives(answers: dict) -> None:
 
 def _ask_office_trusted(answers: dict) -> None:
     """Network drives as Office trusted locations (pack 21-office-trusted-schule), ON by
-    default. Asks the switch, the applications and the roles."""
-    from .officetrust import APP_ORDER, ROLES, parse_apps, parse_roles
+    default. Asks the switch, the applications, the roles and the path forms."""
+    from .officetrust import APP_ORDER, DEFAULT_FORMS, FORMS, ROLES, parse_apps, parse_forms, \
+        parse_roles
     print("\n  Office trusted locations (on by default): makes H:, linuxmuster's default drives")
     print("    and the drives.yaml drives TRUSTED LOCATIONS in Office, so macros in files there")
     print("    run (e.g. an Access database a teacher collected from students). Without it")
@@ -322,6 +323,20 @@ def _ask_office_trusted(answers: dict) -> None:
         print(f"    ! {why}")
     answers["office_trusted_roles"] = ([t.removeprefix("@role-") for t in tokens]
                                        if tokens else "all")
+    print("    Path forms: Office checks a file's path as it was opened. 'unc'")
+    print("    (\\\\server\\school\\) and 'letter' (H:\\) cover each other on a mapped drive")
+    print("    (measured). 'dfs' adds the file server behind a DFS share (\\\\fs.<domain>\\...) -")
+    print("    only for files opened that way. Each form costs places; Office takes at most 20")
+    print("    per application.")
+    prior = answers.get("office_trusted_forms") or list(DEFAULT_FORMS)
+    while True:
+        raw = _ask(f"    Path forms ({', '.join(FORMS)}; comma-separated)",
+                   ",".join(prior) if isinstance(prior, list) else str(prior))
+        forms, why = parse_forms(raw)
+        if not why:
+            break
+        print(f"    ! {why}")
+    answers["office_trusted_forms"] = list(forms)
 
 
 def _ask_edulution(answers: dict) -> None:

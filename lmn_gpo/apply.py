@@ -98,7 +98,7 @@ DEFAULT_ANSWERS = {
     "office_trusted_enabled": True,
     "office_trusted_apps": ["access"],      # access | excel | word | powerpoint
     "office_trusted_roles": "all",          # all | a list of teacher, student, staff
-    "office_trusted_forms": ["unc", "letter", "dfs"],  # UNC path, drive letter, DFS target
+    "office_trusted_forms": ["unc", "letter"],  # UNC path + drive letter; "dfs" on request
     # The school's edulution website in the 'Trusted sites' zone (pack
     # 22-edulution-trusted-schule), ON by default, active once a host is set.
     "edulution_trusted_enabled": True,
@@ -1268,7 +1268,7 @@ class Applier:
             sources += officetrust.dfs_sources(
                 sources, [self.env.server_netbios, self.env.serverfqdn,
                           (self.env.serverfqdn or "").split(".")[0]], self._msdfs_proxy)
-        plan = officetrust.plan(sources, forms or officetrust.FORMS)
+        plan = officetrust.plan(sources, forms or officetrust.DEFAULT_FORMS)
         plan.notes[:0] = notes
         if not problems:
             problems = officetrust.problems(plan)

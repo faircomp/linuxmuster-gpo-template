@@ -33,9 +33,13 @@ APP_KEYS = {"access": "access", "excel": "excel", "word": "word", "powerpoint": 
 APP_ORDER = ("access", "excel", "word", "powerpoint")
 # "Trusted Location #1" .. "#20": twenty policies per application in every ADMX file.
 MAX_LOCATIONS = 20
-# The path forms written: the UNC path the drive is mapped to, the drive letter, and the DFS
-# target of a share on this server. Which one Office matches is measured in the lab.
+# The path forms that can be written: the UNC path the drive is mapped to, the drive letter,
+# and the DFS target of a share on this server. Measured on Windows 11 with Access (lab
+# 2026-11-12, docs/RESEARCH.md section 9): Office checks the path as the file was opened, and
+# a letter and the UNC path it is mapped to cover each other; the DFS target only covers files
+# opened through \\fs.<domain>\... itself. Default therefore unc + letter, dfs on request.
 FORMS = ("unc", "letter", "dfs")
+DEFAULT_FORMS = ("unc", "letter")
 ROLES = ("teacher", "student", "staff")
 DESCRIPTION_PREFIX = "lmn-gpo"
 # office16.admx L_Allowmixofpolicyanduserlocations
@@ -183,7 +187,7 @@ def drives_yaml_sources(cfg, server: str, serverfqdn: str = "") -> list[DriveSou
 # --------------------------------------------------------------------------- #
 # the plan
 # --------------------------------------------------------------------------- #
-def plan(sources, forms=FORMS) -> TrustPlan:
+def plan(sources, forms=DEFAULT_FORMS) -> TrustPlan:
     r"""UNC locations, then DFS-target locations (each sorted by path), then drive-letter
     locations (sorted by letter); `forms` picks which of the three are written.
 
@@ -326,10 +330,9 @@ def parse_roles(value) -> tuple[list[str], str]:
 
 
 def parse_forms(value) -> tuple[tuple, str]:
-    """office_trusted_forms -> (forms, problem). Default all three: the UNC path, the drive
-    letter and the DFS target (which one Office needs is measured in the lab,
-    docs/RESEARCH.md section 9)."""
-    words = _words(list(FORMS) if value is None else value)
+    """office_trusted_forms -> (forms, problem). Default DEFAULT_FORMS: the UNC path and the
+    drive letter; the DFS target only on request (measured, docs/RESEARCH.md section 9)."""
+    words = _words(list(DEFAULT_FORMS) if value is None else value)
     if words is None or not words:
         return (), f"office_trusted_forms must be a list of {', '.join(FORMS)}, got {value!r}"
     bad = [w for w in words if w not in FORMS]

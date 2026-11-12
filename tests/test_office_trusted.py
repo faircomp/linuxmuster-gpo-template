@@ -192,7 +192,9 @@ def test_application_list():
     assert officetrust.parse_roles(["student", "teacher"]) == \
         (["@role-teacher", "@role-student"], "")
     assert "unknown role" in officetrust.parse_roles(["teachers"])[1]
-    assert officetrust.parse_forms(None) == (("unc", "letter", "dfs"), "")
+    assert officetrust.parse_forms(None) == (("unc", "letter"), "") == \
+        (officetrust.DEFAULT_FORMS, "")
+    assert officetrust.parse_forms(["dfs", "unc", "letter"]) == (("unc", "letter", "dfs"), "")
     assert officetrust.parse_forms(["letter"]) == (("letter",), "")
     assert "unknown form" in officetrust.parse_forms(["drive"])[1]
 
@@ -270,7 +272,8 @@ def test_pack_shape_and_defaults():
     d = apply.DEFAULT_ANSWERS
     assert d["office_trusted_enabled"] is True and d["office_trusted_apps"] == ["access"]
     assert d["office_trusted_roles"] == "all"
-    assert d["office_trusted_forms"] == ["unc", "letter", "dfs"]
+    # measured (lab 2026-11-12): letter and mapped UNC cover each other, DFS only on request
+    assert d["office_trusted_forms"] == ["unc", "letter"]
 
 
 def test_default_on_writes_one_user_gpo_per_school_with_replace(dc, capsys):
@@ -442,13 +445,18 @@ def test_no_catalog_pack_deletes_registry_values():
 def test_setup_assistant_defaults_and_re_asks_on_a_typo(monkeypatch, capsys):
     from lmn_gpo import setup
     answers = dict(apply.DEFAULT_ANSWERS)
-    replies = iter(["", "access, wordd", "access,word", "teacher"])
+    replies = iter(["", "access, wordd", "access,word", "teacher", ""])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
     setup._ask_office_trusted(answers)
     assert answers["office_trusted_enabled"] is True          # Enter = on (the default)
     assert answers["office_trusted_apps"] == ["access", "word"]
     assert answers["office_trusted_roles"] == ["teacher"]
+    assert answers["office_trusted_forms"] == ["unc", "letter"]   # Enter = the default
     assert "unknown application(s) wordd" in capsys.readouterr().out
+    replies = iter(["", "", "", "unc, drive", "dfs,unc"])
+    setup._ask_office_trusted(answers)
+    assert answers["office_trusted_forms"] == ["unc", "dfs"]
+    assert "unknown form(s) drive" in capsys.readouterr().out
     replies = iter(["n"])
     setup._ask_office_trusted(answers)
     assert answers["office_trusted_enabled"] is False
@@ -510,12 +518,13 @@ def test_dfs_twins_merge_and_the_forms_pick_them():
     proxies = {"default-school": "//fs.dev.lmschule.de/default-school"}
     src = sources()
     src += officetrust.dfs_sources(src, ["server"], lambda share: proxies.get(share, ""))
-    p = officetrust.plan(src)
+    p = officetrust.plan(src, officetrust.FORMS)
     assert [(loc.kind, loc.path) for loc in p.locations][:2] == [
         ("unc", "\\\\server\\default-school\\"),
         ("dfs", "\\\\fs.dev.lmschule.de\\default-school\\")]
     assert len(p.locations) == 8 and p.locations[1].letters == ["H", "K", "P", "R", "S", "T"]
     assert [loc.kind for loc in officetrust.plan(src, ("unc", "letter")).locations].count("dfs") == 0
+    assert [loc.kind for loc in officetrust.plan(src).locations].count("dfs") == 0   # default
     assert [loc.kind for loc in officetrust.plan(src, ("dfs",)).locations] == ["dfs"]
     # a form that is not written never swallows a path of a written one
     S = officetrust.DriveSource
@@ -532,14 +541,15 @@ def test_apply_reads_the_msdfs_proxy_of_the_school_share(dc, monkeypatch):
         asked.append(share)
         return "//fs.dev.lmschule.de/default-school" if share == "default-school" else ""
     monkeypatch.setattr(apply.Applier, "_msdfs_proxy", proxy)
-    _ap, rc = run(env, {})
+    _ap, rc = run(env, {"office_trusted_forms": ["unc", "letter", "dfs"]})
     locs = locations(samba, gpo(fake, name("default-school"))[0])
     assert rc == 0 and locs[:2] == ["\\\\server\\default-school\\",
                                     "\\\\fs.dev.lmschule.de\\default-school\\"]
     assert len(locs) == 8 and set(asked) == {"default-school"}
-    # without the dfs form nothing is asked and nothing is written for it
+    # without the dfs form (the default since the lab measurement) nothing is asked and
+    # nothing is written for it - an upgraded site.yaml without the key included
     asked.clear()
-    _ap, rc = run(env, {"office_trusted_forms": ["unc", "letter"]})
+    _ap, rc = run(env, {})
     assert rc == 0 and not asked
     assert "\\\\fs.dev.lmschule.de\\default-school\\" not in \
         locations(samba, gpo(fake, name("default-school"))[0])
