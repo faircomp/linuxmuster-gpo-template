@@ -486,12 +486,17 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   `[{35378eac-683f-11d2-a89a-00c04fbbcfa2}][{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]`.
   The lowercase registry group without tool GUID is what every samba-tool-loaded GPO carries and
   what the lab client processed (pack 21's values, the ZoneMapKey values); the zonemapping group is
-  byte for byte the measured one. That exact combination is the lab's check for 7.3.8.
+  byte for byte the measured one. **Measured** with exactly this value (lab, Windows 11,
+  2026-11-12, hub `work/gpo-office-trusted/lab-gpo2.md` sections 3-4; written by `apply` on an
+  upgraded 12-proxy-zone-schule GPO and on new pack-22 GPOs): the client logged 4016/5016 for
+  "Internet Explorer Zonemapping", wrote `…\Policies\…\ZoneMap\Domains` (`server.dev` `https=2`,
+  `proxy.dev` `*=1`), and urlmon answered 2 and 1, as administrator and as a user.
   `lmn-gpo doctor` warns about an LMN-* GPO with ZoneMapKey values but without the CSE (as its own
   group), `lmn-gpo selftest` checks the registration against the real samba-tool, and
   `lmn-gpo-check.ps1` compares the listed zone with the one urlmon returns.
-- **Side effect: only the policy list counts.** Microsoft's rule table for which ZoneMap keys are
-  in effect (same fdcc post): with a *computer* Site-To-Zone list present (and no user list) only
+- **Side effect: only the policy list counts (measured).** Microsoft's rule table for which
+  ZoneMap keys are in effect (same fdcc post): with a *computer* Site-To-Zone list present (and no
+  user list) only
   `HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap` is used —
   not `HKCU\…\ZoneMap` (sites users added in Internet Options) and not the machine's own
   `HKLM\SOFTWARE\Microsoft\…\ZoneMap`; those two are combined only while no Site-To-Zone list is
@@ -501,10 +506,22 @@ with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` an
   ([How to configure Internet Explorer security zone sites using group polices](https://learn.microsoft.com/en-us/archive/blogs/askie/how-to-configure-internet-explorer-security-zone-sites-using-group-polices),
   2012-06-05, archived on Microsoft Learn, read 2026-11-12). The current ADML/Policy CSP text only
   says the converse: "If you disable or don't configure this policy, users may choose their own
-  site-to-zone assignments." Both explicit sources are archived IE 9/10-era posts; **on Windows 11
-  this is not measured** (lab check: a site a user put into Trusted sites before, zone with and
-  without the GPO). It applies as soon as one GPO with the list is in effect — with 7.3.8 that is
-  12-proxy-zone-schule (proxy on) or this pack (host set); before 7.3.8 the list never took effect.
+  site-to-zone assignments." Both explicit sources are archived IE 9/10-era posts. **Measured on
+  Windows 11** (lab, 2026-11-12, hub `work/gpo-office-trusted/lab-gpo2.md` sections 2, 4 and 7):
+  in the teacher's session
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\example.org`,
+  `https` = 2 (the key Internet Options › Security › Trusted sites › Sites writes) gave
+  `https://example.org/` zone 2 (urlmon `MapUrlToZone`) while the list was not in effect (lmn-gpo
+  7.3.6, no zonemapping CSE). After the upgrade, `apply` and `gpupdate`, with the CSE having
+  written `HKLM\SOFTWARE\Policies\…\ZoneMap\Domains`, the same URL was **zone 3**, although the
+  HKCU entry was still there. It stayed 3 after pack 22 was removed, because the proxy GPO's list
+  was still in effect. Unchanged: the zones Windows assigns by itself (`H:\…` and `\\server\…`
+  stayed zone 1, `\\server.<domain>\…` zone 3). Not measured: a site in the machine's own
+  `HKLM\SOFTWARE\Microsoft\…\ZoneMap` (by Microsoft's table ignored the same way) and whether
+  Internet Options greys out the Sites button. It applies as soon as one GPO with the list is in
+  effect — with 7.3.8 that is 12-proxy-zone-schule (proxy on) or this pack (host set); before 7.3.8
+  the list never took effect. So after the update to 7.3.8 and `apply`, a school with the role
+  proxy or an edulution host has only the GPO's site-to-zone entries.
 - **Side effect:** the zone is Windows-wide, not Office-only ("These zone numbers have associated
   security settings that apply to all of the sites in the zone"); the Trusted Sites zone uses the
   Low template by default (ADML).

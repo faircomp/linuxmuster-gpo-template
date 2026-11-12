@@ -347,7 +347,7 @@ def _ask_edulution(answers: dict) -> None:
     print("    files from the school's edulution website without the 'from the internet' mark,")
     print("    and Access shows its normal security notice instead of hard-blocking the macros.")
     print("    SIDE EFFECTS: Windows trusts the WHOLE site this way, not only for Office, and")
-    print("    sites users put into a zone themselves no longer count (Microsoft).")
+    print("    sites users put into a zone themselves no longer count (measured on Windows 11).")
     print("    Other host per school: 'edulution_host_by_school' in site.yaml.")
     answers["edulution_trusted_enabled"] = _ask_yesno(
         "    Enable?", bool(answers.get("edulution_trusted_enabled", True)))

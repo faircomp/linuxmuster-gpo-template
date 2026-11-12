@@ -45,11 +45,16 @@ lmn-gpo (7.3.8) lmn73; urgency=medium
     existing GPOs whose values did not change: after the next 'lmn-gpo apply' and a
     policy refresh the proxy really is in the Local intranet zone. 'lmn-gpo doctor'
     names every LMN-* GPO still without the extension.
-  * Side effect of a zone list that now takes effect (packs 12 and 22): according to
-    Microsoft, while a computer Site to Zone Assignment List is in effect Windows uses
-    only that list - sites users added themselves (Internet Options > Security > Sites)
-    or that were set locally on the machine no longer count, and users cannot add
-    sites. Not measured in the lab; docs/RESEARCH.md section 10.
+  * Side effect, measured on Windows 11: once a zone list takes effect, Windows uses only
+    the sites from the GPO. A site a user had put into Trusted sites (Internet Options >
+    Security > Sites; https://example.org in the lab) was in zone 2 before and in the
+    Internet zone (3) as soon as the GPO's list took effect; the user's entry stays in
+    the registry and is ignored. So after the update to 7.3.8 and 'lmn-gpo apply', at a
+    school with the role proxy (pack 12) or an edulution host (pack 22) only the sites
+    from the GPO count: sites users put into a zone no longer do, according to Microsoft
+    neither do sites set locally on the machine (the image), and users cannot add sites.
+    Zones Windows assigns by itself are unchanged (H: and \\server\... stayed Local
+    intranet). Up to 7.3.7 the list never took effect. docs/RESEARCH.md section 10.
   * lmn-gpo setup asks for both packs and the path forms. lmn-gpo-check.ps1 lists the
     trusted locations (run it as the user) and checks each site-to-zone entry against
     the zone Windows really applies (FAIL if they differ, no admin rights needed).

@@ -21,8 +21,9 @@ description: >
   Protected View for files from the internet or Windows' security prompt before running a
   downloaded program; Edge's IE mode applies the Trusted sites zone settings to the site.
   And while a computer Site to Zone Assignment List is in effect, Windows uses only the
-  policy list: sites that users added themselves or that were set locally no longer count
-  (Microsoft, docs/RESEARCH.md section 10; not measured in the lab).
+  sites from the GPO: a site a user had added to Trusted sites fell back to the Internet
+  zone (measured on Windows 11); for sites set locally Microsoft says the same
+  (docs/RESEARCH.md section 10).
 
   Machine policy, per school, linked to OU=Devices of the school; applies to teacher
   notebooks too (no @teachernb exclusion). Same registry key as 12-proxy-zone-schule

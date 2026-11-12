@@ -414,11 +414,12 @@ students from removing the proxy.
 > Zonemapping*. Up to 7.3.7 the GPO did not register it: the value reached the registry, the
 > proxy host stayed in the **Internet** zone (measured on Windows 11). From 7.3.8 `apply` registers
 > it and bumps the GPO version, also on existing GPOs; after the next `apply` and a policy refresh
-> the proxy really is in the Local intranet zone. **Side effect** (Microsoft, not measured in the
-> lab): while a computer Site to Zone Assignment List is in effect, Windows uses only that list —
-> sites users added themselves (Internet Options › Security › Sites) or that were set locally on
-> the machine no longer count, and users cannot add sites. Details:
-> [`docs/RESEARCH.md`](docs/RESEARCH.md) section 10.
+> the proxy really is in the Local intranet zone. **Side effect** (measured on Windows 11): while a
+> computer Site to Zone Assignment List is in effect, Windows uses only the sites from the GPO. A
+> site a user had put into Trusted sites (Internet Options › Security › Sites) fell from zone 2 to
+> the Internet zone as soon as the GPO's list took effect; the user's entry stays in the registry
+> and is ignored. According to Microsoft the same holds for sites set locally on the machine, and
+> users cannot add sites. Details: [`docs/RESEARCH.md`](docs/RESEARCH.md) section 10.
 
 **Teacher notebooks (`teachernb`, by default the `d_nopxe` device group) are excluded from
 all proxy packages.** They leave the school network, where the school proxy is unreachable —
@@ -1052,9 +1053,10 @@ Without a host the pack is skipped with a notice. It shares the key with `12-pro
 > Office — every check that keys on the Internet zone treats its downloads as trusted (e.g.
 > Office's Protected View for internet files, Windows' security prompt before running a
 > downloaded program), and Edge's IE mode uses the Trusted sites settings for it. Only add a
-> site you control. And while the list is in effect Windows uses only the policy list: sites
-> users added themselves or that were set locally no longer count (Microsoft, not measured in the
-> lab; [`docs/RESEARCH.md`](docs/RESEARCH.md) section 10). Switch off:
+> site you control. And while the list is in effect Windows uses only the sites from the GPO: a
+> site a user had added to Trusted sites fell back to the Internet zone (measured on Windows 11;
+> for sites set locally on the machine Microsoft says the same;
+> [`docs/RESEARCH.md`](docs/RESEARCH.md) section 10). Switch off:
 > `edulution_trusted_enabled: false` (or an empty host) + `apply`.
 
 Check: `lmn-gpo-check.ps1` compares every entry of the zone list with the zone Windows really
@@ -1162,12 +1164,16 @@ per check + a summary.
 > keeps the old behaviour. [`22-edulution-trusted-schule`](#edulution-as-a-trusted-site) only
 > acts once `edulution_host` is set. `lmn-gpo apply --dry-run` lists both.
 >
-> **Proxy in the Intranet zone, now for real.** With the role proxy on, the next `apply` registers
-> the *Internet Explorer Zonemapping* extension on the existing `12-proxy-zone-schule` GPOs and
-> bumps their version (`lmn-gpo doctor` names every GPO still without it). After a policy refresh
-> the proxy host is in the Local intranet zone — up to 7.3.7 it stayed in the Internet zone. From
-> then on, according to Microsoft (not measured in the lab), Windows uses only the policy's
-> site-to-zone list: sites users or the image put into a zone themselves no longer count
+> **Proxy in the Intranet zone, now for real — and only the GPO's sites count.** With the role
+> proxy on, the next `apply` registers the *Internet Explorer Zonemapping* extension on the
+> existing `12-proxy-zone-schule` GPOs and bumps their version (`lmn-gpo doctor` names every GPO
+> still without it). After a policy refresh the proxy host is in the Local intranet zone — up to
+> 7.3.7 it stayed in the Internet zone. From then on only the site-to-zone entries from the GPO
+> count: after the update to 7.3.8 and `apply`, at a school with the role proxy (pack 12) or an
+> edulution host (pack 22), sites users put into a zone no longer count — measured on Windows 11,
+> a user's Trusted site fell from zone 2 to the Internet zone although the entry stayed — and
+> according to Microsoft neither do sites the image set on the machine. Zones Windows assigns by
+> itself are unchanged (measured: H: and `\\server\…` stay Local intranet)
 > ([proxy](#role-based-proxy)).
 
 > ### Upgrading from 7.3.1 or older: re-apply once
@@ -1702,10 +1708,12 @@ dass Schüler den Proxy entfernen.
 > Proxy-Host blieb in der **Internetzone** (gemessen unter Windows 11). Ab 7.3.8 trägt `apply` sie
 > ein und erhöht die GPO-Version, auch bei vorhandenen GPOs; nach dem nächsten `apply` und einer
 > Richtlinienaktualisierung liegt der Proxy wirklich in der Zone Lokales Intranet.
-> **Nebenwirkung** (laut Microsoft, im Lab nicht gemessen): Solange eine Zonenliste für den
-> Computer wirkt, nutzt Windows nur diese Liste — Sites, die Benutzer selbst eingetragen haben
-> (Internetoptionen › Sicherheit › Sites) oder die lokal am Rechner gesetzt wurden, zählen nicht
-> mehr, und Benutzer können keine Sites hinzufügen. Details:
+> **Nebenwirkung** (gemessen unter Windows 11): Solange eine Zonenliste für den Computer wirkt,
+> nutzt Windows nur die Sites aus der GPO. Eine Site, die ein Benutzer selbst unter
+> Vertrauenswürdige Sites eingetragen hatte (Internetoptionen › Sicherheit › Sites), fiel von
+> Zone 2 auf die Internetzone, sobald die Liste der GPO wirkte; der Eintrag des Benutzers bleibt in
+> der Registry und wird ignoriert. Laut Microsoft gilt dasselbe für lokal am Rechner gesetzte
+> Sites, und Benutzer können keine Sites hinzufügen. Details:
 > [`docs/RESEARCH.md`](docs/RESEARCH.md) Abschnitt 10.
 
 **Lehrer-Notebooks (`teachernb`, standardmäßig die Gerätegruppe `d_nopxe`) sind von allen
@@ -2317,9 +2325,10 @@ Beide GPOs fügen nur ihren eigenen Wert hinzu und löschen nie den der anderen.
 > vertrauenswürdig (z. B. die geschützte Ansicht von Office für Internet-Dateien, die
 > Sicherheitsabfrage von Windows vor dem Start eines heruntergeladenen Programms), und der
 > IE-Modus von Edge wendet die Einstellungen dieser Zone auf sie an. Nur eine Site eintragen, die
-> ihr selbst betreibt. Und solange die Liste wirkt, nutzt Windows nur die Liste aus der Richtlinie:
-> Sites, die Benutzer selbst eingetragen haben oder die lokal gesetzt wurden, zählen nicht mehr
-> (laut Microsoft, im Lab nicht gemessen; [`docs/RESEARCH.md`](docs/RESEARCH.md) Abschnitt 10).
+> ihr selbst betreibt. Und solange die Liste wirkt, nutzt Windows nur die Sites aus der GPO: Eine
+> Site, die ein Benutzer selbst unter Vertrauenswürdige Sites eingetragen hatte, fiel auf die
+> Internetzone zurück (gemessen unter Windows 11; für lokal am Rechner gesetzte Sites sagt
+> Microsoft dasselbe; [`docs/RESEARCH.md`](docs/RESEARCH.md) Abschnitt 10).
 > Abschalten: `edulution_trusted_enabled: false` (oder leerer Host) + `apply`.
 
 Prüfen: `lmn-gpo-check.ps1` vergleicht jeden Eintrag der Zonenliste mit der Zone, die Windows
@@ -2432,13 +2441,18 @@ je Prüfung + Summe.
 > [`22-edulution-trusted-schule`](#edulution-als-vertrauenswürdige-site) wirkt erst, wenn
 > `edulution_host` gesetzt ist. `lmn-gpo apply --dry-run` zeigt beides.
 >
-> **Proxy in der Intranet-Zone, jetzt wirklich.** Mit eingeschaltetem Rollen-Proxy trägt das
-> nächste `apply` die Erweiterung *Internet Explorer Zonemapping* an den vorhandenen
-> `12-proxy-zone-schule`-GPOs nach und erhöht ihre Version (`lmn-gpo doctor` nennt jede GPO, der
-> sie noch fehlt). Nach einer Richtlinienaktualisierung liegt der Proxy-Host in der Zone Lokales
-> Intranet — bis 7.3.7 blieb er in der Internetzone. Ab dann nutzt Windows laut Microsoft (im Lab
-> nicht gemessen) nur die Zonenliste aus der Richtlinie: Sites, die Benutzer oder das Image selbst
-> einer Zone zugeordnet haben, zählen nicht mehr ([Proxy](#rollen-proxy)).
+> **Proxy in der Intranet-Zone, jetzt wirklich — und nur noch die Sites der GPO zählen.** Mit
+> eingeschaltetem Rollen-Proxy trägt das nächste `apply` die Erweiterung *Internet Explorer
+> Zonemapping* an den vorhandenen `12-proxy-zone-schule`-GPOs nach und erhöht ihre Version
+> (`lmn-gpo doctor` nennt jede GPO, der sie noch fehlt). Nach einer Richtlinienaktualisierung liegt
+> der Proxy-Host in der Zone Lokales Intranet — bis 7.3.7 blieb er in der Internetzone. Ab dann
+> zählen nur noch die Site-zu-Zonen-Einträge aus der GPO: Nach dem Update auf 7.3.8 und `apply`
+> gelten an Schulen mit Rollen-Proxy (Pack 12) oder edulution-Host (Pack 22) keine Sites mehr, die
+> Benutzer selbst einer Zone zugeordnet haben — gemessen unter Windows 11 fiel eine selbst
+> eingetragene vertrauenswürdige Site von Zone 2 auf die Internetzone, obwohl der Eintrag blieb —,
+> und laut Microsoft auch keine, die das Image lokal am Rechner gesetzt hat. Zonen, die Windows
+> selbst vergibt, bleiben (gemessen: H: und `\\server\…` bleiben Lokales Intranet)
+> ([Proxy](#rollen-proxy)).
 
 > ### Update von 7.3.1 oder älter: einmal neu anwenden
 > 7.3.2 korrigiert den Loopback-Wert. Bis 7.3.1 schrieb `loopback: merge`

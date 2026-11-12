@@ -14,9 +14,10 @@ description: >
   Zonemapping' client-side extension; apply registers it on the GPO (since 7.3.8 - before,
   the value reached the registry and the proxy stayed in the Internet zone).
 
-  SIDE EFFECT (Microsoft, docs/RESEARCH.md section 10; not measured in the lab): while a
-  computer Site to Zone Assignment List is in effect, Windows uses only the policy list -
-  sites that users added themselves (Internet Options > Security > Sites) or that were set
-  locally on the machine no longer count, and users cannot add sites.
+  SIDE EFFECT (measured on Windows 11, docs/RESEARCH.md section 10): while a computer Site
+  to Zone Assignment List is in effect, Windows uses only the sites from the GPO - a site a
+  user had put into Trusted sites (Internet Options > Security > Sites) fell from zone 2 to
+  the Internet zone, its entry stays and is ignored. According to Microsoft the same holds
+  for sites set locally on the machine, and users cannot add sites.
 registry:
   - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey', name: '@proxy-host', type: sz, data: '1' }
