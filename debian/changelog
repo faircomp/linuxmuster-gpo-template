@@ -18,24 +18,45 @@ lmn-gpo (7.3.7) lmn73; urgency=medium
   * Which drives, read at every apply, per school: H: (the share root of the users'
     homeDirectory, \\server\<school>\), linuxmuster's default drives from the
     sophomorix school GPO (read only; a drive disabled in the WebUI is left out) and,
-    with drives_enabled, every drives.yaml entry. Each is written as the UNC path, as
-    the drive letter and, for a share that is a DFS proxy (linuxmuster-fileserver), as
-    the DFS target (office_trusted_forms). Office takes at most 20 locations per
+    with drives_enabled, every drives.yaml entry. Each is written as the UNC path and
+    as the drive letter (office_trusted_forms, default [unc, letter]): measured with
+    Access on Windows 11, Office checks the path as the file was opened, and a letter
+    and the UNC path it is mapped to cover each other. 'dfs' (optional) adds the DFS
+    target of a share that is a DFS proxy (linuxmuster-fileserver) - only needed for
+    files opened through the file server's own name. Files opened as
+    \\server.<domain>\... stay blocked. Office takes at most 20 locations per
     application: a school that needs more is held back (nothing written, apply exits 1),
     never cut. One user GPO per school, LMN-U-<school>-21-office-trusted-schule, linked
     to OU=Devices and effective through loopback (15-lockdown-base, active by default).
   * New pack 22-edulution-trusted-schule, on by default but only with a host:
     edulution_host (per school edulution_host_by_school) puts https://<host> into the
-    Windows 'Trusted sites' zone, also on teacher notebooks. Files downloaded from there
-    get ZoneId=2 instead of 3 and Office no longer hard-blocks their macros (the
-    "Enable content" bar applies). Side effect: Windows trusts the whole site, not only
-    for Office. Without a host the pack is skipped and says so. It shares the zone-list
-    key with 12-proxy-zone-schule; neither removes the other's entry.
-  * lmn-gpo setup asks for both. lmn-gpo-check.ps1 lists the trusted locations (run it
-    as the user) and the site-to-zone list. apply prints the KMS tattoo note only when
-    a KMS GPO was retired.
+    Windows 'Trusted sites' zone, also on teacher notebooks. Measured with Edge 157 on
+    Windows 11: a file downloaded from there gets no Zone.Identifier at all (from the
+    Internet zone: ZoneId=3), and Access shows its normal security notice with 'Open'
+    instead of the hard block. Side effect: Windows trusts the whole site, not only for
+    Office. Without a host the pack is skipped and says so. It shares the zone-list key
+    with 12-proxy-zone-schule; neither removes the other's entry.
+  * Fix 12-proxy-zone-schule: the proxy host never reached the Local intranet zone.
+    Windows applies the Site to Zone Assignment List only through the client-side
+    extension 'Internet Explorer Zonemapping', and lmn-gpo did not register it - the
+    value arrived in the registry and the proxy stayed in the Internet zone (measured
+    on Windows 11), so proxy SSO by zone never worked. apply now registers it on every
+    GPO with zone-list values (packs 12 and 22) and bumps the GPO version, also on
+    existing GPOs whose values did not change: after the next 'lmn-gpo apply' and a
+    policy refresh the proxy really is in the Local intranet zone. 'lmn-gpo doctor'
+    names every LMN-* GPO still without the extension.
+  * Side effect of a zone list that now takes effect (packs 12 and 22): according to
+    Microsoft, while a computer Site to Zone Assignment List is in effect Windows uses
+    only that list - sites users added themselves (Internet Options > Security > Sites)
+    or that were set locally on the machine no longer count, and users cannot add
+    sites. Not measured in the lab; docs/RESEARCH.md section 10.
+  * lmn-gpo setup asks for both packs and the path forms. lmn-gpo-check.ps1 lists the
+    trusted locations (run it as the user) and checks each site-to-zone entry against
+    the zone Windows really applies (FAIL if they differ, no admin rights needed).
+    lmn-gpo selftest checks the zone-map extension against the real samba-tool. apply
+    prints the KMS tattoo note only when a KMS GPO was retired.
 
- -- Kevin Stenzel <mail@kevin-stenzel.de>  Tue, 10 Nov 2026 10:22:38 +0100
+ -- Kevin Stenzel <mail@kevin-stenzel.de>  Thu, 12 Nov 2026 06:40:04 +0100
 
 lmn-gpo (7.3.7) lmn73; urgency=medium
 
