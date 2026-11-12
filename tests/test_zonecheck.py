@@ -64,7 +64,9 @@ def test_selftest_zone_list_steps(domain, monkeypatch, capsys):
     fake, env, sysvol = domain
     samba = FakeSamba(fake, sysvol).install(monkeypatch)
     monkeypatch.setattr(envmod, "detect", lambda: env)
+    # the DACL steps need python3-samba (not on the CI runner) and a real sam.ldb
     monkeypatch.setattr(ad, "descriptor_sddl", lambda dn: "", raising=False)
+    monkeypatch.setattr(ad, "sddl_trustee", lambda sid: sid)
     selftest.run()
     out = capsys.readouterr().out
     # (other steps need a real sysvol/DACL and fail on the fakes; not what this test checks)
