@@ -224,6 +224,14 @@ def cmd_doctor(args) -> int:
     except Exception as exc:
         print(f"\nDrive maps (20-drives, drives.yaml):\n  {ui.WARN} could not evaluate: {exc}")
 
+    # Site to zone list: every LMN-* GPO with ZoneMapKey values needs the IE Zonemapping
+    # extension, or the client never applies them (12-proxy-zone, 22-edulution). Warning only.
+    try:
+        from . import zonecheck
+        zonecheck.run(e)
+    except Exception as exc:
+        print(f"\nSite to zone list:\n  {ui.WARN} could not evaluate: {exc}")
+
     # Existing GPOs
     print("\nExisting GPOs:")
     for name, guid, ver in _iter_gpos(e.basedn):

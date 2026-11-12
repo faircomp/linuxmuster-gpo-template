@@ -1,0 +1,36 @@
+id: "22-edulution-trusted-schule"
+title: "edulution website in the 'Trusted sites' zone (per school)"
+scope: school
+target: computer
+requires: edulution_trusted
+description: >
+  ON by default (edulution_trusted_enabled: true), active as soon as the school's edulution
+  host is set (edulution_host, per school edulution_host_by_school). Without a host the pack
+  is skipped and says so; no host is guessed.
+
+  Puts https://<edulution host> into the Windows 'Trusted sites' zone (Site to Zone
+  Assignment List, zone 2), applied through the 'Internet Explorer Zonemapping' client-side
+  extension that apply registers on the GPO. Measured with Edge 157 on Windows 11: a file
+  downloaded from a Trusted site gets NO Zone.Identifier at all (from the Internet zone it
+  gets ZoneId=3), and Access shows its normal security notice with 'Open' instead of the
+  hard block "Microsoft has blocked macros". Other browsers are not measured. Only https://
+  is mapped; plain http to the host stays in the Internet zone (measured).
+
+  SIDE EFFECT: the whole site gets the Trusted sites zone in Windows, not only for Office.
+  Every check that keys on the Internet zone treats its downloads as trusted, e.g. Office's
+  Protected View for files from the internet or Windows' security prompt before running a
+  downloaded program; Edge's IE mode applies the Trusted sites zone settings to the site.
+  And while a computer Site to Zone Assignment List is in effect, Windows uses only the
+  sites from the GPO: a site a user had added to Trusted sites fell back to the Internet
+  zone (measured on Windows 11); for sites set locally Microsoft says the same
+  (docs/RESEARCH.md section 10).
+
+  Machine policy, per school, linked to OU=Devices of the school; applies to teacher
+  notebooks too (no @teachernb exclusion). Same registry key as 12-proxy-zone-schule
+  (ZoneMapKey): both GPOs only ADD their own value name and never delete the key's other
+  values, so the proxy host (zone 1) and edulution (zone 2) coexist. This GPO's own
+  Registry.pol is rewritten as a whole (registry_replace), so a changed host does not leave
+  the old one behind.
+registry_replace: true
+registry:
+  - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey', name: 'https://@edulution-host', type: sz, data: '2' }

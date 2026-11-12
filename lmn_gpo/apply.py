@@ -9,8 +9,9 @@ import datetime
 import os
 import re
 import shutil
+import subprocess
 
-from . import ad, catalog, drivesconf, gporder, sophodrives
+from . import ad, catalog, drivesconf, gporder, officetrust, sophodrives
 from .gpo import GpoEngine
 from .drives import GppDrives, render_managed
 from .gpp import GppGroups
@@ -92,9 +93,45 @@ DEFAULT_ANSWERS = {
     # which lmn-gpo only reads (comments survive, no secrets in it).
     "drives_enabled": False,           # true = manage the drive letters from drives_file
     "drives_file": "",                 # "" = /etc/linuxmuster/lmn-gpo/drives.yaml
+    # Network drives as Office trusted locations (pack 21-office-trusted-schule), ON by
+    # default (Kevin, 2026-11-10): H:, the sophomorix default drives and drives.yaml.
+    "office_trusted_enabled": True,
+    "office_trusted_apps": ["access"],      # access | excel | word | powerpoint
+    "office_trusted_roles": "all",          # all | a list of teacher, student, staff
+    "office_trusted_forms": ["unc", "letter"],  # UNC path + drive letter; "dfs" on request
+    # The school's edulution website in the 'Trusted sites' zone (pack
+    # 22-edulution-trusted-schule), ON by default, active once a host is set.
+    "edulution_trusted_enabled": True,
+    "edulution_host": "",                   # e.g. edulution.school.de ("" = pack skipped)
+    "edulution_host_by_school": {},         # per-school override {schoolname: host}
 }
 # Stand-in GUID for 20-drives in an order check before its GPO exists (dry-run, doctor).
 PLANNED_GUID = "{00000000-0000-0000-0000-00000000D21E}"
+
+
+_HOST_RE = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                      r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$")
+
+
+def site_host(value) -> tuple[str, str]:
+    """A host for the Site to Zone Assignment List -> (host, problem).
+
+    'https://' or 'http://' in front and a trailing '/' are dropped (the pack writes
+    https://<host> itself). Anything else that is not a plain host name or IPv4 address -
+    a path, a port, a wildcard, a blank - is a problem, never written: Microsoft's ADMX
+    text warns that a value name with a path conflicts with the bare host.
+    """
+    v = str(value or "").strip()
+    for scheme in ("https://", "http://"):
+        if v.lower().startswith(scheme):
+            v = v[len(scheme):]
+            break
+    v = v.rstrip("/").lower()
+    if not v:
+        return "", ""
+    if not _HOST_RE.match(v):
+        return "", f"{str(value).strip()!r} is not a host name (no path, port or wildcard)"
+    return v, ""
 
 
 def _loopback_word(mode) -> str:
@@ -149,6 +186,10 @@ class Applier:
         self._drives_cfg = None
         self._drives_error: drivesconf.DrivesConfigError | None = None
         self._drives_res = None
+        # pack 21-office-trusted-schule: per school (plan, apps), and the read-only sources
+        self._office: dict[str, tuple] = {}
+        self._sopho_gpos = None
+        self._dfs: dict[str, str] = {}      # share -> its smb.conf 'msdfs proxy'
 
     # ------------------------------------------------------------------ #
     # selection
@@ -321,6 +362,16 @@ class Applier:
         parts += ["10.*", "172.16.*", "192.168.*"]
         return ";".join(parts)
 
+    def _edulution_host_raw(self, school) -> str:
+        byschool = self.answers.get("edulution_host_by_school") or {}
+        if school and byschool.get(school.name):
+            return str(byschool[school.name]).strip()
+        return str(self.answers.get("edulution_host") or "").strip()
+
+    def _edulution_host(self, school) -> tuple[str, str]:
+        """(host, problem) for pack 22-edulution-trusted-schule; see site_host()."""
+        return site_host(self._edulution_host_raw(school))
+
     def _reldn(self, dn):
         """DN relative to the BaseDN (strip the trailing ,DC=…). Veyon stores and
         compares LDAP group DNs base-relative, so AuthorizedUserGroups must match."""
@@ -349,6 +400,7 @@ class Applier:
             "@firefox-homepage-locked": "1" if self.answers.get("firefox_homepage_locked", True) else "0",
             "@firefox-homepage": self._firefox_homepage(school),
             "@proxy-host": self._proxy_host(school),
+            "@edulution-host": self._edulution_host(school)[0],
             "@proxy-port-teacher": self._proxy_port("teacher"),
             "@proxy-port-student": self._proxy_port("student"),
             "@proxy-port-staff": self._proxy_port("staff"),
@@ -618,6 +670,11 @@ class Applier:
             return bool(self.answers.get("bootorder_pxe_first"))
         if req == "pointandprint":
             return bool(self.answers.get("pointandprint_enabled"))
+        if req == "office_trusted":
+            return bool(self.answers.get("office_trusted_enabled"))
+        if req == "edulution_trusted":
+            return bool(self.answers.get("edulution_trusted_enabled")
+                        and self._edulution_host_raw(school))
         return True
 
     def _skip_reason(self, pack, school) -> str:
@@ -670,6 +727,13 @@ class Applier:
             return "bootorder_pxe_first is not true"
         if req == "pointandprint":
             return "pointandprint_enabled is not true"
+        if req == "office_trusted":
+            return "office_trusted_enabled is not true"
+        if req == "edulution_trusted":
+            if not self.answers.get("edulution_trusted_enabled"):
+                return "edulution_trusted_enabled is not true"
+            return (f"no edulution_host (or edulution_host_by_school[{sname}]) - set the "
+                    f"school's edulution address to put it into the Trusted sites zone")
         return f"'{req}' precondition not met"
 
     def _backup_before_delete(self, name, guid) -> str | None:
@@ -711,7 +775,7 @@ class Applier:
                     continue
                 for kind, tokens in (("exclude", pack.filter_deny),
                                      ("exclude-read", pack.filter_deny_read),
-                                     ("only", pack.filter_apply)):
+                                     ("only", self._filter_apply(pack))):
                     for token in tokens:
                         sids, status, note = self._exclusion(token, school, pool)
                         if status == "ok" and note:
@@ -1125,6 +1189,138 @@ class Applier:
         except Exception as exc:          # a read-only check never stops an apply
             print(f"    note: order check skipped ({exc})")
 
+    # ------------------------------------------------------------------ #
+    # pack 21-office-trusted-schule: the drives as Office trusted locations
+    # ------------------------------------------------------------------ #
+    def _filter_apply(self, pack) -> list:
+        """The exclusive filter of a pack: the catalog's, or for 21-office-trusted-schule the
+        roles from office_trusted_roles ([] = every user). An invalid value yields [] here
+        and holds the pack back in _pack_problem() before any filter is resolved."""
+        if pack.registry_source == "office-trusted":
+            return officetrust.parse_roles(self.answers.get("office_trusted_roles"))[0]
+        return list(pack.filter_apply)
+
+    def _home_directories(self, school) -> list[str]:
+        """homeDirectory of every user below the school's OU (read-only)."""
+        return [ad.val(m, "homeDirectory", "") for m in ad.search(
+            base=school.dn,
+            expr="(&(objectClass=user)(!(objectClass=computer))(homeDirectory=*))",
+            attrs=["homeDirectory"])]
+
+    def _school_drive_items(self, school):
+        """(items, display name, error) of sophomorix:school:<school>'s Drives.xml; items
+        None = none read."""
+        if self._sopho_gpos is None:
+            self._sopho_gpos = sophodrives.school_gpos(self.env.basedn,
+                                                       self.env.sysvol_policies)
+        for g in self._sopho_gpos:
+            if g.school == school.name:
+                return g.items, g.display, g.error
+        return None, f"{sophodrives.SCHOOL_GPO_PREFIX}{school.name}", "no such GPO"
+
+    def _msdfs_proxy(self, share: str) -> str:
+        """smb.conf `msdfs proxy` of a share on this server ('' = none), read with testparm
+        as env.py reads the globals. Cached, read-only."""
+        key = share.lower()
+        if key not in self._dfs:
+            value = ""
+            try:
+                p = subprocess.run(["testparm", "-s", "--section-name", share,
+                                    "--parameter-name", "msdfs proxy"],
+                                   capture_output=True, text=True, timeout=30)
+                if p.returncode == 0:
+                    value = p.stdout.strip()
+            except Exception:
+                value = ""
+            self._dfs[key] = value
+        return self._dfs[key]
+
+    def office_plan(self, school):
+        """(plan, apps, problems) of 21-office-trusted-schule for one school. Read-only."""
+        if school.name in self._office:
+            return self._office[school.name]
+        problems = []
+        apps, why = officetrust.parse_apps(self.answers.get("office_trusted_apps"))
+        if why:
+            problems.append(why)
+        _roles, why = officetrust.parse_roles(self.answers.get("office_trusted_roles"))
+        if why:
+            problems.append(why)
+        forms, why = officetrust.parse_forms(self.answers.get("office_trusted_forms"))
+        if why:
+            problems.append(why)
+        sources = officetrust.home_sources(self._home_directories(school))
+        items, origin, error = self._school_drive_items(school)
+        notes = []
+        if items is None:
+            notes.append(f"{origin}: no default drives read ({error or 'no Drives.xml'})")
+        sources += officetrust.sophomorix_sources(items, origin)
+        if self.answers.get("drives_enabled"):
+            cfg = self.drives_config()
+            if cfg is None:
+                # The drives would silently lose their locations: keep the GPO as it is.
+                problems.append(f"drives_enabled is true, but {self._drives_error} - the "
+                                f"drives.yaml drives cannot be listed")
+            else:
+                sources += officetrust.drives_yaml_sources(
+                    cfg, (self.env.server_netbios or "").lower(), self.env.serverfqdn)
+        if "dfs" in forms:
+            sources += officetrust.dfs_sources(
+                sources, [self.env.server_netbios, self.env.serverfqdn,
+                          (self.env.serverfqdn or "").split(".")[0]], self._msdfs_proxy)
+        plan = officetrust.plan(sources, forms or officetrust.DEFAULT_FORMS)
+        plan.notes[:0] = notes
+        if not problems:
+            problems = officetrust.problems(plan)
+        self._office[school.name] = (plan, apps, problems)
+        return self._office[school.name]
+
+    def _pack_problem(self, pack, school) -> str:
+        """Why an applicable pack must not be written in this scope ('' = none). The pack is
+        then held back: nothing written, an existing GPO left as it is, apply exits 1."""
+        if pack.registry_source == "office-trusted":
+            _plan, _apps, problems = self.office_plan(school)
+            return "; ".join(problems) or self._office_filter_problem(pack, school)
+        if (pack.requires or "").strip() == "edulution_trusted":
+            _host, why = self._edulution_host(school)
+            return f"edulution host {why}" if why else ""
+        return ""
+
+    def _office_filter_problem(self, pack, school) -> str:
+        """office_trusted_roles is configurable, but apply only ever ADDS security-filter
+        entries. On an existing GPO a changed value would therefore keep the old roles
+        (teacher -> student leaves teachers in) or stay narrower than 'all'. Held back with
+        the fix instead of silently diverging. Unreadable descriptor: no check."""
+        guid = self.eng.find_by_name(gpo_name(pack, school))
+        if not guid:
+            return ""
+        have = self.eng.apply_trustees(guid)
+        if have is None:
+            return ""
+        tokens = self._filter_apply(pack)
+        want = {ad.sddl_trustee(sid).upper() for t in tokens
+                for sid in self._group_sids(t, school, [school])}
+        if not tokens:
+            ok = "AU" in have
+        else:
+            ok = bool(want) and not (have - want - {"AU"})
+        if ok:
+            return ""
+        role = self.answers.get("office_trusted_roles")
+        return (f"the GPO's security filter ({', '.join(sorted(have)) or 'nobody'}) does not "
+                f"match office_trusted_roles {role!r}; apply only adds filter entries, it never "
+                f"removes them - run 'lmn-gpo remove --school {school.name} --pack {pack.id} "
+                f"--yes', then apply again")
+
+    def _print_office_plan(self, school):
+        plan, apps, _problems = self.office_plan(school)
+        print(f"    Office trusted locations for {', '.join(apps) or '-'}: "
+              f"{len(plan.locations)} of {officetrust.MAX_LOCATIONS} per application")
+        for line in plan.lines():
+            print(f"      {line}")
+        for note in plan.notes:
+            print(f"    note: {note}")
+
     def apply_pack(self, pack, school, schools):
         container = school.devices_ou if pack.scope == "school" else self.env.schools_ou
         name = gpo_name(pack, school)
@@ -1155,20 +1351,29 @@ class Applier:
                 print(f"\n▸ {name}  skipped: {self._skip_reason(pack, school)}")
                 self.skipped.append(name)
             return
+        problem = self._pack_problem(pack, school)
+        if problem:
+            self._hold_back(name, pack, school, problem)
+            if pack.registry_source == "office-trusted":
+                self._print_office_plan(school)
+            self.warnings.append(f"{name}: {problem} - held back, an existing GPO is left "
+                                 f"untouched")
+            return
         # Exclusive-filter packs must fail CLOSED: a fresh GPO applies to Authenticated
         # Users, and set_exclusive_filter only restricts when it gets ≥1 SID. If the
         # 'only these groups' filter resolves to zero SIDs (e.g. @teachernb but no school
         # has a d_nopxe group), linking would roll the GPO out to EVERYONE. Held back, like
         # a missing exclusion group.
         filter_apply_sids = []
-        if pack.filter_apply:
-            for token in pack.filter_apply:
+        filter_apply = self._filter_apply(pack)
+        if filter_apply:
+            for token in filter_apply:
                 sids, status, _note = self._exclusion(token, school, schools)
                 filter_apply_sids += sids
             if not filter_apply_sids:
                 why = ("teachernb: skip" if self._teachernb() == "skip"
-                       and "@teachernb" in pack.filter_apply
-                       else f"exclusive-filter group(s) {pack.filter_apply} not found")
+                       and "@teachernb" in filter_apply
+                       else f"exclusive-filter group(s) {filter_apply} not found")
                 self._hold_back(name, pack, school,
                                 f"{why} — otherwise the GPO would apply to EVERYONE")
                 return
@@ -1199,10 +1404,20 @@ class Applier:
                   "15-lockdown-base) is applied.")
         for note in notes:
             print(f"    note: {note}")
+        if pack.registry_source == "office-trusted":
+            self._print_office_plan(school)
         guid, _ = self.eng.ensure(name)
         extra = {"@wallpaper": self._wallpaper_unc(school)} if school else {}
 
-        self.rp.load(guid, self._registry_entries(pack, school, extra), gpo_dir=self.eng.sysvol_path(guid))
+        entries = self._registry_entries(pack, school, extra)
+        if pack.registry_source == "office-trusted":
+            plan, apps, _problems = self.office_plan(school)
+            entries = officetrust.entries(plan, apps) + entries
+        # Generated values replace the GPO's Registry.pol (per class written): a drive that
+        # is gone must lose its location, and a merge would keep the old locationN keys.
+        # Same for a value name from site.yaml (registry_replace: the edulution host).
+        self.rp.load(guid, entries, gpo_dir=self.eng.sysvol_path(guid),
+                     replace=bool(pack.registry_source or pack.registry_replace))
         self.se.apply(guid,
                       privilege_rights=self._priv_rights(pack.privilege_rights, school, schools),
                       group_membership=self._restricted_groups(pack.restricted_groups, school, schools))
@@ -1268,7 +1483,7 @@ class Applier:
         if blind:
             print(f"  ⚠ {len(blind)} of them cannot reach a user until a pack with "
                   f"'loopback:' is applied (see 'Loopback prerequisite' above).")
-        if self.retired:
+        if any("-kms" in name for name in self.retired):
             print("  Note: the KMS registry values are outside the Policies branches and are")
             print("  NOT withdrawn from clients by removing the GPO — they stay tattooed until")
             print("  cleared locally (slmgr.vbs /ckms, ospp.vbs /remhst).")

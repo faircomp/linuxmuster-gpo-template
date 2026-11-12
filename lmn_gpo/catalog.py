@@ -43,10 +43,22 @@ class Pack:
     # Drive Maps items come from an admin file instead of `drives:` (20-drives:
     # "drives.yaml" = site.yaml's drives_file, default /etc/linuxmuster/lmn-gpo/drives.yaml).
     drives_source: str = ""
+    # Registry values generated at apply time instead of `registry:` (21-office-trusted-schule:
+    # "office-trusted" = the drives as Office trusted locations, lmn_gpo/officetrust.py). The
+    # generated values are USER policy and replace the GPO's User Registry.pol as a whole,
+    # so a drive that is gone loses its location too.
+    registry_source: str = ""
+    # Load the registry values with `samba-tool gpo load --replace`: the GPO's Registry.pol
+    # then holds exactly this run's values. For a pack whose value NAME comes from site.yaml
+    # (22-edulution-trusted-schule: https://<host>) - a merge would keep the old name after
+    # the host changes. Only this GPO's own file is rewritten; no other GPO is touched.
+    registry_replace: bool = False
 
     @property
     def has_user(self) -> bool:
         if self.drives or self.drives_source:   # Drive Maps: user policy, no registry
+            return True
+        if self.registry_source:                # generated USER registry values
             return True
         return any(str(e.get("class", "machine")).lower() in ("user", "both") for e in self.registry)
 
@@ -66,6 +78,7 @@ class Pack:
 
 LOOPBACK_VALUES = ("none", "merge", "replace")
 DRIVES_SOURCES = ("", "drives.yaml")
+REGISTRY_SOURCES = ("", "office-trusted")
 
 
 def load_packs(catalog_dir: str = CATALOG_DIR) -> list[Pack]:
@@ -84,6 +97,12 @@ def load_packs(catalog_dir: str = CATALOG_DIR) -> list[Pack]:
         if pack.drives_source not in DRIVES_SOURCES:
             raise ValueError(f"{os.path.basename(path)}: drives_source: {pack.drives_source!r} "
                              f"is not one of {', '.join(repr(x) for x in DRIVES_SOURCES)}")
+        if pack.registry_source not in REGISTRY_SOURCES:
+            raise ValueError(f"{os.path.basename(path)}: registry_source: "
+                             f"{pack.registry_source!r} is not one of "
+                             f"{', '.join(repr(x) for x in REGISTRY_SOURCES)}")
+        if not isinstance(pack.registry_replace, bool):
+            raise ValueError(f"{os.path.basename(path)}: registry_replace must be true or false")
         if not isinstance(pack.link_enforced, bool):
             raise ValueError(f"{os.path.basename(path)}: link_enforced must be true or false")
         packs.append(pack)

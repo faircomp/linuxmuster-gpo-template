@@ -18,6 +18,10 @@ client ignores the file (most common source of errors).
   `{827D319E-6EAC-11D2-A4EA-00C04F79F83A}`, bump the version.
 - **Groups.xml** (GPP local admins, additive) → CSE `{17D89FEC-5C44-4972-B12D-241CAEF74509}`.
 - **Startup scripts** (WoL) → `Machine/Scripts/psscripts.ini`, CSE `{42B5FAAE-6536-11D2-AE5A-0000F87571E3}`.
+- **Site to Zone Assignment List** (ZoneMapKey values, 12-proxy-zone-schule,
+  22-edulution-trusted-schule) → registry values via `gpo load`, **plus** the CSE "Internet
+  Explorer Zonemapping" `{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}` registered after the load and a
+  version bump (section 10; without it the values arrive and are never applied).
 - **Security filtering**: `samba-tool dsacl set` (right "Apply Group Policy"
   `edacfd8f-ffb3-11d1-b41d-00a0c968f939`). After DACL changes `samba-tool ntacl sysvolreset`
   (harmless, as long as `Domain Admins` has no `gidNumber`) → `gpo aclcheck` stays green.
@@ -290,3 +294,234 @@ not mapped at all (Application log, source "Group Policy Drive Maps": 4117 "Acce
 folders' NT ACLs come
 from sophomorix' templates (`ntacl/school.ntacl.template`: only the school's own groups) and
 `sophomorix-repair` re-applies them.
+
+## 9. Office trusted locations for the network drives (pack 21-office-trusted-schule)
+
+**Why.** Office blocks VBA macros in files from the internet, and also in files "on a network
+share that isn't in the **Local intranet** zone or isn't a trusted site"; for such a share
+"selecting the [Unblock] checkbox won't have any effect". "Saving files from the internet to a
+Trusted Location on a user's device ignores the check for Mark of the Web and opens with VBA
+macros enabled" — the check that a trusted location skips. "Network locations can also be set
+as a Trusted Location, but it's not recommended." The block covers Access, Excel, PowerPoint,
+Project, Publisher, Visio and Word.
+([Macros from the internet are blocked by default in Office](https://learn.microsoft.com/en-us/microsoft-365-apps/security/internet-macros-blocked),
+ms.date 2026-07-17, read 2026-11-10.)
+
+**Registry names, verified against Microsoft's ADMX** (read 2026-11-10): *Administrative Template
+files (ADMX/ADML) and Office Customization Tool for Microsoft 365 Apps for enterprise, Office LTSC
+2021, Office 2019, and Office 2016*, version **5568.1000**, published 2026-08-10,
+[download id 49030](https://www.microsoft.com/en-us/download/details.aspx?id=49030), file
+`admintemplates_x64_5568_1000_en-us.exe` (sha256 `a775828c86808bed55343c4738bed9458825d6fb7fa1948c2726e0b38dc45cfa`), unpacked with cabextract.
+All policies are `class="User"`. Key and value names below are spelled exactly as in the ADMX
+(the registry is case-insensitive; lmn-gpo writes this spelling).
+
+| ADMX policy (file) | Key under `software\policies\microsoft\office\16.0\` | Value | Type / data |
+|---|---|---|---|
+| L_AllowTrustedLocationsOnTheNetwork "Allow Trusted Locations on the network" (`access16.admx`, same in `excel16`, `word16`, `ppt16` with `excel`, `word`, `powerpoint`) | `access\security\trusted locations` | `allownetworklocations` | enabled = decimal 1 |
+| L_TrustedLoc01 … L_TrustedLoc20 "Trusted Location #1" … "#20" (each app file) | `access\security\trusted locations\location1` … `location20` | `path` (`<text expandable="true">` → REG_EXPAND_SZ), `date` (text), `description` (text), `allowsubfolders` (boolean, true = decimal 1) | |
+| L_Allowmixofpolicyanduserlocations "Allow mix of policy and user locations" (`office16.admx`) | `common\security\trusted locations` | `allow user locations` | enabled = decimal 1 |
+| L_DisableTrustedLoc "Disable all trusted locations" (each app file) | `access\security\trusted locations` | `alllocationsdisabled` | not written |
+
+sha256 of the files used:
+`access16.admx` `8a4f1a5db453e86aaf217117172f2dd7c901419c5e5f7210b35f3417cdffd9d6`,
+`excel16.admx` `792e3ccf98abcf63ea17db94fbca361bdf354fe3b57fe1a55a917580194f44b8`,
+`word16.admx` `9e818c0ebc624cd733c5c241b89b311d2aa08899970fef92f05c700d146a97cd`,
+`ppt16.admx` `d857bcb5e80541c72bace16e42a5db9a23b4bafbde8101a574e6882405257ef9`,
+`office16.admx` `8d1992feb234d680d3fce83e6ce6e16ef731fccb09a1221a62ae1e0d51d8f3c5`.
+
+- **20 per application.** Every app file defines exactly `L_TrustedLoc01`–`L_TrustedLoc20`
+  (counted: 20 `valueName="path"` per file); Learn: "There are 20 instances of this policy". A
+  21st location has no policy, so lmn-gpo refuses a plan with more than 20 instead of cutting.
+  (`office16.admx` has another 20 under `common\security\trusted locations\all applications\`
+  for every app at once; not used, because the default is Access only.)
+- **Network locations need `allownetworklocations`.** ADML (en-US): "If any of them are remote
+  locations and you do not allow remote locations via this policy setting, those policy keys
+  that point to remote locations will be ignored on client computers."
+- **`allow user locations`.** ADML: "If you do not configure this policy setting, the behavior is
+  the equivalent of setting the policy to Enabled"; disabled = "all trusted locations that are not
+  created by Group Policy are disabled". Learn's table says the same ("Not Configured … Provides
+  the same behavior as Enabled"). So writing 1 keeps Office's default rather than restoring
+  something a policy location would switch off; it is written anyway (task decision) to pin it.
+  Note: the Microsoft 365 Apps security baseline recommends *Disabled* for this and for
+  `allownetworklocations` — a site that applies the baseline gets whichever GPO is processed last.
+- **`date`** is informational (ADML label "Date:") and left out: a changing value would turn every
+  apply into a change.
+- Default locations Office keeps (Learn): Access `Program Files\Microsoft Office\Root\Office16\ACCWIZ`
+  (wizard databases, subfolders not trusted); Excel/Word/PowerPoint templates, startup, add-ins.
+  Policy locations appear under **Policy Locations** in the Trust Center.
+([Trusted Locations for Office files](https://learn.microsoft.com/en-us/microsoft-365-apps/security/trusted-locations),
+ms.date 2025-05-12, read 2026-11-10.)
+
+**Which paths.** sophomorix builds `homeDirectory` from `HOMEDIRECTORY_HOST=ServerDNS`
+(`sophomorix.ini:51`), and `ServerDNS` is smb.conf's `netbios name` **in lower case**
+(`SophomorixBase.pm`, `$server_dns=…{'netbios name'}; $server_dns=~tr/A-Z/a-z/`), so a home is
+`\\server\<school>\students\<class>\<user>` — the NetBIOS name, no dots. The school GPO's default
+drives use the same host (`@@SERVER@@` → `ServerDNS`). lmn-gpo reads `homeDirectory` from AD
+anyway and trusts its **share root** (`\\server\<school>\`); a default drive or a drives.yaml
+path below a trusted path adds no second UNC location (subfolders are allowed). Different host
+spellings (`\\server\x`, `\\server.<domain>\x`) stay separate: Office compares strings.
+**Measured** (lab, Windows 11, Microsoft 365 Access Runtime 16.0.20527.20150, 2026-11-12,
+hub `work/gpo-office-trusted/lab-gpo.md` sections 3-5): a dotless `\\server\…` share is Local
+intranet (urlmon zone 1); a file there is not hard-blocked without the GPO, only the normal
+security notice appears. The hard block appears for `\\server.<domain>\…`, for the DFS target
+`\\fs.<domain>\…`, for local files with ZoneId=3 and for Edge downloads. **Office checks the path
+as the file was opened**, without resolving DFS. Each form written alone:
+
+| `office_trusted_forms` | locations | `H:\…` | `\\server\<school>\…\<user>\…` | `\\fs.<domain>\…` (DFS target) | `T:\…` |
+|---|---|---|---|---|---|
+| `[letter]` | `H:\ K:\ P:\ R:\ S:\ T:\` | runs | runs | blocked | runs |
+| `[unc]` | `\\server\<school>\` | runs | runs | blocked | runs |
+| `[dfs]` | `\\fs.<domain>\<school>\` | notice | notice | runs | notice |
+
+So a drive letter and the UNC path it is mapped to cover each other, and the DFS target only
+covers files opened through `\\fs.<domain>\…` itself (a shortcut, a link, the Explorer history).
+Not measured: paths without a drive letter for a role that has none (e.g. `\\server\<school>\students\…`
+for a teacher without S: — the UNC form is meant for those) and another school's drives on a
+roaming device (the letter form is meant for those). Default from 7.3.8: **`[unc, letter]`**;
+`dfs` on request. A file opened as `\\server.<domain>\…` stays blocked with every form (another
+string to Office, measured).
+
+**DFS:** with linuxmuster-fileserver the DC's school share is a DFS proxy (lab: `[default-school]`
+`msdfs proxy = //fs.dev.lmschule.de/default-school`; `Get-SmbConnection` on the client shows the
+connection to `fs.dev.lmschule.de`, while urlmon still rates the mapped `\\server\…` name, see
+`work/gpo-office-trusted/lab-baseline.md` in the hub). lmn-gpo reads `msdfs proxy` per share with
+`testparm -s --section-name <share> --parameter-name "msdfs proxy"` (output format checked with
+testparm 4.22 against a test smb.conf: the bare value, exit 0; unknown section: exit 1) and adds
+the same path on the target when `office_trusted_forms` contains `dfs`.
+
+**Samba side.** `samba-tool gpo load` (merge, `policies.py merge_s`) keeps every value already in
+the Registry.pol, so a drive removed from drives.yaml would keep its `locationN`. The pack is
+therefore loaded with `--replace` (`replace_s`): every class it is given starts from an empty
+Registry.pol; the other class's file and every other GPO stay untouched. A `REG_EXPAND_SZ` string
+round-trips through `samba.dcerpc.preg` (checked locally with python3-samba 4.22.11; `__set_data`
+passes it through unchanged, identical in samba-4.19.5 `python/samba/policies.py`).
+
+**Access: the SHIFT key.** Holding SHIFT while opening skips the startup properties and the
+AutoExec macro — unless the database itself sets `AllowBypassKey` to False
+([AllowBypassKey property](https://learn.microsoft.com/en-us/office/vba/access/concepts/miscellaneous/allowbypasskey-property),
+read 2026-11-10). A student's database can do that, so SHIFT is advice, not a safeguard.
+
+## 10. A website in the Trusted sites zone (pack 22-edulution-trusted-schule)
+
+**Why.** "Here's a list of ZoneId values … 2 = Trusted sites, 3 = Internet … if the ZoneId is 2,
+VBA macros in that file won't be blocked by default. But if the ZoneId is 3, macros in that file
+will be blocked by default" (internet-macros-blocked, section 9). Microsoft names the "Site to
+Zone Assignment List" policy as the way to put a location into Trusted sites.
+
+**Measured** (lab, Windows 11, Edge 157.0.4341.46, Access Runtime, 2026-11-12, hub
+`work/gpo-office-trusted/lab-gpo.md` section 6): with `https://<host>` effective in Trusted sites
+(urlmon zone 2), **Edge writes no `Zone.Identifier` at all** for a file downloaded from there
+(not `ZoneId=2`; urlmon rates the saved file zone 0), and Access shows its normal security notice
+with *Open* instead of the hard block. Without the effective zone: `ZoneId=3` and the block.
+`http://<host>` stays zone 3 (the entry names https only). Chrome and Firefox are not measured.
+
+**Registry form, verified against Microsoft's ADMX** (read 2026-11-10): *Administrative Templates
+(.admx) for Windows 11 Jan 2026 Update-V3*, version 3.0, published 2026-02-02,
+[download id 108542](https://www.microsoft.com/en-us/download/details.aspx?id=108542) (msi sha256
+`49a603cdc543558ab46f3774a562cc0d21868d75df5b3caefd6a1c3efd4ee7e5`), `inetres.admx` revision 11.0
+(sha256 `6afc278479047b0b0d81d638ce80a652c9c0632a0ae9e00222a8ea0dc0f0f64e`):
+
+```xml
+<policy name="IZ_Zonemaps" class="Both" … key="Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings" valueName="ListBox_Support_ZoneMapKey">
+  <enabledValue><decimal value="1" /></enabledValue> …
+  <list id="IZ_ZonemapPrompt" clientExtension="{4CFB60C1-FAA6-47f1-89AA-0B18730C9FD3}"
+        key="Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey"
+        additive="true" explicitValue="true" />
+```
+
+- **Value name = the site, data = the zone** (`explicitValue="true"`: two columns, name and data;
+  a list writes REG_SZ). ADML `IZ_ExplainZonemaps` (en-US): "Valuename – A host for an intranet
+  site, or a fully qualified domain name for other sites. The valuename may also include a
+  specific protocol. For example, if you enter http://www.contoso.com as the valuename, other
+  protocols are not affected. If you enter just www.contoso.com, then all protocols are affected
+  … do not include additional characters after the domain such as trailing slashes or URL path."
+  The Policy CSP page says the same with `https://www.contoso.com`
+  ([Policy CSP – InternetExplorer, AllowSiteToZoneAssignmentList](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-internetexplorer),
+  ms.date 2026-10-14, read 2026-11-10). lmn-gpo writes **`https://<host>`** = zone `2`, so
+  plain http to that host stays in its old zone; a path, port or wildcard in `edulution_host`
+  is refused.
+- **No `**delvals`.** `additive="true"`: "If this option is specified true, existing subkeys are
+  not deleted, and the values set in the list box are appended to the existing subkeys"
+  ([list Element](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-R2-and-2008/cc725892(v=ws.10)),
+  ms.date 2012-07-02, read 2026-11-10). lmn-gpo never writes a `**del…` entry at all (pytest
+  checks every catalog value name), so 12-proxy-zone-schule (proxy host → 1) and this pack
+  (edulution → 2) coexist in one `ZoneMapKey`. This pack's own Registry.pol is loaded with
+  `--replace` (a changed host must not leave the old one behind); that rewrites only this GPO.
+- **The client-side extension is required.** The list's `clientExtension="{4CFB60C1-FAA6-47f1-89AA-0B18730C9FD3}"`
+  is the CSE "Internet Explorer Zonemapping" (`iedkcs32.dll`, `ProcessGroupPolicyForZoneMap`).
+  Microsoft: "these keys are not used directly by Internet Explorer, and if you directly set
+  values there, they will have no effect. The ZoneMapKey entries are just a temporary writing
+  place for the Group Policy engine, which writes entries there as specified by Group Policy, and
+  then parses them into corresponding ZoneMap subkey settings"
+  ([Internet Explorer's Explicit Security Zone Mappings](https://learn.microsoft.com/en-us/archive/blogs/fdcc/internet-explorers-explicit-security-zone-mappings),
+  Microsoft TechNet blog "fdcc" (Aaron Margosis), 2011-09-22, updated 2012-05-15, archived on
+  Microsoft Learn, read 2026-11-12). **Measured** (with 7.3.6): up to 7.3.7 lmn-gpo registered only the
+  registry CSE; the values arrived in `HKLM\…\ZoneMapKey`, the zonemapping CSE never ran (no
+  `…\Policies\…\ZoneMap\Domains`, not in the GP history), and both the edulution host and the
+  proxy host of 12-proxy-zone-schule stayed zone 3. With `gPCMachineExtensionNames` set by hand to
+  `[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]`
+  and the version 1 → 2, GroupPolicy/Operational logged 4016/5016 for "Internet Explorer
+  Zonemapping", `HKLM\SOFTWARE\Policies\…\ZoneMap\Domains\lmschule.de\server.dev` got `https=2`
+  and `…\proxy.dev` `*=1`, and urlmon answered 2 and 1 — as administrator and as a user. The CSE
+  translates the whole merged ZoneMapKey, so one GPO with it activates the values of all.
+  `ListBox_Support_ZoneMapKey=1` (the policy's own value) was **not** written in that experiment
+  and is not needed; lmn-gpo does not write it.
+- **How lmn-gpo registers it (from 7.3.8).** `RegPol.load` adds the group
+  `[{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]` (CSE + the
+  Administrative Templates tool GUID, the measured pair) to the extension-names attribute of the
+  side whose values contain ZoneMapKey, sorted by CSE GUID, and bumps that half of the version
+  (GPT.INI and `versionNumber` in lockstep) when the attribute changed — also when the registry
+  values were unchanged, so an upgrade adds it to existing GPOs. Samba's own group is left as
+  `samba-tool` wrote it. Why, from Samba's code (`python/samba/netcmd/gpo.py` `cmd_load` and
+  `policies.py` `register_extension_name`, identical in samba-4.19.5 — checked against the tag on
+  GitHub — and the local 4.22.11): every `gpo load` (merge and `--replace`) first registers
+  `'{%s}' % GUID(...)` = **lowercase** `{35378eac-683f-11d2-a89a-00c04fbbcfa2}` on **both**
+  `gPCMachineExtensionNames` and `gPCUserExtensionNames`, tests for it with a case-sensitive
+  substring test, and if it is missing appends it as `'[' + value.strip('[]') + guid + ']'` —
+  *inside the last group*. It never removes or reorders anything. Consequences: (1) the
+  zonemapping group must never be registered before the first load of a GPO, or the registry CSE
+  ends up as a tool GUID of it and the registry policy is lost; (2) normalising Samba's group to the
+  upper-case GPMC form would make every later load (any value change) glue a second, lowercase
+  registry GUID into the zonemapping group. So the value lmn-gpo produces on a 12/22 GPO is
+  `[{35378eac-683f-11d2-a89a-00c04fbbcfa2}][{4CFB60C1-FAA6-47F1-89AA-0B18730C9FD3}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]`.
+  The lowercase registry group without tool GUID is what every samba-tool-loaded GPO carries and
+  what the lab client processed (pack 21's values, the ZoneMapKey values); the zonemapping group is
+  byte for byte the measured one. **Measured** with exactly this value (lab, Windows 11,
+  2026-11-12, hub `work/gpo-office-trusted/lab-gpo2.md` sections 3-4; written by `apply` on an
+  upgraded 12-proxy-zone-schule GPO and on new pack-22 GPOs): the client logged 4016/5016 for
+  "Internet Explorer Zonemapping", wrote `…\Policies\…\ZoneMap\Domains` (`server.dev` `https=2`,
+  `proxy.dev` `*=1`), and urlmon answered 2 and 1, as administrator and as a user.
+  `lmn-gpo doctor` warns about an LMN-* GPO with ZoneMapKey values but without the CSE (as its own
+  group), `lmn-gpo selftest` checks the registration against the real samba-tool, and
+  `lmn-gpo-check.ps1` compares the listed zone with the one urlmon returns.
+- **Side effect: only the policy list counts (measured).** Microsoft's rule table for which
+  ZoneMap keys are in effect (same fdcc post): with a *computer* Site-To-Zone list present (and no
+  user list) only
+  `HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap` is used —
+  not `HKCU\…\ZoneMap` (sites users added in Internet Options) and not the machine's own
+  `HKLM\SOFTWARE\Microsoft\…\ZoneMap`; those two are combined only while no Site-To-Zone list is
+  present. Microsoft's IE support blog: "When we configure Site to Zone assignment list GPO then
+  users will not be able to add their own sites to any zone. Options to add sites on client
+  machine will be greyed out."
+  ([How to configure Internet Explorer security zone sites using group polices](https://learn.microsoft.com/en-us/archive/blogs/askie/how-to-configure-internet-explorer-security-zone-sites-using-group-polices),
+  2012-06-05, archived on Microsoft Learn, read 2026-11-12). The current ADML/Policy CSP text only
+  says the converse: "If you disable or don't configure this policy, users may choose their own
+  site-to-zone assignments." Both explicit sources are archived IE 9/10-era posts. **Measured on
+  Windows 11** (lab, 2026-11-12, hub `work/gpo-office-trusted/lab-gpo2.md` sections 2, 4 and 7):
+  in the teacher's session
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\example.org`,
+  `https` = 2 (the key Internet Options › Security › Trusted sites › Sites writes) gave
+  `https://example.org/` zone 2 (urlmon `MapUrlToZone`) while the list was not in effect (lmn-gpo
+  7.3.6, no zonemapping CSE). After the upgrade, `apply` and `gpupdate`, with the CSE having
+  written `HKLM\SOFTWARE\Policies\…\ZoneMap\Domains`, the same URL was **zone 3**, although the
+  HKCU entry was still there. It stayed 3 after pack 22 was removed, because the proxy GPO's list
+  was still in effect. Unchanged: the zones Windows assigns by itself (`H:\…` and `\\server\…`
+  stayed zone 1, `\\server.<domain>\…` zone 3). Not measured: a site in the machine's own
+  `HKLM\SOFTWARE\Microsoft\…\ZoneMap` (by Microsoft's table ignored the same way) and whether
+  Internet Options greys out the Sites button. It applies as soon as one GPO with the list is in
+  effect — with 7.3.8 that is 12-proxy-zone-schule (proxy on) or this pack (host set); before 7.3.8
+  the list never took effect. So after the update to 7.3.8 and `apply`, a school with the role
+  proxy or an edulution host has only the GPO's site-to-zone entries.
+- **Side effect:** the zone is Windows-wide, not Office-only ("These zone numbers have associated
+  security settings that apply to all of the sites in the zone"); the Trusted Sites zone uses the
+  Low template by default (ADML).

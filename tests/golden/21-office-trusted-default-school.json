@@ -1,0 +1,331 @@
+[
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations",
+  "valuename": "allownetworklocations",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location1",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "\\\\server\\default-school\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location1",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location1",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo H: K: P: R: S: T:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location2",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "\\\\server\\gsg\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location2",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location2",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo G:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location3",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "\\\\server\\gym\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location3",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location3",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo Y:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location4",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "\\\\server\\msg\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location4",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location4",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo M:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location5",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "\\\\verwaltung\\verwaltung\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location5",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location5",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo V:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location6",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "G:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location6",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location6",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo G:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location7",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "H:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location7",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location7",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo H:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location8",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "K:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location8",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location8",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo K:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location9",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "M:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location9",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location9",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo M:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location10",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "P:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location10",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location10",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo P:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location11",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "R:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location11",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location11",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo R:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location12",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "S:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location12",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location12",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo S:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location13",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "T:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location13",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location13",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo T:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location14",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "V:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location14",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location14",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo V:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location15",
+  "valuename": "path",
+  "class": "USER",
+  "type": "REG_EXPAND_SZ",
+  "data": "Y:\\"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location15",
+  "valuename": "allowsubfolders",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\access\\security\\trusted locations\\location15",
+  "valuename": "description",
+  "class": "USER",
+  "type": "REG_SZ",
+  "data": "lmn-gpo Y:"
+ },
+ {
+  "keyname": "software\\policies\\microsoft\\office\\16.0\\common\\security\\trusted locations",
+  "valuename": "allow user locations",
+  "class": "USER",
+  "type": "REG_DWORD",
+  "data": 1
+ }
+]

@@ -9,5 +9,15 @@ description: >
   Windows/Edge/Chrome authenticate to the proxy automatically via Kerberos/NTLM, without
   a password prompt (SSO). Machine setting, per school (host of the respective school).
   Teacher notebooks (@teachernb) are excluded, matching the other proxy packs.
+
+  Windows applies the Site to Zone Assignment List only through the 'Internet Explorer
+  Zonemapping' client-side extension; apply registers it on the GPO (since 7.3.8 - before,
+  the value reached the registry and the proxy stayed in the Internet zone).
+
+  SIDE EFFECT (measured on Windows 11, docs/RESEARCH.md section 10): while a computer Site
+  to Zone Assignment List is in effect, Windows uses only the sites from the GPO - a site a
+  user had put into Trusted sites (Internet Options > Security > Sites) fell from zone 2 to
+  the Internet zone, its entry stays and is ignored. According to Microsoft the same holds
+  for sites set locally on the machine, and users cannot add sites.
 registry:
   - { key: 'Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMapKey', name: '@proxy-host', type: sz, data: '1' }

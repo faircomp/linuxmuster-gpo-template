@@ -12,11 +12,11 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 | Component | Path | Stack |
 |---|---|---|
 | CLI + engine | `lmn_gpo/` (`cli.py` argparse entry; `./lmn-gpo-cli` launcher for a source checkout, `/usr/bin/lmn-gpo` when installed) | Python 3.12 (Ubuntu 24.04), `python3-samba` (`samba`/`ldb` bindings, `samba-tool gpo load`), `python3-yaml`; no PyPI deps, no venv |
-| Catalog packs | `catalog/*.yaml` (34 packs `NN-name.yaml`; `*-schule` packs are applied per school; `20-drives` reads the admin's `drives.yaml`, example in `examples/`) | YAML schema documented in `README.md` |
+| Catalog packs | `catalog/*.yaml` (36 packs `NN-name.yaml`; `*-schule` packs are applied per school; `20-drives` reads the admin's `drives.yaml`, example in `examples/`; `21-office-trusted-schule` generates its registry values at apply time, `lmn_gpo/officetrust.py`) | YAML schema documented in `README.md` |
 | Client scripts | `scripts/*.ps1` (startup/shutdown scripts, `lmn-gpo-check.ps1` client diagnostics); `lmn_gpo/wlan.py` and `lmn_gpo/drives.py` generate more at apply time | Windows PowerShell 5.1, **pure ASCII** |
 | Data | `lib/veyon-default-pub.pem`; `wallpapers/` (admin-provided, not committed) | installed to `/usr/share/lmn-gpo`, wallpapers to `/var/lib/lmn-gpo` |
 | Packaging | classic `debian/` (debhelper 13, native 3.0): `changelog` (version source), `control`, `rules`, `install`, `dirs`, `docs`, `clean`, `copyright`, postinst/prerm/postrm; `make deb` → `dpkg-buildpackage` → `../lmn-gpo_<version>_all.deb` | `dh $@ --with python3`, plain `dist-packages` install, no venv |
-| Tests | `tests/` (pytest, no DC: a fake sam.ldb `tests/fakead.py` and a fake samba-tool `tests/fakesamba.py`, whose `gpo load` merges into Registry.pol and raises GPT.INI/versionNumber like Samba's `merge_s()`, run apply/doctor end to end) and `.github/workflows/ci.yml` fast tier (py_compile, catalog YAML, ASCII-only `.ps1`, generated Wi-Fi scripts, Drives.xml shape, pytest, PowerShell parser, `--version` == changelog); `lmn-gpo selftest --yes` on a real DC (throwaway GPO) | GitHub-hosted runner with `pwsh`; the selftest runs in the lab via the hub |
+| Tests | `tests/` (pytest, no DC: a fake sam.ldb `tests/fakead.py` and a fake samba-tool `tests/fakesamba.py`, whose `gpo load` registers the lowercase registry CSE like `cmd_load`, merges into Registry.pol (or rewrites it with `--replace`) and raises GPT.INI/versionNumber like Samba's `merge_s()`/`replace_s()`, run apply/doctor end to end) and `.github/workflows/ci.yml` fast tier (py_compile, catalog YAML, ASCII-only `.ps1`, generated Wi-Fi scripts, Drives.xml shape, pytest, PowerShell parser, `--version` == changelog); `lmn-gpo selftest --yes` on a real DC (throwaway GPO) | GitHub-hosted runner with `pwsh`; the selftest runs in the lab via the hub |
 | Docs | `README.md` (bilingual), `docs/RESEARCH.md` (verified Windows/Samba facts), `docs/VEYON-PLAN.md` | |
 
 ## Constraints (do not violate)
@@ -61,6 +61,13 @@ Kevin speaks German; answer in German, write code, commits and changelog entries
 - **Only `LMN-*` GPOs are ours.** sophomorix' GPOs and the Default Domain Policy are never
   touched. GPT.INI and the AD `versionNumber` are bumped in lockstep and the matching CSE GUID
   registered, or Windows ignores the change.
+- **Site to Zone Assignment List (ZoneMapKey values) needs a second CSE.** `RegPol.load`
+  registers "Internet Explorer Zonemapping" `{4CFB60C1-…}` after `samba-tool gpo load` and
+  bumps the version; without it the values arrive and are never applied. On a GPO that
+  carries registry values, register another CSE only after its first `gpo load` (`apply_pack`
+  loads first), and never rewrite Samba's lowercase registry group `[{35378eac-…}]`: Samba's
+  load appends its GUID inside the last group whenever that exact lowercase string is missing
+  (`version.splice_cse`, `docs/RESEARCH.md` section 10).
 - **No PyPI dependencies:** the package installs into `/usr/lib/python3/dist-packages` and
   depends only on Ubuntu packages (`python3-yaml`, `python3-samba`, `samba-common-bin`,
   `openssl`). Do not add a venv.
